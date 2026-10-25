@@ -18,6 +18,8 @@ Per-module checklist. Owner = claude | codex | antigravity.
 - [x] `wait` race fix: Codex tasks finish only on runner status - claude
 - [x] Shared-file findings deferred at merge instead of forcing - claude
 - [x] Portable subagent defs; `trinity init <path>` installs into any repo - claude
-- [ ] End-to-end self-test with fake Codex (`tests/`) - codex (task selftest)
-- [ ] Antigravity dispatch verified live (window opens in worktree, agent runs `trinity done`) - claude
-- [ ] Windows notification verified live - claude
+- [x] End-to-end self-test with fake Codex (`tests/`, 7 cases) - codex (task selftest)
+- [x] Antigravity headless via `agy -p` (IDE `chat` never started an agent); live run in MetaStrip merged - claude + antigravity
+- [x] `trinity cancel` stops the runner tree; verified live - claude
+- [ ] Self-test covers Antigravity + cancel (fake agy) - codex (task selftest-agy)
+- [ ] Windows notification seen on screen (code runs without error; not visually confirmed) - user

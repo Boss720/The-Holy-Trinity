@@ -12,7 +12,10 @@
 - `trinity run` (dispatch + wait), `trinity wait`, `trinity done`.
 - `trinity init <path>`: install or update the toolkit in another repo.
 - `merge` defers findings about "Shared files" (AGENTS.md) on branches that did not touch them.
-- `tests/`: end-to-end self-test with a fake Codex.
+- `tests/`: end-to-end self-test with a fake Codex; it is the repo's Test command.
+- Antigravity dispatch runs headless through the `agy` CLI, same lifecycle as Codex.
+- `trinity cancel <task>`: stops the runner, removes worktree and branch.
+- `init` removes retired toolkit files from installs.
 
 ### Changed
 - MetaStrip, the first test project, moved to its own repo. This repo is now only the toolkit.
