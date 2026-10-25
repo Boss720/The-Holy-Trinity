@@ -36,7 +36,7 @@ Global protocol also applies: `~/.codex/AGENTS.md` = `~/.gemini/AGENTS.md` (para
 - `trinity dispatch claude <task> "<prompt>"` : worktree + task file; open a Claude session there.
 - `trinity run <agent> <task> -PromptFile <file>` : dispatch, then wait for it to finish and print summary, commits, diffstat. Use `-PromptFile` for any prompt with quotes.
 - `trinity wait <task> [-Timeout 1800]` : block until a task leaves running; exit 0 done, 1 failed, 2 still running.
-- `trinity done <task> "<summary>"` : Antigravity/Claude agents mark their task finished (Codex is marked automatically).
+- `trinity done <task> "<summary>"` : Antigravity/Claude agents mark their task finished. Codex: never run this; the runner commits your work and marks the task itself.
 - `trinity merge <task>` : Codex review of the branch, blocks on P0/P1 findings, merge into `main`, run the Test command, remove worktree and branch.
 - `trinity review` / `trinity ask "<question>"` : read-only Codex.
 - `trinity ui` : open Antigravity on the main checkout.

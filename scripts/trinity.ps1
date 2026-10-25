@@ -98,7 +98,9 @@ function Wait-Task([string]$task, [int]$timeoutSec) {
     while ($true) {
         $entry = Get-BoardEntry $paths $task
         $status = $entry.status
-        if ($status -notmatch '^(started|running|waiting)') { break }
+        # Codex tasks finish only when the runner writes its own status (after committing), never on a bare "done".
+        $runnerDone = ($entry.agent -ne 'codex') -or ($status -match '^(done \(|done, no commits|failed|merged)')
+        if ($runnerDone -and $status -notmatch '^(started|running|waiting)') { break }
         if (((Get-Date) - $start).TotalSeconds -ge $timeoutSec) { break }
         if (((Get-Date) - $lastNote).TotalSeconds -ge 60) {
             Write-Host "waiting on $($task): $status"
@@ -106,7 +108,7 @@ function Wait-Task([string]$task, [int]$timeoutSec) {
         }
         Start-Sleep -Seconds 5
     }
-    $pending = $status -match '^(started|running|waiting)'
+    $pending = -not $runnerDone -or ($status -match '^(started|running|waiting)')
     if ($pending) { Write-Host "timeout after $($timeoutSec)s, still: $status" }
     Write-Host "status: $status"
     $result = Join-Path $paths.Out "result-$task.md"
