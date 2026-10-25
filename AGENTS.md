@@ -18,6 +18,7 @@ Global protocol also applies: `~/.codex/AGENTS.md` = `~/.gemini/AGENTS.md` (para
 - `PLAN.md`: per-module checklist. Whoever finishes a box ticks it.
 - `HANDOFF.md`: what was done, what is in flight, next command, blockers. Update before you stop.
 - Agent board: `<git-common-dir>/agent-board.md`, managed by `scripts/agent-task.ps1`. Not committed.
+- `docs/failure-log.md`: every failure, error or surprise gets a row (date, where, what, cause, status). Workers put failures in their result file; the orchestrator logs them. Check it before repeating a risky step.
 
 ## Parallel work
 
