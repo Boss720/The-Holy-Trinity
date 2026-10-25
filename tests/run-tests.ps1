@@ -37,6 +37,8 @@ function New-Fixture([string]$TestCommand = 'exit 0') {
     Copy-Item -LiteralPath (Join-Path $script:repoSource 'tests\fake-codex.ps1') -Destination (Join-Path $repo 'tests')
     Copy-Item -LiteralPath (Join-Path $script:repoSource 'tests\fake-agy.cmd') -Destination (Join-Path $repo 'tests')
     Copy-Item -LiteralPath (Join-Path $script:repoSource 'tests\fake-agy.ps1') -Destination (Join-Path $repo 'tests')
+    Copy-Item -LiteralPath (Join-Path $script:repoSource 'tests\fake-claude.cmd') -Destination (Join-Path $repo 'tests')
+    Copy-Item -LiteralPath (Join-Path $script:repoSource 'tests\fake-claude.ps1') -Destination (Join-Path $repo 'tests')
     $agentsText = "# Fixture`r`n`r`n" + ('- Test: `{0}`' -f $TestCommand) + "`r`n"
     [IO.File]::WriteAllText((Join-Path $repo 'AGENTS.md'), $agentsText, [System.Text.UTF8Encoding]::new($false))
     [IO.File]::WriteAllText((Join-Path $repo 'README.md'), "fixture`r`n", [System.Text.UTF8Encoding]::new($false))
@@ -56,6 +58,7 @@ function New-Fixture([string]$TestCommand = 'exit 0') {
         Trinity = Join-Path $repo 'scripts\trinity.ps1'
         FakeCodex = Join-Path $repo 'tests\fake-codex.cmd'
         FakeAgy = Join-Path $repo 'tests\fake-agy.cmd'
+        FakeClaude = Join-Path $repo 'tests\fake-claude.cmd'
         Prompt = Join-Path $repo 'tests\prompt.md'
         Worktrees = Join-Path $root 'repo with spaces.worktrees'
     }
@@ -115,10 +118,17 @@ function Run-Case([string]$Name, [scriptblock]$Body, [string]$TestCommand = 'exi
     $oldMode = $env:FAKE_CODEX_MODE
     $oldAgyMode = $env:FAKE_AGY_MODE
     $oldReview = $env:FAKE_REVIEW_OUTPUT
+    # Agent selection env: every case starts with all three fakes usable and nothing disabled.
+    $savedEnv = @{}
+    foreach ($envName in 'CLAUDE_EXE', 'TRINITY_DISABLE', 'TRINITY_REVIEWER', 'FAKE_CODEX_LOGGED_OUT', 'FAKE_CLAUDE_LOGGED_OUT', 'FAKE_CLAUDE_MODE') {
+        $savedEnv[$envName] = [Environment]::GetEnvironmentVariable($envName)
+        [Environment]::SetEnvironmentVariable($envName, $null)
+    }
     try {
         $fixture = New-Fixture $TestCommand
         $env:CODEX_EXE = $fixture.FakeCodex
         $env:AGY_EXE = $fixture.FakeAgy
+        $env:CLAUDE_EXE = $fixture.FakeClaude
         $env:FAKE_CODEX_MODE = 'ok'
         $env:FAKE_AGY_MODE = 'ok'
         $env:FAKE_REVIEW_OUTPUT = $null
@@ -138,6 +148,7 @@ function Run-Case([string]$Name, [scriptblock]$Body, [string]$TestCommand = 'exi
         $env:FAKE_CODEX_MODE = $oldMode
         $env:FAKE_AGY_MODE = $oldAgyMode
         $env:FAKE_REVIEW_OUTPUT = $oldReview
+        foreach ($envName in $savedEnv.Keys) { [Environment]::SetEnvironmentVariable($envName, $savedEnv[$envName]) }
         Remove-Fixture $fixture
     }
 }
@@ -285,9 +296,10 @@ Run-Case 'failed Antigravity task returns failure' {
     Assert-True ($board -match 'failed \(exit 4\)') "unexpected board status: $board"
 }
 
-Run-Case 'missing Antigravity CLI fails before worktree or board entry' {
+Run-Case 'missing Antigravity CLI with Codex off fails before worktree or board entry' {
     param($f)
     $env:AGY_EXE = Join-Path $f.Root 'missing agy.exe'
+    $env:TRINITY_DISABLE = 'codex'
     $env:LOCALAPPDATA = Join-Path $f.Root 'isolated local app data'
     $gitDirectory = Split-Path (Get-Command git).Source -Parent
     $env:PATH = (Join-Path $env:SystemRoot 'System32') + ';' + $gitDirectory
@@ -339,6 +351,94 @@ Run-Case 'cancel requires Force to remove a finished task commit' {
     Assert-True (-not $branch) 'forced cancel left task branch'
     $board = Get-Content -Raw (Join-Path $f.Repo '.git\agent-board.md')
     Assert-True ($board -match '(?m)^- status: cancelled') 'forced cancel did not mark task cancelled'
+}
+
+Run-Case 'no Codex: dispatch codex routes to Antigravity and records run metadata' {
+    param($f)
+    $env:FAKE_CODEX_LOGGED_OUT = '1'
+    Start-CodexTask $f 'task-route'
+    $wait = Invoke-Trinity $f @('wait', 'task-route', '-Timeout', '50')
+    Assert-True ($wait.ExitCode -eq 0) "wait exit $($wait.ExitCode): $($wait.Output)"
+    $board = Get-Content -Raw (Join-Path $f.Repo '.git\agent-board.md')
+    Assert-True ($board -match '(?m)^- agent: antigravity' -and $board -match 'agent/antigravity/task-route') "task was not routed to antigravity: $board"
+    $out = Join-Path $f.Repo '.codex-out'
+    $result = [IO.File]::ReadAllText((Join-Path $out 'result-task-route.md'))
+    Assert-True ($result -match 'Fake Antigravity completed' -and $result -notmatch 'SYSTEM_MESSAGE') "unexpected result: $result"
+    $meta = [IO.File]::ReadAllText((Join-Path $out 'meta-task-route.json')) | ConvertFrom-Json
+    Assert-True ($meta.agent -eq 'antigravity' -and $meta.started -and $meta.finished -and $meta.exitCode -eq 0) "meta lacks run fields: $($meta | ConvertTo-Json -Compress)"
+    Assert-True ($meta.model -eq 'Fake Gemini (High)' -and $meta.sessionId -eq '11111111-2222-3333-4444-555555555555' -and $meta.tokens.total -eq 125) "meta lacks agy fields: $($meta | ConvertTo-Json -Compress)"
+    Assert-True (Test-Path (Join-Path $out 'agy-task-route.log')) 'agy --log-file was not passed'
+}
+
+Run-Case 'no headless worker at all fails with a clear message' {
+    param($f)
+    $env:TRINITY_DISABLE = 'codex,antigravity'
+    $dispatch = Invoke-Trinity $f @('dispatch', 'codex', 'task-none', 'test prompt')
+    Assert-True ($dispatch.ExitCode -ne 0 -and $dispatch.Output -match 'no headless worker') "unexpected dispatch result: $($dispatch.Output)"
+    Assert-True (-not (Test-Path (Join-Path $f.Worktrees 'codex-task-none'))) 'worktree created without a worker'
+}
+
+Run-Case 'no Codex: merge review by Claude blocks P1, clean review merges' {
+    param($f)
+    Start-AgyTask $f 'task-rc'
+    $wait = Invoke-Trinity $f @('wait', 'task-rc', '-Timeout', '50')
+    Assert-True ($wait.ExitCode -eq 0) "wait exit $($wait.ExitCode): $($wait.Output)"
+    $env:TRINITY_DISABLE = 'codex'
+    $env:FAKE_REVIEW_OUTPUT = '- [P1] broken thing - a.txt:1'
+    $blocked = Invoke-Trinity $f @('merge', 'task-rc', '-Yes')
+    Assert-True ($blocked.ExitCode -ne 0 -and $blocked.Output -match 'reviewer: claude' -and $blocked.Output -match 'P0/P1 findings') "P1 from Claude should block: $($blocked.Output)"
+    Assert-True (Test-Path (Join-Path $f.Repo '.codex-out\review-diff-task-rc.patch')) 'reviewer got no patch file'
+    $env:FAKE_REVIEW_OUTPUT = $null
+    $merge = Invoke-Trinity $f @('merge', 'task-rc', '-Yes')
+    Assert-True ($merge.ExitCode -eq 0) "clean Claude review should merge: $($merge.Output)"
+}
+
+Run-Case 'no Codex or Claude: Antigravity reviews, then tests alone gate' {
+    param($f)
+    Start-CodexTask $f 'task-ra'
+    $wait = Invoke-Trinity $f @('wait', 'task-ra', '-Timeout', '50')
+    Assert-True ($wait.ExitCode -eq 0) "wait exit $($wait.ExitCode): $($wait.Output)"
+    $env:TRINITY_DISABLE = 'codex'
+    $env:FAKE_CLAUDE_LOGGED_OUT = '1'
+    $env:FAKE_REVIEW_OUTPUT = '- [P0] data loss - a.txt:2'
+    $blocked = Invoke-Trinity $f @('merge', 'task-ra', '-Yes')
+    Assert-True ($blocked.ExitCode -ne 0 -and $blocked.Output -match 'reviewer: antigravity') "Antigravity review should block P0: $($blocked.Output)"
+    $env:TRINITY_REVIEWER = 'none'
+    $merge = Invoke-Trinity $f @('merge', 'task-ra', '-Yes')
+    Assert-True ($merge.ExitCode -eq 0 -and $merge.Output -match 'Tests alone gate') "unreviewed merge should pass on tests: $($merge.Output)"
+}
+
+Run-Case 'review and ask use Codex when it is available' {
+    param($f)
+    foreach ($reviewArgs in @(@('review'), @('review', '--base', 'main'), @('review', '--commit', 'HEAD'))) {
+        $review = Invoke-Trinity $f $reviewArgs
+        Assert-True ($review.ExitCode -eq 0 -and $review.Output -match 'reviewer: codex' -and $review.Output -match 'No findings') "codex $($reviewArgs -join ' ') failed: $($review.Output)"
+    }
+    $ask = Invoke-Trinity $f @('ask', 'hello')
+    Assert-True ($ask.ExitCode -eq 0 -and $ask.Output -match 'asking: codex') "codex ask failed: $($ask.Output)"
+}
+
+Run-Case 'no Codex: review, ask, status and track work' {
+    param($f)
+    $env:TRINITY_DISABLE = 'codex'
+    [IO.File]::WriteAllText((Join-Path $f.Repo 'README.md'), "changed`r`n", [System.Text.UTF8Encoding]::new($false))
+    $review = Invoke-Trinity $f @('review')
+    Assert-True ($review.ExitCode -eq 0 -and $review.Output -match 'reviewer: claude' -and $review.Output -match 'No findings') "review fallback failed: $($review.Output)"
+    Assert-True ([IO.File]::ReadAllText((Join-Path $f.Repo '.codex-out\review-diff-last.patch')) -match 'changed') 'review patch lacks the uncommitted change'
+    $ask = Invoke-Trinity $f @('ask', 'what', 'is', 'this')
+    Assert-True ($ask.ExitCode -eq 0 -and $ask.Output -match 'asking: claude') "ask fallback failed: $($ask.Output)"
+    Assert-True (Test-Path (Join-Path $f.Repo '.codex-out\codex-last.md')) 'ask did not save its answer'
+    $status = Invoke-Trinity $f @('status', '-Brief')
+    Assert-True ($status.Output -match 'codex unavailable \(disabled by TRINITY_DISABLE\)' -and $status.Output -match 'antigravity ok') "status lacks availability: $($status.Output)"
+    $oldSession = $env:CLAUDE_CODE_SESSION_ID
+    try {
+        $env:CLAUDE_CODE_SESSION_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+        $track = Invoke-Trinity $f @('track', 'task-own', 'doing', 'it')
+        Assert-True ($track.ExitCode -eq 0) "track failed: $($track.Output)"
+        $board = Get-Content -Raw (Join-Path $f.Repo '.git\agent-board.md')
+        Assert-True ($board -match '(?m)^- session: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\r?\n- status: working: doing it') "track did not link the session: $board"
+    }
+    finally { $env:CLAUDE_CODE_SESSION_ID = $oldSession }
 }
 
 Run-Case 'dashboard reports completed Codex task and agent totals' {
