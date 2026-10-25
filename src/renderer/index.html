@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MetaStrip</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <h1>MetaStrip</h1>
+    <p class="sub">Remove EXIF, GPS, author and other hidden metadata. Files never leave your computer.</p>
+  </header>
+
+  <main>
+    <section id="drop" class="drop" tabindex="0" role="button" aria-label="Add files">
+      <div class="drop-title">Drop files or folders here</div>
+      <div class="drop-hint">JPEG, PNG, WebP, PDF, DOCX, XLSX, PPTX &middot; or <u>browse</u></div>
+    </section>
+
+    <section id="list-wrap" class="list-wrap" hidden>
+      <div class="list-head">
+        <span id="count"></span>
+        <button id="clear" class="link">Clear all</button>
+      </div>
+      <ul id="list" class="list"></ul>
+    </section>
+  </main>
+
+  <footer>
+    <div class="output">
+      <span class="label">Save cleaned copies</span>
+      <label><input type="radio" name="out" value="beside" checked> next to originals (<code>_clean</code> suffix)</label>
+      <label><input type="radio" name="out" value="folder"> in a folder</label>
+      <button id="pick-folder" class="ghost" hidden>Choose folder...</button>
+      <span id="folder-path" class="folder-path"></span>
+    </div>
+    <div class="actions">
+      <span id="status" class="status" role="status"></span>
+      <button id="run" class="primary" disabled>Strip metadata</button>
+    </div>
+  </footer>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
