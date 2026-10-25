@@ -110,7 +110,7 @@
 
         --text-main: #e6edf3;
         --text-secondary: #9da7b3;
-        --text-muted: #657182;
+        --text-muted: #8b949e;
 
         --code-bg: #07090d;
         --code-text: #c9d1d9;
@@ -1245,6 +1245,29 @@
       color: #ffffff;
     }
 
+    .btn-copy {
+      background-color: var(--bg-subtle);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: background-color 0.15s ease, border-color 0.15s ease;
+      font-family: inherit;
+      line-height: 1.3;
+      align-self: center;
+    }
+
+    .btn-copy:hover {
+      background-color: var(--bg-surface-hover);
+      border-color: var(--border-focus);
+    }
+
     /* Chat Drawer Overlay */
     .chat-backdrop {
       display: none;
@@ -1335,6 +1358,23 @@
     .btn-close-drawer:hover {
       background-color: var(--bg-subtle);
       color: var(--text-main);
+    }
+
+    @media (max-width: 600px) {
+      .btn-chat,
+      .btn-copy {
+        min-height: 44px;
+        padding: 8px 14px;
+      }
+
+      .btn-close-drawer {
+        min-height: 44px;
+        min-width: 44px;
+        padding: 8px 14px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
     }
 
     .chat-header-row2 {
@@ -2291,6 +2331,43 @@
         if (task.repoName) {
           const repoPill = el('span', 'repo-pill', task.repoName);
           nameGroup.appendChild(repoPill);
+        }
+
+        if (task.status && task.status.trim().toLowerCase().startsWith('done')) {
+          const mergeCmd = 'trinity merge ' + task.task + ' -Yes';
+          const copyBtn = el('button', 'btn-copy', 'Copy merge');
+          copyBtn.type = 'button';
+          copyBtn.title = mergeCmd;
+          copyBtn.setAttribute('aria-label', 'Copy merge command: ' + mergeCmd);
+
+          let resetTimeout = null;
+          function showFeedback(text) {
+            copyBtn.textContent = text;
+            if (resetTimeout) clearTimeout(resetTimeout);
+            resetTimeout = setTimeout(function () {
+              copyBtn.textContent = 'Copy merge';
+              resetTimeout = null;
+            }, 1500);
+          }
+
+          copyBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            try {
+              if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                navigator.clipboard.writeText(mergeCmd).then(function () {
+                  showFeedback('Copied!');
+                }).catch(function () {
+                  showFeedback('Copy failed');
+                });
+              } else {
+                showFeedback('Copy failed');
+              }
+            } catch (err) {
+              showFeedback('Copy failed');
+            }
+          });
+
+          nameGroup.appendChild(copyBtn);
         }
         titleRow.appendChild(nameGroup);
 
