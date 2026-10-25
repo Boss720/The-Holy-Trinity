@@ -1781,6 +1781,519 @@
     .handoff-list li {
       word-break: break-word;
     }
+
+    /* Header Data-Age Chip */
+    .data-age-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 9px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background-color: var(--bg-subtle);
+      color: var(--text-secondary);
+      border: 1px solid var(--border-color);
+      transition: all 0.2s ease;
+      white-space: nowrap;
+    }
+
+    .data-age-chip.stale {
+      background-color: var(--status-warn-bg);
+      color: var(--status-warn);
+      border-color: var(--status-warn-border);
+    }
+
+    .data-age-spinner {
+      width: 9px;
+      height: 9px;
+      border: 1.5px solid currentColor;
+      border-right-color: transparent;
+      border-radius: 50%;
+      display: inline-block;
+      animation: spin-pulse 0.75s linear infinite;
+    }
+
+    @keyframes spin-pulse {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Outdated Banner */
+    .outdated-banner {
+      background-color: var(--status-warn-bg);
+      border: 1px solid var(--status-warn-border);
+      color: var(--status-warn);
+      padding: 10px 14px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .outdated-banner-icon {
+      font-size: 15px;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+
+    /* View Bar Navigation */
+    .view-bar {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      background-color: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 4px 6px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .view-tab {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 6px 14px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      text-decoration: none;
+      color: var(--text-secondary);
+      border: 1px solid transparent;
+      transition: background-color 0.15s ease, color 0.15s ease;
+      user-select: none;
+      cursor: pointer;
+    }
+
+    .view-tab:hover {
+      background-color: var(--bg-surface-hover);
+      color: var(--text-main);
+    }
+
+    .view-tab.active {
+      background-color: var(--bg-subtle);
+      color: var(--text-main);
+      border-color: var(--border-color);
+    }
+
+    .view-tab:focus-visible {
+      outline: 2px solid var(--border-focus);
+      outline-offset: -1px;
+    }
+
+    .tab-badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 10px;
+      background-color: var(--bg-surface);
+      color: var(--text-secondary);
+      border: 1px solid var(--border-color);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .tab-badge.attention {
+      background-color: var(--badge-failed-bg);
+      color: var(--badge-failed-text);
+      border-color: var(--badge-failed-border);
+    }
+
+    .tab-badge.warn {
+      background-color: var(--status-warn-bg);
+      color: var(--status-warn);
+      border-color: var(--status-warn-border);
+    }
+
+    .tab-badge.fail {
+      background-color: var(--badge-failed-bg);
+      color: var(--badge-failed-text);
+      border-color: var(--badge-failed-border);
+    }
+
+    /* Views Layout */
+    .inbox-view {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .tasks-view {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .health-view {
+      background-color: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      box-shadow: var(--shadow-sm);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Inbox View Components */
+    .inbox-group {
+      background-color: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      box-shadow: var(--shadow-sm);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .inbox-group-header {
+      padding: 10px 14px;
+      background-color: var(--bg-subtle);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .inbox-group-title {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .inbox-items-list {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .inbox-item-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border-subtle);
+      cursor: pointer;
+      transition: background-color 0.15s ease;
+      user-select: none;
+    }
+
+    .inbox-item-row:last-child {
+      border-bottom: none;
+    }
+
+    .inbox-item-row:hover {
+      background-color: var(--bg-surface-hover);
+    }
+
+    .inbox-item-row:focus-visible {
+      outline: 2px solid var(--border-focus);
+      outline-offset: -2px;
+    }
+
+    .inbox-item-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+
+    .inbox-item-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .inbox-task-link {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-weight: 700;
+      font-size: 13px;
+      color: var(--text-main);
+      word-break: break-all;
+    }
+
+    .inbox-item-detail {
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.35;
+      word-break: break-word;
+    }
+
+    .inbox-empty-card {
+      padding: 40px 16px;
+      text-align: center;
+      background-color: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .inbox-empty-icon {
+      font-size: 28px;
+      line-height: 1;
+      color: var(--status-live);
+    }
+
+    .inbox-empty-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .inbox-empty-subtitle {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    /* Reason Chip & Agent Tag */
+    .reason-chip {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 3px;
+      letter-spacing: 0.05em;
+      border: 1px solid currentColor;
+      text-transform: uppercase;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      white-space: nowrap;
+    }
+
+    .reason-chip.reason-failed {
+      background-color: var(--badge-failed-bg);
+      color: var(--badge-failed-text);
+      border-color: var(--badge-failed-border);
+    }
+
+    .reason-chip.reason-done,
+    .reason-chip.reason-done-unmerged {
+      background-color: var(--badge-done-bg);
+      color: var(--badge-done-text);
+      border-color: var(--badge-done-border);
+    }
+
+    .reason-chip.reason-dead,
+    .reason-chip.reason-runner-dead {
+      background-color: var(--badge-waiting-bg);
+      color: var(--badge-waiting-text);
+      border-color: var(--badge-waiting-border);
+    }
+
+    .reason-chip.reason-other {
+      background-color: var(--badge-other-bg);
+      color: var(--badge-other-text);
+      border-color: var(--badge-other-border);
+    }
+
+    .agent-tag {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 3px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      border: 1px solid currentColor;
+      white-space: nowrap;
+    }
+
+    .agent-tag.claude {
+      background-color: var(--claude-bg);
+      color: var(--claude-accent);
+      border-color: var(--claude-border);
+    }
+
+    .agent-tag.codex {
+      background-color: var(--codex-bg);
+      color: var(--codex-accent);
+      border-color: var(--codex-border);
+    }
+
+    .agent-tag.antigravity {
+      background-color: var(--antigravity-bg);
+      color: var(--antigravity-accent);
+      border-color: var(--antigravity-border);
+    }
+
+    .agent-tag.other {
+      background-color: var(--bg-subtle);
+      color: var(--text-secondary);
+      border-color: var(--border-color);
+    }
+
+    /* Health View Components */
+    .health-header {
+      padding: 10px 14px;
+      background-color: var(--bg-subtle);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .health-title {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-main);
+    }
+
+    .health-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .health-table th {
+      text-align: left;
+      padding: 8px 12px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-secondary);
+      border-bottom: 1px solid var(--border-color);
+      background-color: var(--bg-surface);
+    }
+
+    .health-row {
+      border-bottom: 1px solid var(--border-subtle);
+      transition: background-color 0.15s ease;
+    }
+
+    .health-row:last-child {
+      border-bottom: none;
+    }
+
+    .health-row:hover {
+      background-color: var(--bg-surface-hover);
+    }
+
+    .health-cell {
+      padding: 9px 12px;
+      vertical-align: middle;
+    }
+
+    .health-cell-status {
+      width: 100px;
+      white-space: nowrap;
+    }
+
+    .health-status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 2px 7px;
+      border-radius: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .health-status-badge.status-ok {
+      background-color: var(--status-live-bg);
+      color: var(--status-live);
+      border: 1px solid currentColor;
+    }
+
+    .health-status-badge.status-warn {
+      background-color: var(--status-warn-bg);
+      color: var(--status-warn);
+      border: 1px solid var(--status-warn-border);
+    }
+
+    .health-status-badge.status-fail {
+      background-color: var(--status-offline-bg);
+      color: var(--status-offline);
+      border: 1px solid currentColor;
+    }
+
+    .health-cell-label {
+      font-weight: 600;
+      color: var(--text-main);
+      white-space: nowrap;
+      width: 220px;
+    }
+
+    .health-cell-detail {
+      color: var(--text-secondary);
+      word-break: break-word;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+    }
+
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .status-dot.ok {
+      background-color: var(--status-live);
+      box-shadow: 0 0 4px var(--status-live);
+    }
+
+    .status-dot.warn {
+      background-color: var(--status-warn);
+      box-shadow: 0 0 4px var(--status-warn);
+    }
+
+    .status-dot.fail {
+      background-color: var(--status-offline);
+      box-shadow: 0 0 4px var(--status-offline);
+    }
+
+    @media (max-width: 600px) {
+      .inbox-item-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+      }
+      .inbox-item-right {
+        align-self: flex-end;
+      }
+      .health-table, .health-table tbody, .health-row, .health-cell {
+        display: block;
+        width: 100%;
+      }
+      .health-table thead {
+        display: none;
+      }
+      .health-row {
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--border-color);
+      }
+      .health-cell {
+        padding: 3px 0;
+      }
+      .health-cell-label {
+        font-size: 13px;
+        width: 100%;
+        white-space: normal;
+      }
+      .health-cell-detail {
+        margin-top: 2px;
+      }
+    }
   </style>
 </head>
 <body>
@@ -1795,6 +2308,10 @@
           </div>
         </div>
         <div class="status-group">
+          <div id="data-age-chip" class="data-age-chip" style="display: none;">
+            <span id="data-age-spinner" class="data-age-spinner" style="display: none;"></span>
+            <span id="data-age-text"></span>
+          </div>
           <div id="live-indicator" class="indicator-pill connecting">
             <span class="indicator-dot"></span>
             <span id="live-text">CONNECTING</span>
@@ -1855,89 +2372,169 @@
       </div>
     </header>
 
+    <!-- Outdated Server Banner -->
+    <div id="outdated-banner" class="outdated-banner" style="display: none;" role="alert">
+      <span class="outdated-banner-icon">⚠</span>
+      <span class="outdated-banner-text">Server outdated, restart to load the latest code</span>
+    </div>
+
+    <!-- View bar -->
+    <nav class="view-bar" role="tablist" aria-label="Views">
+      <a href="#inbox" id="tab-inbox" class="view-tab active" role="tab" aria-selected="true">
+        <span>Inbox</span>
+        <span id="tab-badge-inbox" class="tab-badge" style="display: none;">0</span>
+      </a>
+      <a href="#tasks" id="tab-tasks" class="view-tab" role="tab" aria-selected="false">
+        <span>Tasks</span>
+        <span id="tab-badge-tasks" class="tab-badge" style="display: none;">0</span>
+      </a>
+      <a href="#health" id="tab-health" class="view-tab" role="tab" aria-selected="false">
+        <span>Health</span>
+        <span id="tab-badge-health" class="tab-badge" style="display: none;">0</span>
+      </a>
+    </nav>
+
     <!-- Offline Alert Banner -->
     <div id="offline-alert" class="offline-alert-bar">
       <span><strong>SERVER OFFLINE:</strong> Unable to connect to state API. Retrying... Preserving last known snapshot.</span>
       <span id="offline-alert-time" style="font-family: ui-monospace, monospace;"></span>
     </div>
 
-    <!-- Filter & Controls Toolbar -->
-    <div class="controls-bar">
-      <div class="filter-group">
-        <div class="filter-item">
-          <label for="repo-filter">Repository:</label>
-          <select id="repo-filter" class="filter-select">
-            <option value="all">All Repositories</option>
-          </select>
+    <!-- View 1: Inbox -->
+    <div id="view-inbox" class="inbox-view">
+      <!-- Needs Attention Group -->
+      <section id="inbox-attention-group" class="inbox-group" style="display: none;">
+        <div class="inbox-group-header">
+          <div class="inbox-group-title">
+            <span>Needs attention</span>
+            <span class="tab-badge attention" id="inbox-attention-count">0</span>
+          </div>
         </div>
-        <div class="filter-item">
-          <input type="checkbox" id="hide-finished">
-          <label for="hide-finished">Hide finished (merged &amp; cancelled)</label>
+        <div id="inbox-attention-list" class="inbox-items-list"></div>
+      </section>
+
+      <!-- Running Tasks Group -->
+      <section id="inbox-running-group" class="inbox-group" style="display: none;">
+        <div class="inbox-group-header">
+          <div class="inbox-group-title">
+            <span>Running</span>
+            <span class="tab-badge" id="inbox-running-count">0</span>
+          </div>
         </div>
-      </div>
-      <div class="filter-stats" id="filter-stats">
-        Showing all tasks
+        <div id="inbox-running-list" class="inbox-items-list"></div>
+      </section>
+
+      <!-- Empty State -->
+      <div id="inbox-empty" class="inbox-empty-card" style="display: none;">
+        <div class="inbox-empty-icon">✓</div>
+        <div class="inbox-empty-title">Nothing needs you</div>
+        <div class="inbox-empty-subtitle">All tasks are quiet and no attention is required.</div>
       </div>
     </div>
 
-    <!-- 3-Lane Grid -->
-    <main class="lanes-grid">
-      <!-- Claude Lane -->
-      <section class="lane-column claude" id="lane-claude">
-        <div class="lane-header">
-          <div class="lane-title-wrap">
-            <span class="lane-title">Claude</span>
+    <!-- View 2: Tasks -->
+    <div id="view-tasks" class="tasks-view" style="display: none;">
+      <!-- Filter & Controls Toolbar -->
+      <div class="controls-bar">
+        <div class="filter-group">
+          <div class="filter-item">
+            <label for="repo-filter">Repository:</label>
+            <select id="repo-filter" class="filter-select">
+              <option value="all">All Repositories</option>
+            </select>
           </div>
-          <span class="lane-task-count" id="count-claude">-</span>
-        </div>
-        <div class="lane-body" id="body-claude">
-          <!-- Unavailable banner & tasks rendered here -->
-          <div class="lane-empty">Loading...</div>
-        </div>
-      </section>
-
-      <!-- Codex Lane -->
-      <section class="lane-column codex" id="lane-codex">
-        <div class="lane-header">
-          <div class="lane-title-wrap">
-            <span class="lane-title">Codex</span>
+          <div class="filter-item">
+            <input type="checkbox" id="hide-finished">
+            <label for="hide-finished">Hide finished (merged &amp; cancelled)</label>
           </div>
-          <span class="lane-task-count" id="count-codex">-</span>
         </div>
-        <div class="lane-body" id="body-codex">
-          <!-- Unavailable banner & tasks rendered here -->
-          <div class="lane-empty">Loading...</div>
-        </div>
-      </section>
-
-      <!-- Antigravity Lane -->
-      <section class="lane-column antigravity" id="lane-antigravity">
-        <div class="lane-header">
-          <div class="lane-title-wrap">
-            <span class="lane-title">Antigravity</span>
-          </div>
-          <span class="lane-task-count" id="count-antigravity">-</span>
-        </div>
-        <div class="lane-body" id="body-antigravity">
-          <!-- Unavailable banner & tasks rendered here -->
-          <div class="lane-empty">Loading...</div>
-        </div>
-      </section>
-    </main>
-
-    <!-- Repositories Section -->
-    <section class="repos-section">
-      <div class="repos-header">
-        <div class="repos-title">
-          <span>Tracked Repositories</span>
-          <span class="lane-task-count" id="repo-count-badge">-</span>
+        <div class="filter-stats" id="filter-stats">
+          Showing all tasks
         </div>
       </div>
-      <div class="repos-grid" id="repos-container">
-        <!-- Rendered dynamically -->
-        <div class="lane-empty">Loading...</div>
+
+      <!-- 3-Lane Grid -->
+      <main class="lanes-grid">
+        <!-- Claude Lane -->
+        <section class="lane-column claude" id="lane-claude">
+          <div class="lane-header">
+            <div class="lane-title-wrap">
+              <span class="lane-title">Claude</span>
+            </div>
+            <span class="lane-task-count" id="count-claude">-</span>
+          </div>
+          <div class="lane-body" id="body-claude">
+            <!-- Unavailable banner & tasks rendered here -->
+            <div class="lane-empty">Loading...</div>
+          </div>
+        </section>
+
+        <!-- Codex Lane -->
+        <section class="lane-column codex" id="lane-codex">
+          <div class="lane-header">
+            <div class="lane-title-wrap">
+              <span class="lane-title">Codex</span>
+            </div>
+            <span class="lane-task-count" id="count-codex">-</span>
+          </div>
+          <div class="lane-body" id="body-codex">
+            <!-- Unavailable banner & tasks rendered here -->
+            <div class="lane-empty">Loading...</div>
+          </div>
+        </section>
+
+        <!-- Antigravity Lane -->
+        <section class="lane-column antigravity" id="lane-antigravity">
+          <div class="lane-header">
+            <div class="lane-title-wrap">
+              <span class="lane-title">Antigravity</span>
+            </div>
+            <span class="lane-task-count" id="count-antigravity">-</span>
+          </div>
+          <div class="lane-body" id="body-antigravity">
+            <!-- Unavailable banner & tasks rendered here -->
+            <div class="lane-empty">Loading...</div>
+          </div>
+        </section>
+      </main>
+
+      <!-- Repositories Section -->
+      <section class="repos-section">
+        <div class="repos-header">
+          <div class="repos-title">
+            <span>Tracked Repositories</span>
+            <span class="lane-task-count" id="repo-count-badge">-</span>
+          </div>
+        </div>
+        <div class="repos-grid" id="repos-container">
+          <!-- Rendered dynamically -->
+          <div class="lane-empty">Loading...</div>
+        </div>
+      </section>
+    </div>
+
+    <!-- View 3: Health -->
+    <div id="view-health" class="health-view" style="display: none;">
+      <div class="health-header">
+        <div class="health-title">System Health &amp; Diagnostics</div>
+        <span class="lane-task-count" id="health-count-badge">-</span>
       </div>
-    </section>
+      <table class="health-table" id="health-table" aria-label="System Health">
+        <thead>
+          <tr>
+            <th scope="col" style="width: 100px;">Status</th>
+            <th scope="col" style="width: 220px;">Component</th>
+            <th scope="col">Details</th>
+          </tr>
+        </thead>
+        <tbody id="health-tbody">
+          <!-- Rendered dynamically -->
+        </tbody>
+      </table>
+      <div id="health-empty" class="lane-empty" style="display: none;">
+        No health diagnostics reported by server
+      </div>
+    </div>
   </div>
 
   <!-- Chat Drawer Backdrop -->
@@ -2035,6 +2632,47 @@
 
       const reposContainer = document.getElementById('repos-container');
       const repoCountBadge = document.getElementById('repo-count-badge');
+
+      // View switching & Step 1 state
+      let currentView = 'inbox';
+      let pendingTaskDeepLink = null;
+      let lastSnapshotAgeHeaderMs = null;
+      let lastCollectMs = null;
+      let lastPollReceivedAt = 0;
+
+      // Header and Outdated Banner elements
+      const dataAgeChip = document.getElementById('data-age-chip');
+      const dataAgeSpinner = document.getElementById('data-age-spinner');
+      const dataAgeText = document.getElementById('data-age-text');
+      const outdatedBanner = document.getElementById('outdated-banner');
+
+      // View tabs & containers
+      const tabInbox = document.getElementById('tab-inbox');
+      const tabTasks = document.getElementById('tab-tasks');
+      const tabHealth = document.getElementById('tab-health');
+
+      const tabBadgeInbox = document.getElementById('tab-badge-inbox');
+      const tabBadgeTasks = document.getElementById('tab-badge-tasks');
+      const tabBadgeHealth = document.getElementById('tab-badge-health');
+
+      const viewInbox = document.getElementById('view-inbox');
+      const viewTasks = document.getElementById('view-tasks');
+      const viewHealth = document.getElementById('view-health');
+
+      // Inbox elements
+      const inboxAttentionGroup = document.getElementById('inbox-attention-group');
+      const inboxAttentionList = document.getElementById('inbox-attention-list');
+      const inboxAttentionCount = document.getElementById('inbox-attention-count');
+      const inboxRunningGroup = document.getElementById('inbox-running-group');
+      const inboxRunningList = document.getElementById('inbox-running-list');
+      const inboxRunningCount = document.getElementById('inbox-running-count');
+      const inboxEmpty = document.getElementById('inbox-empty');
+
+      // Health elements
+      const healthTable = document.getElementById('health-table');
+      const healthTbody = document.getElementById('health-tbody');
+      const healthEmpty = document.getElementById('health-empty');
+      const healthCountBadge = document.getElementById('health-count-badge');
 
       // Chat drawer DOM elements
       const chatBackdrop = document.getElementById('chat-backdrop');
@@ -2337,12 +2975,32 @@
       // Task card component generator
       function createTaskCard(task) {
         const taskKey = (task.repoName || '') + '::' + (task.agent || '') + '::' + (task.task || '');
+        
+        // Check if deep linked
+        if (pendingTaskDeepLink) {
+          const slashIdx = pendingTaskDeepLink.indexOf('/');
+          if (slashIdx >= 0) {
+            const rPart = pendingTaskDeepLink.substring(0, slashIdx).trim().toLowerCase();
+            const tPart = pendingTaskDeepLink.substring(slashIdx + 1).trim().toLowerCase();
+            if ((task.repoName || '').toLowerCase() === rPart && (task.task || '').toLowerCase() === tPart) {
+              expandedTaskKeys.add(taskKey);
+            }
+          } else {
+            if ((task.task || '').toLowerCase() === pendingTaskDeepLink.trim().toLowerCase()) {
+              expandedTaskKeys.add(taskKey);
+            }
+          }
+        }
+
         const isExpanded = expandedTaskKeys.has(taskKey);
 
         const card = el('div', 'task-card' + (task.state === 'running' ? ' is-running' : '') + (isExpanded ? ' expanded' : ''));
         card.setAttribute('role', 'button');
         card.setAttribute('tabindex', '0');
         card.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+        card.setAttribute('data-task-key', taskKey);
+        card.setAttribute('data-repo', task.repoName || '');
+        card.setAttribute('data-task', task.task || '');
 
         // Header section of card
         const cardHeader = el('div', 'task-card-header');
@@ -3144,6 +3802,596 @@
             }
           });
         }
+
+        // GUI Step 1: Inbox, Health, Outdated banner, View badges & Deep linking
+        updateInboxView(state);
+        updateHealthView(state.health);
+        updateOutdatedBanner(state.server);
+        updateViewBadges(state);
+        applyViewFromHash();
+      }
+
+
+      // ==========================================
+      // GUI Step 1: Inbox, Health, Data-age Chip & Routing
+      // ==========================================
+
+      function updateDataAgeChip() {
+        if (!dataAgeChip || !dataAgeText) return;
+
+        if (dataAgeSpinner) {
+          dataAgeSpinner.style.display = statePollInFlight ? 'inline-block' : 'none';
+        }
+
+        if (!lastPollReceivedAt && !lastStateData) {
+          dataAgeChip.style.display = 'none';
+          return;
+        }
+
+        let ageSec = null;
+        const elapsedSinceReceive = lastPollReceivedAt > 0 ? Math.floor((Date.now() - lastPollReceivedAt) / 1000) : 0;
+
+        if (lastSnapshotAgeHeaderMs !== null && !isNaN(lastSnapshotAgeHeaderMs)) {
+          ageSec = Math.max(0, Math.floor(lastSnapshotAgeHeaderMs / 1000) + elapsedSinceReceive);
+        } else if (lastStateData && lastStateData.generated) {
+          const genTime = new Date(lastStateData.generated).getTime();
+          if (!isNaN(genTime)) {
+            ageSec = Math.max(0, Math.floor((Date.now() - genTime) / 1000));
+          }
+        } else if (lastPollReceivedAt > 0) {
+          ageSec = elapsedSinceReceive;
+        }
+
+        const parts = [];
+        if (ageSec !== null) {
+          parts.push('updated ' + ageSec + ' s ago');
+        }
+        if (lastCollectMs !== null && !isNaN(lastCollectMs)) {
+          parts.push('collect ' + (lastCollectMs / 1000).toFixed(1) + ' s');
+        }
+
+        if (parts.length === 0) {
+          dataAgeChip.style.display = 'none';
+          return;
+        }
+
+        dataAgeChip.style.display = 'inline-flex';
+        dataAgeText.textContent = parts.join(', ');
+
+        if (ageSec !== null && ageSec >= 15) {
+          dataAgeChip.classList.add('stale');
+        } else {
+          dataAgeChip.classList.remove('stale');
+        }
+      }
+
+      function updateOutdatedBanner(server) {
+        if (!outdatedBanner) return;
+        if (server && server.scriptHash && server.scriptHashOnDisk && server.scriptHash !== server.scriptHashOnDisk) {
+          outdatedBanner.style.display = 'flex';
+        } else {
+          outdatedBanner.style.display = 'none';
+        }
+      }
+
+      function navigateToTask(repo, task) {
+        window.location.hash = '#task=' + encodeURIComponent(repo) + '/' + encodeURIComponent(task);
+      }
+
+      function activateTaskDeepLink(taskRef) {
+        if (!taskRef) return;
+        let targetRepo = '';
+        let targetTask = '';
+        const slashIdx = taskRef.indexOf('/');
+        if (slashIdx >= 0) {
+          targetRepo = taskRef.substring(0, slashIdx).trim();
+          targetTask = taskRef.substring(slashIdx + 1).trim();
+        } else {
+          targetTask = taskRef.trim();
+        }
+
+        const cards = document.querySelectorAll('.task-card');
+        for (let i = 0; i < cards.length; i++) {
+          const card = cards[i];
+          const cTask = card.getAttribute('data-task') || '';
+          const cRepo = card.getAttribute('data-repo') || '';
+          const cKey = card.getAttribute('data-task-key') || '';
+
+          if (cTask.toLowerCase() === targetTask.toLowerCase()) {
+            if (!targetRepo || cRepo.toLowerCase() === targetRepo.toLowerCase()) {
+              if (cKey) expandedTaskKeys.add(cKey);
+              card.classList.add('expanded');
+              card.setAttribute('aria-expanded', 'true');
+              card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              break;
+            }
+          }
+        }
+      }
+
+      function applyViewFromHash() {
+        const hash = (window.location.hash || '').replace(/^#/, '').trim();
+        let view = 'inbox';
+        let taskDeepLink = null;
+
+        if (!hash || hash === 'inbox') {
+          view = 'inbox';
+        } else if (hash === 'tasks') {
+          view = 'tasks';
+        } else if (hash === 'health') {
+          view = 'health';
+        } else if (hash.startsWith('task=')) {
+          view = 'tasks';
+          taskDeepLink = decodeURIComponent(hash.substring(5).trim());
+        } else {
+          view = 'inbox';
+        }
+
+        currentView = view;
+        pendingTaskDeepLink = taskDeepLink;
+
+        // Update tabs active state
+        const tabs = { inbox: tabInbox, tasks: tabTasks, health: tabHealth };
+        ['inbox', 'tasks', 'health'].forEach(function (v) {
+          const tab = tabs[v];
+          if (tab) {
+            if (v === view) {
+              tab.classList.add('active');
+              tab.setAttribute('aria-selected', 'true');
+            } else {
+              tab.classList.remove('active');
+              tab.setAttribute('aria-selected', 'false');
+            }
+          }
+        });
+
+        // Toggle view containers
+        if (viewInbox) viewInbox.style.display = (view === 'inbox') ? 'flex' : 'none';
+        if (viewTasks) viewTasks.style.display = (view === 'tasks') ? 'flex' : 'none';
+        if (viewHealth) viewHealth.style.display = (view === 'health') ? 'flex' : 'none';
+
+        if (view === 'tasks' && pendingTaskDeepLink && lastStateData) {
+          activateTaskDeepLink(pendingTaskDeepLink);
+        }
+      }
+
+      // Attention Row builder & updater
+      function createAttentionRow(item, key) {
+        const row = el('div', 'inbox-item-row');
+        row.setAttribute('data-item-key', key);
+        row.setAttribute('role', 'button');
+        row.setAttribute('tabindex', '0');
+        row.setAttribute('aria-label', 'Attention item: ' + (item.task || '') + ' in ' + (item.repo || '') + ', reason: ' + (item.reason || ''));
+
+        const left = el('div', 'inbox-item-left');
+
+        let reasonText = item.reason || 'ATTENTION';
+        if (item.reason === 'done-unmerged') reasonText = 'DONE UNMERGED';
+        else if (item.reason === 'runner-dead') reasonText = 'RUNNER DEAD';
+        else if (item.reason === 'failed') reasonText = 'FAILED';
+        else reasonText = String(item.reason).toUpperCase();
+
+        const reasonChip = el('span', 'reason-chip reason-' + (item.reason || 'other'), reasonText);
+        reasonChip.setAttribute('data-field', 'reason');
+        left.appendChild(reasonChip);
+
+        const agentTag = el('span', 'agent-tag ' + (item.agent || 'other').toLowerCase(), (item.agent || '').toUpperCase());
+        agentTag.setAttribute('data-field', 'agent');
+        left.appendChild(agentTag);
+
+        const taskTitle = el('span', 'inbox-task-link', (item.repo ? item.repo + ' / ' : '') + item.task);
+        taskTitle.setAttribute('data-field', 'title');
+        left.appendChild(taskTitle);
+
+        if (item.detail) {
+          const detail = el('span', 'inbox-item-detail', item.detail);
+          detail.setAttribute('data-field', 'detail');
+          left.appendChild(detail);
+        }
+
+        row.appendChild(left);
+
+        const right = el('div', 'inbox-item-right');
+        const timeEl = el('span', 'inbox-time', formatRelativeTime(item.since));
+        timeEl.setAttribute('data-field', 'time');
+        right.appendChild(timeEl);
+
+        const arrow = el('span', 'card-toggle-icon', '▶');
+        right.appendChild(arrow);
+        row.appendChild(right);
+
+        function onClick() {
+          navigateToTask(item.repo || '', item.task || '');
+        }
+        row.addEventListener('click', onClick);
+        row.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onClick();
+          }
+        });
+
+        return row;
+      }
+
+      function updateAttentionRow(row, item) {
+        const reasonChip = row.querySelector('[data-field="reason"]');
+        if (reasonChip) {
+          let reasonText = item.reason || 'ATTENTION';
+          if (item.reason === 'done-unmerged') reasonText = 'DONE UNMERGED';
+          else if (item.reason === 'runner-dead') reasonText = 'RUNNER DEAD';
+          else if (item.reason === 'failed') reasonText = 'FAILED';
+          else reasonText = String(item.reason).toUpperCase();
+          reasonChip.className = 'reason-chip reason-' + (item.reason || 'other');
+          reasonChip.textContent = reasonText;
+        }
+
+        const agentTag = row.querySelector('[data-field="agent"]');
+        if (agentTag) {
+          agentTag.className = 'agent-tag ' + (item.agent || 'other').toLowerCase();
+          agentTag.textContent = (item.agent || '').toUpperCase();
+        }
+
+        const taskTitle = row.querySelector('[data-field="title"]');
+        if (taskTitle) {
+          taskTitle.textContent = (item.repo ? item.repo + ' / ' : '') + item.task;
+        }
+
+        const detail = row.querySelector('[data-field="detail"]');
+        if (detail) {
+          detail.textContent = item.detail || '';
+        }
+
+        const timeEl = row.querySelector('[data-field="time"]');
+        if (timeEl) {
+          timeEl.textContent = formatRelativeTime(item.since);
+        }
+      }
+
+      function updateInboxAttention(attentionItems) {
+        if (!inboxAttentionGroup || !inboxAttentionList) return 0;
+        if (!Array.isArray(attentionItems) || attentionItems.length === 0) {
+          inboxAttentionGroup.style.display = 'none';
+          return 0;
+        }
+        inboxAttentionGroup.style.display = 'flex';
+        if (inboxAttentionCount) {
+          inboxAttentionCount.textContent = String(attentionItems.length);
+        }
+
+        const existingRows = new Map();
+        for (let i = 0; i < inboxAttentionList.children.length; i++) {
+          const child = inboxAttentionList.children[i];
+          const key = child.getAttribute('data-item-key');
+          if (key) existingRows.set(key, child);
+        }
+
+        const newKeys = new Set();
+        attentionItems.forEach(function (item) {
+          const itemKey = (item.repo || '') + '::' + (item.task || '') + '::' + (item.reason || '');
+          newKeys.add(itemKey);
+
+          let row = existingRows.get(itemKey);
+          if (!row) {
+            row = createAttentionRow(item, itemKey);
+            inboxAttentionList.appendChild(row);
+          } else {
+            updateAttentionRow(row, item);
+            inboxAttentionList.appendChild(row);
+          }
+        });
+
+        existingRows.forEach(function (child, key) {
+          if (!newKeys.has(key)) {
+            inboxAttentionList.removeChild(child);
+          }
+        });
+
+        return attentionItems.length;
+      }
+
+      // Running Row builder & updater
+      function createRunningRow(task, key) {
+        const row = el('div', 'inbox-item-row');
+        row.setAttribute('data-item-key', key);
+        row.setAttribute('role', 'button');
+        row.setAttribute('tabindex', '0');
+        row.setAttribute('aria-label', 'Running task: ' + (task.task || '') + ' in ' + (task.repoName || ''));
+
+        const left = el('div', 'inbox-item-left');
+
+        const stateBadge = el('span', 'state-badge state-running', 'RUNNING');
+        left.appendChild(stateBadge);
+
+        const agentTag = el('span', 'agent-tag ' + (task.agent || 'other').toLowerCase(), (task.agent || '').toUpperCase());
+        agentTag.setAttribute('data-field', 'agent');
+        left.appendChild(agentTag);
+
+        const taskTitle = el('span', 'inbox-task-link', (task.repoName ? task.repoName + ' / ' : '') + task.task);
+        taskTitle.setAttribute('data-field', 'title');
+        left.appendChild(taskTitle);
+
+        const detailText = task.status || (task.lastTool ? ('> ' + task.lastTool) : '');
+        if (detailText) {
+          const detail = el('span', 'inbox-item-detail', detailText);
+          detail.setAttribute('data-field', 'detail');
+          left.appendChild(detail);
+        }
+
+        row.appendChild(left);
+
+        const right = el('div', 'inbox-item-right');
+        const durEl = el('span', 'stat-chip live-tick');
+        durEl.setAttribute('data-field', 'duration');
+        if (task.started) {
+          durEl.setAttribute('data-live-started', task.started);
+          const startMs = new Date(task.started).getTime();
+          const initialSec = Math.max(0, Math.floor((Date.now() - startMs) / 1000));
+          durEl.textContent = '⏱ ' + formatDuration(initialSec);
+        } else if (typeof task.durationSec === 'number') {
+          durEl.textContent = '⏱ ' + formatDuration(task.durationSec);
+        } else {
+          durEl.textContent = '⏱ -';
+        }
+        right.appendChild(durEl);
+
+        const arrow = el('span', 'card-toggle-icon', '▶');
+        right.appendChild(arrow);
+        row.appendChild(right);
+
+        function onClick() {
+          navigateToTask(task.repoName || '', task.task || '');
+        }
+        row.addEventListener('click', onClick);
+        row.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onClick();
+          }
+        });
+
+        return row;
+      }
+
+      function updateRunningRow(row, task) {
+        const agentTag = row.querySelector('[data-field="agent"]');
+        if (agentTag) {
+          agentTag.className = 'agent-tag ' + (task.agent || 'other').toLowerCase();
+          agentTag.textContent = (task.agent || '').toUpperCase();
+        }
+
+        const taskTitle = row.querySelector('[data-field="title"]');
+        if (taskTitle) {
+          taskTitle.textContent = (task.repoName ? task.repoName + ' / ' : '') + task.task;
+        }
+
+        const detail = row.querySelector('[data-field="detail"]');
+        if (detail) {
+          detail.textContent = task.status || (task.lastTool ? ('> ' + task.lastTool) : '');
+        }
+
+        const durEl = row.querySelector('[data-field="duration"]');
+        if (durEl && task.started) {
+          durEl.setAttribute('data-live-started', task.started);
+        }
+      }
+
+      function updateInboxRunning(runningTasks) {
+        if (!inboxRunningGroup || !inboxRunningList) return 0;
+        if (!Array.isArray(runningTasks) || runningTasks.length === 0) {
+          inboxRunningGroup.style.display = 'none';
+          return 0;
+        }
+        inboxRunningGroup.style.display = 'flex';
+        if (inboxRunningCount) {
+          inboxRunningCount.textContent = String(runningTasks.length);
+        }
+
+        const existingRows = new Map();
+        for (let i = 0; i < inboxRunningList.children.length; i++) {
+          const child = inboxRunningList.children[i];
+          const key = child.getAttribute('data-item-key');
+          if (key) existingRows.set(key, child);
+        }
+
+        const newKeys = new Set();
+        runningTasks.forEach(function (task) {
+          const itemKey = (task.repoName || '') + '::' + (task.agent || '') + '::' + (task.task || '');
+          newKeys.add(itemKey);
+
+          let row = existingRows.get(itemKey);
+          if (!row) {
+            row = createRunningRow(task, itemKey);
+            inboxRunningList.appendChild(row);
+          } else {
+            updateRunningRow(row, task);
+            inboxRunningList.appendChild(row);
+          }
+        });
+
+        existingRows.forEach(function (child, key) {
+          if (!newKeys.has(key)) {
+            inboxRunningList.removeChild(child);
+          }
+        });
+
+        return runningTasks.length;
+      }
+
+      function updateInboxView(state) {
+        const attentionItems = Array.isArray(state.attention) ? state.attention : [];
+        const attentionCount = updateInboxAttention(attentionItems);
+
+        const runningTasks = [];
+        (state.repos || []).forEach(function (repo) {
+          (repo.tasks || []).forEach(function (t) {
+            if (t.state === 'running') {
+              runningTasks.push({
+                ...t,
+                repoName: repo.name,
+                repoPath: repo.path
+              });
+            }
+          });
+        });
+
+        const runningCount = updateInboxRunning(runningTasks);
+
+        if (inboxEmpty) {
+          if (attentionCount === 0 && runningCount === 0) {
+            inboxEmpty.style.display = 'flex';
+          } else {
+            inboxEmpty.style.display = 'none';
+          }
+        }
+      }
+
+      // Health Row builder & updater
+      function createHealthRow(item, key) {
+        const tr = document.createElement('tr');
+        tr.className = 'health-row';
+        tr.setAttribute('data-health-key', key);
+
+        const tdStatus = document.createElement('td');
+        tdStatus.className = 'health-cell health-cell-status';
+
+        const statusVal = (item.status || 'ok').toLowerCase();
+        const badge = el('span', 'health-status-badge status-' + statusVal);
+        const dot = el('span', 'status-dot ' + statusVal);
+        badge.appendChild(dot);
+        badge.appendChild(el('span', '', statusVal.toUpperCase()));
+        badge.setAttribute('data-field', 'badge');
+        tdStatus.appendChild(badge);
+        tr.appendChild(tdStatus);
+
+        const tdLabel = document.createElement('td');
+        tdLabel.className = 'health-cell health-cell-label';
+        tdLabel.textContent = item.label || item.id || '';
+        tdLabel.setAttribute('data-field', 'label');
+        tr.appendChild(tdLabel);
+
+        const tdDetail = document.createElement('td');
+        tdDetail.className = 'health-cell health-cell-detail';
+        tdDetail.textContent = item.detail || '';
+        tdDetail.setAttribute('data-field', 'detail');
+        tr.appendChild(tdDetail);
+
+        return tr;
+      }
+
+      function updateHealthRow(tr, item) {
+        const badge = tr.querySelector('[data-field="badge"]');
+        if (badge) {
+          const statusVal = (item.status || 'ok').toLowerCase();
+          badge.className = 'health-status-badge status-' + statusVal;
+          const dot = badge.querySelector('.status-dot');
+          if (dot) dot.className = 'status-dot ' + statusVal;
+          const textSpan = badge.querySelector('span:last-child');
+          if (textSpan) textSpan.textContent = statusVal.toUpperCase();
+        }
+
+        const tdLabel = tr.querySelector('[data-field="label"]');
+        if (tdLabel) tdLabel.textContent = item.label || item.id || '';
+
+        const tdDetail = tr.querySelector('[data-field="detail"]');
+        if (tdDetail) tdDetail.textContent = item.detail || '';
+      }
+
+      function updateHealthView(healthItems) {
+        if (!healthTbody) return;
+
+        if (!Array.isArray(healthItems) || healthItems.length === 0) {
+          if (healthEmpty) healthEmpty.style.display = 'block';
+          if (healthTable) healthTable.style.display = 'none';
+          if (healthCountBadge) healthCountBadge.textContent = '0 checks';
+          return;
+        }
+
+        if (healthEmpty) healthEmpty.style.display = 'none';
+        if (healthTable) healthTable.style.display = '';
+        if (healthCountBadge) {
+          healthCountBadge.textContent = healthItems.length === 1 ? '1 check' : healthItems.length + ' checks';
+        }
+
+        const existingRows = new Map();
+        for (let i = 0; i < healthTbody.children.length; i++) {
+          const child = healthTbody.children[i];
+          const key = child.getAttribute('data-health-key');
+          if (key) existingRows.set(key, child);
+        }
+
+        const newKeys = new Set();
+        healthItems.forEach(function (item) {
+          const key = (item.id || '') + '::' + (item.label || '');
+          newKeys.add(key);
+
+          let row = existingRows.get(key);
+          if (!row) {
+            row = createHealthRow(item, key);
+            healthTbody.appendChild(row);
+          } else {
+            updateHealthRow(row, item);
+            healthTbody.appendChild(row);
+          }
+        });
+
+        existingRows.forEach(function (child, key) {
+          if (!newKeys.has(key)) {
+            healthTbody.removeChild(child);
+          }
+        });
+      }
+
+      function updateViewBadges(state) {
+        if (tabBadgeInbox) {
+          const attentionCount = (state.attention && Array.isArray(state.attention)) ? state.attention.length : 0;
+          if (attentionCount > 0) {
+            tabBadgeInbox.textContent = String(attentionCount);
+            tabBadgeInbox.className = 'tab-badge attention';
+            tabBadgeInbox.style.display = 'inline-block';
+          } else {
+            tabBadgeInbox.style.display = 'none';
+          }
+        }
+
+        if (tabBadgeTasks) {
+          let runningCount = 0;
+          (state.repos || []).forEach(function (r) {
+            (r.tasks || []).forEach(function (t) {
+              if (t.state === 'running') runningCount++;
+            });
+          });
+          if (runningCount > 0) {
+            tabBadgeTasks.textContent = String(runningCount);
+            tabBadgeTasks.className = 'tab-badge';
+            tabBadgeTasks.style.display = 'inline-block';
+          } else {
+            tabBadgeTasks.style.display = 'none';
+          }
+        }
+
+        if (tabBadgeHealth) {
+          const healthItems = Array.isArray(state.health) ? state.health : [];
+          let hasFail = false;
+          let hasWarn = false;
+          healthItems.forEach(function (h) {
+            const s = (h.status || '').toLowerCase();
+            if (s === 'fail') hasFail = true;
+            else if (s === 'warn') hasWarn = true;
+          });
+
+          if (hasFail) {
+            tabBadgeHealth.textContent = '!';
+            tabBadgeHealth.className = 'tab-badge fail';
+            tabBadgeHealth.style.display = 'inline-block';
+          } else if (hasWarn) {
+            tabBadgeHealth.textContent = '!';
+            tabBadgeHealth.className = 'tab-badge warn';
+            tabBadgeHealth.style.display = 'inline-block';
+          } else {
+            tabBadgeHealth.style.display = 'none';
+          }
+        }
       }
 
       // ==========================================
@@ -3442,6 +4690,7 @@
           statePollTimer = null;
         }
         statePollInFlight = true;
+        updateDataAgeChip();
         const startTime = Date.now();
         let nextDelayMs = 3000;
 
@@ -3454,8 +4703,13 @@
             throw new Error('HTTP ' + response.status + ' ' + response.statusText);
           }
 
+          const snapshotAgeHeader = response.headers ? response.headers.get('X-Snapshot-Age-Ms') : null;
+          lastSnapshotAgeHeaderMs = snapshotAgeHeader !== null ? parseInt(snapshotAgeHeader, 10) : null;
+          lastPollReceivedAt = Date.now();
+
           const data = await response.json();
           lastStateData = data;
+          lastCollectMs = (data && data.server && typeof data.server.collectMs === 'number') ? data.server.collectMs : null;
 
           // Update UI for online state
           offlineAlert.classList.remove('active');
@@ -3491,6 +4745,7 @@
           nextDelayMs = statePollErrorDelay;
         } finally {
           statePollInFlight = false;
+          updateDataAgeChip();
           scheduleNextStatePoll(nextDelayMs);
         }
       }
@@ -3532,8 +4787,13 @@
 
       // Initialization
       loadSavedPreferences();
+      applyViewFromHash();
+      window.addEventListener('hashchange', applyViewFromHash);
       pollState();
-      setInterval(tickLiveDurations, 1000);
+      setInterval(function () {
+        tickLiveDurations();
+        updateDataAgeChip();
+      }, 1000);
     })();
   </script>
 </body>
