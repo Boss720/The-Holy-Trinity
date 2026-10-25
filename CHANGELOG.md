@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- Dashboard GUI step 1 (read-only): Inbox view (default) with a needs-attention list and running tasks, Health view, `#task=<repo>/<task>` deep links, data-age chip, "server outdated" banner. `/api/state` gains `server`, `attention` and `health`. Spec: `docs/reco/gui-step1.md`.
 - Dashboard: "Copy merge" button on finished tasks; dashboard request errors logged to `%USERPROFILE%\.trinity\dashboard-errors.log`.
 - `trinity init` merges the SessionStart hook into a kept `.claude\settings.json` (original saved to `.codex-out\settings.json.bak`) and upgrades the old hook command.
 

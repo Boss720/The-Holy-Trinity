@@ -4,8 +4,8 @@ Update before you stop. Newest entry on top.
 
 ## Status
 - Completed: Modules 0-4 (dashboard detail + chats; works without Codex), dashboard detail v3 (Antigravity parity)
-- In flight: none. Dashboard Top 1-2 fixes and the shared state snapshot are merged (`dash-snap` 6165c94): six tabs reply in ~13 ms median
-- Next command: pick from `docs/recommendations.md` or start GUI build order step 1 in `docs/recommendations-gui.md`
+- In flight: none. GUI step 1 (read-only Inbox, Health, deep links, age chip) merged: gui-s1-server a78178c + gui-s1-page f04cc78
+- Next command: GUI build order step 2 in `docs/recommendations-gui.md` (action API with token/Origin/loopback checks, jobs, first actions cancel/merge/review-task/open-folder). Known: Inbox "done-unmerged" lists old board entries merged by hand; add a dismiss or board cleanup in step 2
 - Blockers: none (two PLAN boxes need the user: notification seen on screen, Claude headless reviewer logged in)
 
 ## From Claude
