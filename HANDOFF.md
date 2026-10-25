@@ -4,11 +4,12 @@ Update before you stop. Newest entry on top.
 
 ## Status
 - Completed: Modules 0-4 (dashboard detail + chats; works without Codex), dashboard detail v3 (Antigravity parity)
-- In flight: none
-- Next command: `trinity dashboard` to watch; `trinity init <repo>` to add a repo to it
-- Blockers: none (one PLAN box needs the user: notification seen on screen)
+- In flight: dashboard Top 1-2 fixes: `dash-perf` (Codex: repo dedupe, Claude summary cache, loopback-only) and `dash-poll` (Antigravity: single-flight polling, connecting state)
+- Next command: `trinity merge dash-perf -Yes`, `trinity merge dash-poll -Yes`, then pick more from `docs/recommendations.md`
+- Blockers: none (two PLAN boxes need the user: notification seen on screen, Claude headless reviewer logged in)
 
 ## From Claude
+- 2026-10-25: Army audit (Codex, Antigravity, 3 Sonnet, 2 Haiku, live dashboard check) wrote `docs/recommendations.md` plus raw reports in `docs/reco/` (uncommitted). Headlines: dashboard collect 4.1 s warm on the only thread and the page polls every 3 s with no in-flight guard (requests queue, 34-75 s replies); the dashboard listener answers on all interfaces (Host-header guard only); merge does not check the task finished; no runner timeout. Audit branches reco-ui and reco-rel were cancelled after their reports were copied.
 - 2026-10-25: Module 4. Dashboard shows models, tokens, tool calls, rate limits, chats (Codex, Antigravity, Claude sessions and subagents). Trinity runs without a ChatGPT plan: dispatch reroutes, review/ask/merge fall back to Claude Code headless, then Antigravity plan mode (`--mode plan`, must stay inside the workspace or `--add-dir`, one denied read drops the answer), then tests alone. Real Codex child rollouts carry the PARENT id in `session_id`; own id is in the file name. http.sys answers 400 itself for a foreign Host. Two empty files `Read` and `[-Force]'` are tracked at the root by accident (added in 0f05805/057baa3); left for the user to remove.
 - 2026-10-25: Dashboard merged. Gate caught two real failures in Codex's tests (em-dash in a result file read as ANSI became a bare quote in the JSON; tests read the real `~/.trinity` registry); fixed on the worker branch, then merged 16/16. agy's `-p` stdout includes `<SYSTEM_MESSAGE>` background notices; one became the `dash-ui` commit subject (705517b, left in history). Runner now strips them; fake agy emits one so the suite guards it.
 - 2026-10-25: Dashboard module. Claude wrote the spec (`docs/dashboard.md`) and the CLI side; Codex builds the server, Antigravity the page, in parallel worktrees. Army skill (`~/.claude/skills/army/SKILL.md`) now routes chunks to Codex/Antigravity via trinity and tells Claude to `track` its own chunk.
