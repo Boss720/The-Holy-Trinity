@@ -125,7 +125,8 @@ switch ($Command) {
             '',
             '- Read AGENTS.md first.',
             '- Edit only files within the scope.',
-            '- Commit your work on this branch with clear messages (no Co-Authored-By trailers).',
+            $(if ($agent -eq 'codex') { '- Do not run git commit; your sandbox cannot write .git. The runner commits your changes when you finish, using your final summary as the message.' }
+              else { '- Commit your work on this branch with clear messages (no Co-Authored-By trailers).' }),
             '- Do not push.',
             '- Do not edit HANDOFF.md or PLAN.md.',
             '- Finish with a short summary of what you did and anything left.'
@@ -165,10 +166,25 @@ switch ($Command) {
         $log = Join-Path $paths.Out "log-$task.txt"
         $result = Join-Path $paths.Out "result-$task.md"
 
-        # Run through cmd so stdin/stdout redirection works with spaces in paths.
-        $cmdLine = '""' + $exe + '" exec --sandbox workspace-write --add-dir "' + $paths.Common + '" --skip-git-repo-check -C "' + $entry.worktree + '" -o "' + $result + '" - < "' + $taskFile + '" > "' + $log + '" 2>&1"'
-        cmd.exe /d /c $cmdLine
+        # Run through a generated .cmd file: PS 5.1 mangles embedded quotes passed to cmd /c,
+        # and cmd gives stdin/stdout redirection that works with spaces in paths.
+        $runFile = Join-Path $paths.Out "run-$task.cmd"
+        $cmdLine = '"' + $exe + '" exec --sandbox workspace-write --add-dir "' + $paths.Common + '" --skip-git-repo-check -C "' + $entry.worktree + '" -o "' + $result + '" - < "' + $taskFile + '" > "' + $log + '" 2>&1'
+        [IO.File]::WriteAllText($runFile, "@echo off`r`n$cmdLine`r`nexit /b %ERRORLEVEL%`r`n", $script:Utf8)
+        & $runFile
         $rc = $LASTEXITCODE
+
+        # Codex's sandbox keeps .git read-only, so commit its changes here; its final summary is the message.
+        if ($rc -eq 0 -and (Get-Git @('-C', $entry.worktree, 'status', '--porcelain'))) {
+            $summary = @(Get-Content $result -ErrorAction SilentlyContinue | Where-Object { $_.Trim() })
+            $subject = "$($task): " + $(if ($summary) { ($summary[0] -replace '\[([^\]]*)\]\([^)]*\)', '$1' -replace '[\[\]`*]', '') } else { 'Codex changes' })
+            if ($subject.Length -gt 72) { $subject = $subject.Substring(0, 69) + '...' }
+            $msgFile = Join-Path $paths.Out "commitmsg-$task.txt"
+            [IO.File]::WriteAllText($msgFile, $subject + "`r`n`r`n" + ($summary -join "`r`n") + "`r`n", $script:Utf8)
+            git -C $entry.worktree add -A
+            git -C $entry.worktree commit -q -F $msgFile
+            if ($LASTEXITCODE -ne 0) { $rc = 2 }
+        }
 
         $n = [int](Get-Git @('-C', $paths.Main, 'rev-list', '--count', "main..$($entry.branch)"))
         if ($rc -eq 0 -and $n -gt 0) { $status = "done ($n commits)" }

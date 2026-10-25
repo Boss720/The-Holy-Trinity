@@ -70,7 +70,7 @@ What runs by itself:
 | Claude session starts | `trinity status -Brief` is injected (via `.claude/settings.json` hook) |
 | Claude is about to commit | Codex review runs first (rule in `CLAUDE.md`) |
 | Any `git commit` | `.githooks/pre-commit` checks `.ps1`/`.cmd` encoding and blocks likely secrets |
-| Dispatched Codex finishes | Board status set to done/failed, result saved to `.codex-out\`, Windows notification |
+| Dispatched Codex finishes | Its changes are committed on its branch (Codex's sandbox keeps `.git` read-only, so the runner commits, using Codex's summary as the message), board status set to done/failed, result saved to `.codex-out\`, Windows notification |
 
 ---
 
