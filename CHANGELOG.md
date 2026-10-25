@@ -15,7 +15,8 @@
 - Dashboard: dark-mode muted text contrast; 44px touch targets on phones.
 - Removed two empty junk files (`Read`, `[-Force]'`).
 - Antigravity commit subjects and results come from the agent's final message. `agy -p` joins every turn's text into its answer, so a run that paused for background tests was committed as "Running tests to verify...". The runner now reads the final turn from the session transcript.
-- `trinity.sh`: Git Bash entry point, installed by `init`. `trinity.cmd` started from Git Bash failed on any argument with spaces when the repo path had a space (`'D:\...\Holy' is not recognized`), because Windows runs a .cmd through `cmd /c`, which strips the outer quotes.
+- `trinity.sh`: Git Bash entry point, installed by `init`. `trinity.cmd` started from Git Bash failed on any argument with spaces when the repo path had a space (`'D:\...\Holy' is not recognized`), because Windows runs a .cmd through `cmd /c`, which strips the outer quotes. It converts only drive paths (`/c/...`), so an argument such as `/army ...` is no longer rewritten into a Git install path.
+- Self-test counts skipped cases separately (`31 passed, 0 failed, 1 skipped`) instead of as passes.
 
 ## v0.3.0 - 2026-10-25
 

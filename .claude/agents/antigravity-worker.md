@@ -31,7 +31,7 @@ status: <final status line, or "still running after 30 min">
 summary: <result text, max 20 lines>
 commits: <git log lines, or none>
 diffstat: <diffstat>
-merge with: ./trinity.cmd merge <task> -Yes
+merge with: ./trinity.sh merge <task> -Yes
 ```
 
 Never merge, push, or edit repo files yourself.

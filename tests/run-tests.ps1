@@ -4,6 +4,7 @@ $ErrorActionPreference = 'Stop'
 $repoSource = Split-Path $PSScriptRoot -Parent
 $passed = 0
 $failed = 0
+$skipped = 0
 $fixtures = New-Object System.Collections.Generic.List[string]
 # Keep the user's real repo registry and dashboard pid out of the tests.
 $env:TRINITY_HOME = Join-Path $env:TEMP ("trinity-selftest-home-" + [Guid]::NewGuid().ToString('N'))
@@ -110,6 +111,13 @@ function Remove-Fixture($Fixture) {
     $ErrorActionPreference = $oldPreference
 }
 
+# A case that cannot run here ends with Skip-Case: it is counted as skipped, never as passed.
+function Skip-Case([string]$Reason) {
+    $skip = [Exception]::new($Reason)
+    $skip.Data['TrinitySkip'] = $true
+    throw $skip
+}
+
 function Run-Case([string]$Name, [scriptblock]$Body, [string]$TestCommand = 'exit 0') {
     $fixture = $null
     $oldCodex = $env:CODEX_EXE
@@ -140,6 +148,11 @@ function Run-Case([string]$Name, [scriptblock]$Body, [string]$TestCommand = 'exi
         Write-Output "PASS $Name"
     }
     catch {
+        if ($_.Exception.Data['TrinitySkip']) {
+            $script:skipped++
+            Write-Output "SKIP ${Name}: $($_.Exception.Message)"
+            return
+        }
         $script:failed++
         Write-Output "FAIL ${Name}: $($_.Exception.Message)"
     }
@@ -320,16 +333,16 @@ Run-Case 'trinity.sh keeps arguments with spaces from Git Bash' {
         if (Test-Path -LiteralPath (Join-Path $dir 'bin\bash.exe')) { $bash = Join-Path $dir 'bin\bash.exe' }
         $dir = Split-Path $dir -Parent
     }
-    if (-not $bash) {
-        Write-Output 'SKIP trinity.sh check: Git Bash not found'
-        return
-    }
+    if (-not $bash) { Skip-Case 'Git Bash not found' }
     $oldPreference = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     Push-Location -LiteralPath $f.Repo
     try {
         $out = & $bash -c "./trinity.sh track task-sh 'note with spaces'" 2>&1
         $ok = $LASTEXITCODE
+        # Git Bash would rewrite this note into a path under its install folder.
+        $slashOut = & $bash -c "./trinity.sh track task-slash '/army fan out'" 2>&1
+        $slash = $LASTEXITCODE
         & $bash -c './trinity.sh track Bad_Name x' 2>&1 | Out-Null
         $bad = $LASTEXITCODE
     }
@@ -337,6 +350,7 @@ Run-Case 'trinity.sh keeps arguments with spaces from Git Bash' {
     Assert-True ($ok -eq 0) "trinity.sh track failed ($ok): $($out -join ' ')"
     $board = Get-Content -Raw (Join-Path $f.Repo '.git\agent-board.md')
     Assert-True ($board -match '(?m)^- status: working: note with spaces') "note with spaces did not arrive intact: $board"
+    Assert-True ($slash -eq 0 -and $board -match '(?m)^- status: working: /army fan out') "note starting with / was rewritten ($slash): $($slashOut -join ' ')"
     Assert-True ($bad -eq 1) "trinity.sh did not pass the exit code through: $bad"
 }
 
@@ -660,10 +674,7 @@ Run-Case 'dashboard HTTP routes return state JSON and 404' {
             try { $response = Invoke-WebRequest -Uri "http://localhost:$port/api/state" -UseBasicParsing -TimeoutSec 2 }
             catch { Start-Sleep -Milliseconds 100 }
         }
-        if ($process.HasExited -and -not $response) {
-            Write-Output 'SKIP dashboard HTTP check: HttpListener is unsupported or blocked in this environment'
-            return
-        }
+        if ($process.HasExited -and -not $response) { Skip-Case 'HttpListener is unsupported or blocked in this environment' }
         Assert-True ($response -and $response.StatusCode -eq 200) 'dashboard API did not return 200'
         $state = $response.Content | ConvertFrom-Json
         Assert-True ($null -ne $state.agents.codex) 'dashboard API did not return JSON state'
@@ -781,7 +792,7 @@ Run-Case 'dashboard chat HTTP validates ids and guards hosts' {
         $process = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -WindowStyle Hidden -PassThru -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"{0}"' -f $dashboard),'-Port',[string]$port,'-Repos',('"{0}"' -f $f.Repo))
         $deadline=(Get-Date).AddSeconds(10); $response=$null
         while (-not $response -and (Get-Date) -lt $deadline -and -not $process.HasExited) { try { $response=Invoke-WebRequest -Uri "http://localhost:$port/api/state" -UseBasicParsing -TimeoutSec 2 } catch { Start-Sleep -Milliseconds 100 } }
-        if (-not $response) { Write-Output 'SKIP dashboard chat HTTP check: HttpListener is unsupported or blocked in this environment'; return }
+        if (-not $response) { Skip-Case 'HttpListener is unsupported or blocked in this environment' }
         Assert-True ($response.Headers['X-Content-Type-Options'] -eq 'nosniff') 'response omitted nosniff header'
         foreach ($pair in @(@('bad','400'), @('codex:00000000-0000-0000-0000-000000000000','404'))) {
             $status=0; try { Invoke-WebRequest -Uri "http://localhost:$port/api/chat?id=$([uri]::EscapeDataString($pair[0]))" -UseBasicParsing -TimeoutSec 2 | Out-Null } catch { if ($_.Exception.Response) { $status=[int]$_.Exception.Response.StatusCode } }
@@ -796,7 +807,7 @@ Run-Case 'dashboard chat HTTP validates ids and guards hosts' {
     finally { if ($process) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }; $env:CODEX_HOME=$oldCodexHome; $env:TRINITY_AGY_HOME=$oldAgyHome; $env:CLAUDE_CONFIG_DIR=$oldClaudeHome; $env:TRINITY_DISABLE=$oldDisable }
 }
 
-Write-Output "$passed passed, $failed failed"
+Write-Output "$passed passed, $failed failed, $skipped skipped"
 if (-not $Keep) {
     foreach ($root in @($fixtures)) {
         Remove-Fixture ([pscustomobject]@{ Root = $root; Repo = (Join-Path $root 'repo with spaces') })

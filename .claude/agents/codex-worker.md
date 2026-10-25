@@ -36,7 +36,7 @@ status: <final status line>
 summary: <Codex result, max 15 lines>
 commits: <git log lines>
 diffstat: <diffstat>
-merge with: ./trinity.cmd merge <task> -Yes
+merge with: ./trinity.sh merge <task> -Yes
 ```
 
 Never merge, push, or edit files in the repo yourself.

@@ -181,7 +181,7 @@ function Get-AgyFinalMessage([string]$session, [string]$response) {
         }
     }
     catch { return $response }
-    if ($last -and $response.TrimEnd().EndsWith($last)) { return $last + "`n" }
+    if ($last -and $response.TrimEnd().EndsWith($last, [StringComparison]::Ordinal)) { return $last + "`n" }
     $response
 }
 
