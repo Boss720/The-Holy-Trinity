@@ -60,7 +60,7 @@ function Read-JsonLinesIncremental([string]$Path) {
             if (-not $text.EndsWith("`n")) { $cache.pending = $lines[$lines.Count - 1]; if ($lines.Count -gt 1) { $lines = $lines[0..($lines.Count - 2)] } else { $lines = @() } }
             $records = New-Object System.Collections.Generic.List[object]
             foreach ($line in $lines) {
-                $line = $line.TrimEnd("`r")
+                $line = $line.TrimEnd("`r").TrimStart([char]0xFEFF)
                 if (-not $line -or $line.Length -gt 1048576) { continue }
                 try { $records.Add($script:JsonSerializer.DeserializeObject($line)) } catch { }
             }
@@ -169,7 +169,7 @@ function Get-AgyTaskSession([string]$OutDir, [string]$Task) {
             $head = Get-HeadText $file 16384
             foreach ($line in ($head -split "`n")) {
                 if ($line -notmatch '"type"\s*:\s*"USER_INPUT"') { continue }
-                try { $record = $script:JsonSerializer.DeserializeObject($line.TrimEnd("`r")); $content = [string](Get-JsonValue $record 'content' '') } catch { continue }
+                try { $record = $script:JsonSerializer.DeserializeObject($line.TrimEnd("`r").TrimStart([char]0xFEFF)); $content = [string](Get-JsonValue $record 'content' '') } catch { continue }
                 try { $content = [Uri]::UnescapeDataString($content) } catch { break }
                 if ($content -notmatch '(?i)Read the task file\s+[`"'']?(?:file:///)?(.+?task-[^\s`"'']+\.md)') { break }
                 $mentioned = $Matches[1].Replace('\', '/').ToLowerInvariant()
