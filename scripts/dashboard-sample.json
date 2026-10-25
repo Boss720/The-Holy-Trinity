@@ -1,5 +1,102 @@
 {
   "generated": "2026-10-25T10:15:00",
+  "server": {
+    "startedAt": "2026-10-25T08:00:00",
+    "scriptHash": "a1b2c3d4e5f6",
+    "scriptHashOnDisk": "a1b2c3d4e5f6",
+    "listenerScope": "loopback",
+    "blockedRemoteCount": 0,
+    "collectMs": 420,
+    "avgCollectMs": 480
+  },
+  "attention": [
+    {
+      "repo": "Holy trinity",
+      "repoPath": "D:\\AI\\projects\\Dev\\Projects\\Holy trinity",
+      "task": "dash-detail",
+      "agent": "claude",
+      "reason": "runner-dead",
+      "detail": "Runner process not detected while state is running",
+      "since": "2026-10-25T10:14:00"
+    },
+    {
+      "repo": "Holy trinity",
+      "repoPath": "D:\\AI\\projects\\Dev\\Projects\\Holy trinity",
+      "task": "visual-compare",
+      "agent": "antigravity",
+      "reason": "done-unmerged",
+      "detail": "Completed with 2 commits, awaiting merge review",
+      "since": "2026-10-25T08:58:00"
+    },
+    {
+      "repo": "Holy trinity",
+      "repoPath": "D:\\AI\\projects\\Dev\\Projects\\Holy trinity",
+      "task": "orchestrator-refactor",
+      "agent": "claude",
+      "reason": "done-unmerged",
+      "detail": "Completed with 2 commits, awaiting merge",
+      "since": "2026-10-25T08:50:00"
+    },
+    {
+      "repo": "Holy trinity",
+      "repoPath": "D:\\AI\\projects\\Dev\\Projects\\Holy trinity",
+      "task": "test-collector",
+      "agent": "codex",
+      "reason": "failed",
+      "detail": "Process exited with code 1: Assertion failure",
+      "since": "2026-10-25T08:30:00"
+    }
+  ],
+  "health": [
+    {
+      "id": "dashboard-server",
+      "label": "Dashboard server",
+      "status": "ok",
+      "detail": "Last collect 420 ms (avg 480 ms)"
+    },
+    {
+      "id": "listener-loopback",
+      "label": "Listener loopback",
+      "status": "ok",
+      "detail": "loopback only, 0 blocked"
+    },
+    {
+      "id": "server-outdated",
+      "label": "Server script",
+      "status": "ok",
+      "detail": "Script hash matches disk (a1b2c3d4e5f6)"
+    },
+    {
+      "id": "board-readable",
+      "label": "Agent boards",
+      "status": "ok",
+      "detail": "All repo boards parsed cleanly"
+    },
+    {
+      "id": "hooks-enabled",
+      "label": "Git hooks",
+      "status": "ok",
+      "detail": "core.hooksPath set to .githooks for Holy trinity"
+    },
+    {
+      "id": "agents",
+      "label": "Agent: Claude",
+      "status": "ok",
+      "detail": "claude-opus-5-5 (effort: max)"
+    },
+    {
+      "id": "agents",
+      "label": "Agent: Codex",
+      "status": "warn",
+      "detail": "not logged in (run: codex login)"
+    },
+    {
+      "id": "agents",
+      "label": "Agent: Antigravity",
+      "status": "ok",
+      "detail": "Gemini 3.8 Flash (High)"
+    }
+  ],
   "availability": {
     "claude": {
       "available": true,
@@ -161,7 +258,7 @@
           "rateLimits": [
             {
               "name": "primary",
-              "usedPercent": 48.0,
+              "usedPercent": 48,
               "windowMinutes": 300,
               "resetsAt": "2026-10-25T14:00:00"
             },
@@ -399,7 +496,7 @@
           "rateLimits": [
             {
               "name": "primary",
-              "usedPercent": 25.0,
+              "usedPercent": 25,
               "windowMinutes": 300,
               "resetsAt": "2026-10-25T13:00:00"
             }
