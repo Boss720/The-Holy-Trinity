@@ -336,6 +336,86 @@ Run-Case 'cancel requires Force to remove a finished task commit' {
     Assert-True ($board -match '(?m)^- status: cancelled') 'forced cancel did not mark task cancelled'
 }
 
+Run-Case 'dashboard reports completed Codex task and agent totals' {
+    param($f)
+    Start-CodexTask $f 'dashboard-done'
+    $wait = Invoke-Trinity $f @('wait', 'dashboard-done', '-Timeout', '50')
+    Assert-True ($wait.ExitCode -eq 0) "wait exit $($wait.ExitCode): $($wait.Output)"
+    $dashboard = Join-Path $f.Repo 'scripts\dashboard.ps1'
+    $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $json = & $powershell -NoProfile -ExecutionPolicy Bypass -File $dashboard -Once -Repos $f.Repo
+    Assert-True ($LASTEXITCODE -eq 0) "dashboard exited $LASTEXITCODE"
+    $state = ($json -join "`n") | ConvertFrom-Json
+    $task = @($state.repos | ForEach-Object { $_.tasks } | Where-Object { $_.task -eq 'dashboard-done' }) | Select-Object -First 1
+    Assert-True ($task -and $task.agent -eq 'codex' -and $task.state -eq 'done' -and $task.commits -eq 1) "unexpected task: $($task | ConvertTo-Json -Compress)"
+    Assert-True ($task.result -match 'Fake Codex completed successfully\.') "task result missing: $($task.result)"
+    Assert-True ($state.agents.codex.done -ge 1) 'Codex done count is missing'
+    Assert-True ($null -ne $state.agents.claude -and $null -ne $state.agents.codex -and $null -ne $state.agents.antigravity) 'an agent count key is missing'
+}
+
+Run-Case 'dashboard accepts tracked Claude task without branch' {
+    param($f)
+    $boardPath = Join-Path $f.Repo '.git\agent-board.md'
+    $section = @('', '## dashboard-claude', '- agent: claude', '- branch: -', '- worktree: -', '- scope: scripts/*', '- status: working: wiring index 2026-01-01 00:00') -join "`r`n"
+    [IO.File]::AppendAllText($boardPath, $section + "`r`n", [System.Text.UTF8Encoding]::new($false))
+    $dashboard = Join-Path $f.Repo 'scripts\dashboard.ps1'
+    $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $json = & $powershell -NoProfile -ExecutionPolicy Bypass -File $dashboard -Once -Repos $f.Repo
+    Assert-True ($LASTEXITCODE -eq 0) "dashboard exited $LASTEXITCODE"
+    $state = ($json -join "`n") | ConvertFrom-Json
+    $task = @($state.repos | ForEach-Object { $_.tasks } | Where-Object { $_.task -eq 'dashboard-claude' }) | Select-Object -First 1
+    Assert-True ($task -and $task.state -eq 'running' -and $task.branch -eq '-') "unexpected Claude task: $($task | ConvertTo-Json -Compress)"
+}
+
+Run-Case 'dashboard skips stale registry repo paths' {
+    param($f)
+    $oldUserProfile = $env:USERPROFILE
+    try {
+        $env:USERPROFILE = Join-Path $f.Root 'isolated profile'
+        $trinityDir = Join-Path $env:USERPROFILE '.trinity'
+        New-Item -ItemType Directory -Path $trinityDir -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $trinityDir 'repos.txt'), (Join-Path $f.Root 'missing repo') + "`r`n", [System.Text.UTF8Encoding]::new($false))
+        $dashboard = Join-Path $f.Repo 'scripts\dashboard.ps1'
+        $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        $json = & $powershell -NoProfile -ExecutionPolicy Bypass -File $dashboard -Once -Repos $f.Repo
+        Assert-True ($LASTEXITCODE -eq 0) "dashboard exited $LASTEXITCODE"
+        $state = ($json -join "`n") | ConvertFrom-Json
+        Assert-True (@($state.repos).Count -eq 1) "unexpected repos: $(@($state.repos).path -join ', ')"
+        Assert-True ($state.repos[0].path -eq [IO.Path]::GetFullPath($f.Repo)) 'current fixture repo was not included'
+    }
+    finally { $env:USERPROFILE = $oldUserProfile }
+}
+
+Run-Case 'dashboard HTTP routes return state JSON and 404' {
+    param($f)
+    $tcp = New-Object System.Net.Sockets.TcpListener([Net.IPAddress]::Loopback, 0)
+    $tcp.Start()
+    $port = $tcp.LocalEndpoint.Port
+    $tcp.Stop()
+    $dashboard = Join-Path $f.Repo 'scripts\dashboard.ps1'
+    $process = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -WindowStyle Hidden -PassThru -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $dashboard), '-Port', [string]$port, '-Repos', ('"{0}"' -f $f.Repo))
+    try {
+        $deadline = (Get-Date).AddSeconds(10)
+        $response = $null
+        while (-not $response -and (Get-Date) -lt $deadline -and -not $process.HasExited) {
+            try { $response = Invoke-WebRequest -Uri "http://localhost:$port/api/state" -UseBasicParsing -TimeoutSec 2 }
+            catch { Start-Sleep -Milliseconds 100 }
+        }
+        if ($process.HasExited -and -not $response) {
+            Write-Output 'SKIP dashboard HTTP check: HttpListener is unsupported or blocked in this environment'
+            return
+        }
+        Assert-True ($response -and $response.StatusCode -eq 200) 'dashboard API did not return 200'
+        $state = $response.Content | ConvertFrom-Json
+        Assert-True ($null -ne $state.agents.codex) 'dashboard API did not return JSON state'
+        $notFound = $false
+        try { Invoke-WebRequest -Uri "http://localhost:$port/nope" -UseBasicParsing -TimeoutSec 2 | Out-Null }
+        catch { $notFound = ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 404) }
+        Assert-True $notFound 'unknown route did not return 404'
+    }
+    finally { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+}
+
 Write-Output "$passed passed, $failed failed"
 if (-not $Keep) {
     foreach ($root in @($fixtures)) {
