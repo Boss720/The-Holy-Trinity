@@ -109,23 +109,93 @@ function Register-Repo([string]$Root) {
     if ($have -notcontains $Root) { [IO.File]::AppendAllText($file, "$Root`r`n", $script:Utf8) }
 }
 
-function Resolve-AgyExe {
-    if ($env:AGY_EXE -and (Test-Path $env:AGY_EXE)) { return $env:AGY_EXE }
+# Find-*Exe return $null when the CLI is missing; an AGY_EXE/CODEX_EXE/CLAUDE_EXE override is authoritative.
+function Find-AgyExe {
+    if ($env:AGY_EXE) { if (Test-Path $env:AGY_EXE) { return $env:AGY_EXE } return $null }
     $exe = Join-Path $env:LOCALAPPDATA 'agy\bin\agy.exe'
     if (Test-Path $exe) { return $exe }
     $cmd = Get-Command agy.exe -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
-    Fail 'agy.exe (Antigravity CLI) not found. Install it or set AGY_EXE.'
+    $null
 }
 
 # Newest codex.exe shipped with the Codex desktop app, else codex.exe on PATH.
-function Resolve-CodexExe {
-    if ($env:CODEX_EXE -and (Test-Path $env:CODEX_EXE)) { return $env:CODEX_EXE }
+function Find-CodexExe {
+    if ($env:CODEX_EXE) { if (Test-Path $env:CODEX_EXE) { return $env:CODEX_EXE } return $null }
     $bin = Join-Path $env:LOCALAPPDATA 'OpenAI\Codex\bin'
     $exe = Get-ChildItem $bin -Directory -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending |
         ForEach-Object { Join-Path $_.FullName 'codex.exe' } | Where-Object { Test-Path $_ } | Select-Object -First 1
     if ($exe) { return $exe }
     $cmd = Get-Command codex.exe -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
+    $null
+}
+
+# Claude Code CLI: PATH, the native installer, the current Claude session, then the desktop app's bundled copy.
+function Find-ClaudeExe {
+    if ($env:CLAUDE_EXE) { if (Test-Path $env:CLAUDE_EXE) { return $env:CLAUDE_EXE } return $null }
+    foreach ($name in 'claude.exe', 'claude.cmd') {
+        $cmd = Get-Command $name -ErrorAction SilentlyContinue
+        if ($cmd) { return $cmd.Source }
+    }
+    $local = Join-Path $env:USERPROFILE '.local\bin\claude.exe'
+    if (Test-Path $local) { return $local }
+    if ($env:CLAUDE_CODE_EXECPATH -and (Test-Path $env:CLAUDE_CODE_EXECPATH)) { return $env:CLAUDE_CODE_EXECPATH }
+    $roots = @(Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Packages') -Directory -Filter 'Claude_*' -ErrorAction SilentlyContinue |
+            ForEach-Object { Join-Path $_.FullName 'LocalCache\Roaming\Claude\claude-code' }) + @(Join-Path $env:APPDATA 'Claude\claude-code')
+    $roots | Where-Object { Test-Path $_ } | ForEach-Object { Get-ChildItem $_ -Recurse -Depth 2 -Filter claude.exe -ErrorAction SilentlyContinue } |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
+}
+
+function Resolve-AgyExe {
+    $exe = Find-AgyExe
+    if ($exe) { return $exe }
+    Fail 'agy.exe (Antigravity CLI) not found. Install it or set AGY_EXE.'
+}
+
+function Resolve-CodexExe {
+    $exe = Find-CodexExe
+    if ($exe) { return $exe }
     Fail 'codex.exe not found. Install the Codex desktop app or set CODEX_EXE.'
+}
+
+# Run a CLI's login check; exit code 0 = usable. The child must not think it is nested in this Claude session.
+function Test-CliLogin([string]$Exe, [string[]]$CliArgs) {
+    $savedPref = $ErrorActionPreference
+    $savedNested = $env:CLAUDECODE
+    $ErrorActionPreference = 'Continue'
+    $env:CLAUDECODE = $null
+    try {
+        $out = @($null | & $Exe @CliArgs 2>&1 | ForEach-Object { "$_" })
+        $rc = $LASTEXITCODE
+    }
+    catch { $out = @($_.Exception.Message); $rc = 1 }
+    finally { $ErrorActionPreference = $savedPref; $env:CLAUDECODE = $savedNested }
+    [pscustomobject]@{ Ok = ($rc -eq 0); First = "$(@($out | Where-Object { $_.Trim() })[0])".Trim() }
+}
+
+# Which agents trinity can run headless here, as agent -> @{ available; detail; exe }.
+# TRINITY_DISABLE (comma list, e.g. "codex") turns an agent off even when it is installed.
+function Get-AgentAvailability([string[]]$Agents = @('claude', 'codex', 'antigravity')) {
+    $disabled = @("$env:TRINITY_DISABLE" -split '[,; ]+' | Where-Object { $_ } | ForEach-Object { $_.Trim().ToLowerInvariant() })
+    $result = [ordered]@{}
+    foreach ($agent in $Agents) {
+        $exe = switch ($agent) { 'codex' { Find-CodexExe } 'antigravity' { Find-AgyExe } 'claude' { Find-ClaudeExe } }
+        if ($disabled -contains $agent) { $state = @{ available = $false; detail = 'disabled by TRINITY_DISABLE' } }
+        elseif (-not $exe) { $state = @{ available = $false; detail = "$agent CLI not found" } }
+        elseif ($agent -eq 'codex') {
+            $login = Test-CliLogin $exe @('login', 'status')
+            $state = if ($login.Ok) { @{ available = $true; detail = $(if ($login.First) { $login.First } else { 'logged in' }) } }
+                else { @{ available = $false; detail = 'not logged in (run: codex login)' } }
+        }
+        elseif ($agent -eq 'claude') {
+            $login = Test-CliLogin $exe @('auth', 'status')
+            $state = if ($login.Ok) { @{ available = $true; detail = 'logged in' } }
+                else { @{ available = $false; detail = 'not logged in (run: claude auth login)' } }
+        }
+        else { $state = @{ available = $true; detail = 'ok' } }
+        $state.exe = "$exe"
+        $result[$agent] = $state
+    }
+    $result
 }
