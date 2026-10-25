@@ -210,26 +210,40 @@ Run-Case 'failed test aborts merge cleanly' {
     Assert-True ($LASTEXITCODE -ne 0) "merge is still in progress: $mergeHead"
 } 'exit 1'
 
-Run-Case 'bare codex done remains pending until runner finishes' {
+Run-Case 'agent-written done cannot end a headless task early' {
     param($f)
     $wt = Join-Path $f.Worktrees 'codex-task-f'
     New-Item -ItemType Directory -Path $f.Worktrees -Force | Out-Null
     Invoke-Git $f.Repo @('worktree', 'add', '-b', 'agent/codex/task-f', $wt, 'main') | Out-Null
-    $board = @(
-        '',
-        '## task-f',
-        '- agent: codex',
-        '- branch: agent/codex/task-f',
-        "- worktree: $wt",
-        '- scope: tests/*',
-        '- status: started 2026-01-01 00:00'
-    ) -join "`r`n"
-    [IO.File]::AppendAllText((Join-Path $f.Repo '.git\agent-board.md'), $board + "`r`n", [System.Text.UTF8Encoding]::new($false))
+    $boardPath = Join-Path $f.Repo '.git\agent-board.md'
+    $writeBoard = {
+        param([string]$Status)
+        $board = @('', '## task-f', '- agent: codex', '- branch: agent/codex/task-f', "- worktree: $wt", '- scope: tests/*', "- status: $Status") -join "`r`n"
+        [IO.File]::WriteAllText($boardPath, $board + "`r`n", [System.Text.UTF8Encoding]::new($false))
+    }
+    & $writeBoard 'running 2026-01-01 00:00'
+
+    # Headless agents may not mark themselves done.
     $done = Invoke-Trinity $f @('done', 'task-f')
-    Assert-True ($done.ExitCode -eq 0) "done failed: $($done.Output)"
+    Assert-True ($done.ExitCode -ne 0) "done should be refused for a codex task: $($done.Output)"
+    Assert-True ($done.Output -match 'runner') "done refusal should mention the runner: $($done.Output)"
+
+    # A bare done written straight to the board is not a runner status.
+    & $writeBoard 'done'
     $wait = Invoke-Trinity $f @('wait', 'task-f', '-Timeout', '3')
-    Assert-True ($wait.ExitCode -eq 2) "bare done should timeout with exit 2, got $($wait.ExitCode): $($wait.Output)"
-    Assert-True ($wait.Output -match 'status: done') "wait did not report bare done: $($wait.Output)"
+    Assert-True ($wait.ExitCode -eq 2) "bare done should stay pending (exit 2), got $($wait.ExitCode): $($wait.Output)"
+
+    # A lookalike runner status while the runner process still lives is pending too.
+    & $writeBoard 'done (suite 11/12)'
+    $runner = Start-Process powershell.exe -WindowStyle Hidden -PassThru -ArgumentList '-NoProfile', '-Command', 'Start-Sleep 60'
+    try {
+        $outDir = Join-Path $f.Repo '.codex-out'
+        New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $outDir 'pid-task-f.txt'), "$($runner.Id)", [System.Text.UTF8Encoding]::new($false))
+        $wait = Invoke-Trinity $f @('wait', 'task-f', '-Timeout', '3')
+        Assert-True ($wait.ExitCode -eq 2) "lookalike status with a live runner should stay pending (exit 2), got $($wait.ExitCode): $($wait.Output)"
+    }
+    finally { Stop-Process -Id $runner.Id -Force -ErrorAction SilentlyContinue }
 }
 
 Run-Case 'status brief lists the task' {
