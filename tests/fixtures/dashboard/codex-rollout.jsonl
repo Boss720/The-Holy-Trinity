@@ -1,5 +1,7 @@
-{"timestamp":"2026-10-25T10:00:00Z","type":"session_meta","payload":{"session_id":"11111111-2222-4333-8444-555555555555","cli_version":"1.0"}}
+﻿{"timestamp":"2026-10-25T10:00:00Z","type":"session_meta","payload":{"session_id":"11111111-2222-4333-8444-555555555555","cli_version":"1.0"}}
 {"timestamp":"2026-10-25T10:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Codex fixture prompt"}]}}
 {"timestamp":"2026-10-25T10:00:02Z","type":"response_item","payload":{"type":"custom_tool_call","name":"read_file","input":{"path":"fixture.txt"},"call_id":"c1"}}
+{"timestamp":"2026-10-25T10:00:02Z","type":"response_item","payload":{"type":"reasoning","summary":[]}}
+{"timestamp":"2026-10-25T10:00:02Z","type":"response_item","payload":{"type":"function_call","name":"apply_patch","arguments":"*** Begin Patch\n*** Add File: tests/fixture-created.txt\n+fixture\n*** End Patch","call_id":"c2"}}
 {"timestamp":"2026-10-25T10:00:03Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"c1","output":"fake key FIXTURE_FAKE_KEY"}}
-{"timestamp":"2026-10-25T10:00:04Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":20,"output_tokens":30,"reasoning_output_tokens":4,"total_tokens":134},"model_context_window":200000},"rate_limits":{"primary":{"used_percent":12.5,"window_minutes":300,"resets_at":1792933200}}}}
+{"timestamp":"2026-10-25T10:00:04Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":20,"output_tokens":30,"reasoning_output_tokens":4,"total_tokens":134},"last_token_usage":{"input_tokens":80},"model_context_window":200000},"rate_limits":{"primary":{"used_percent":12.5,"window_minutes":300,"resets_at":1792933200}}}}

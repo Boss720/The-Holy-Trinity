@@ -531,7 +531,7 @@ Run-Case 'dashboard collects Codex Antigravity and Claude details and chats' {
         $env:TRINITY_AGY_HOME = Join-Path $f.Root 'agy-home'
         $env:CLAUDE_CONFIG_DIR = Join-Path $f.Root 'claude-home'
         $env:TRINITY_DISABLE = 'codex'
-        $codexId = '11111111-2222-4333-8444-555555555555'; $agyId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'; $claudeId = '99999999-8888-4777-8666-555555555555'; $agentId = 'agent_fixture-01'
+        $codexId = '11111111-2222-4333-8444-555555555555'; $agyId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'; $legacyId = 'bbbbbbbb-cccc-4ddd-8eee-ffffffffffff'; $claudeId = '99999999-8888-4777-8666-555555555555'; $agentId = 'agent_fixture-01'
         # The fake API key is assembled here, not stored, so the pre-commit secret scan stays meaningful.
         $copyFixture = { param($Name, $Destination) [IO.File]::WriteAllText($Destination, ([IO.File]::ReadAllText((Join-Path $script:repoSource "tests\fixtures\dashboard\$Name")) -replace 'FIXTURE_FAKE_KEY', ('sk-' + 'abcdefghijklmnopqrstuvwxyz')), [Text.UTF8Encoding]::new($false)) }
         $codexSessions = Join-Path $env:CODEX_HOME 'sessions\2026\10\25'
@@ -544,6 +544,11 @@ Run-Case 'dashboard collects Codex Antigravity and Claude details and chats' {
         [IO.File]::WriteAllText((Join-Path $codexNextDay "rollout-fixture-$codexChildId.jsonl"), "{`"timestamp`":`"2026-10-26T00:00:01Z`",`"type`":`"session_meta`",`"payload`":{`"session_id`":`"$codexId`",`"id`":`"$codexChildId`",`"parent_thread_id`":`"$codexId`",`"source`":{`"subagent`":{`"other`":`"guardian`"}}}}`r`n", [Text.UTF8Encoding]::new($false))
         New-Item -ItemType Directory -Path (Join-Path $env:TRINITY_AGY_HOME "brain\$agyId\.system_generated\logs") -Force | Out-Null
         & $copyFixture 'agy-transcript.jsonl' (Join-Path $env:TRINITY_AGY_HOME "brain\$agyId\.system_generated\logs\transcript.jsonl")
+        $legacyDir = Join-Path $env:TRINITY_AGY_HOME "brain\$legacyId\.system_generated\logs"
+        New-Item -ItemType Directory -Path $legacyDir -Force | Out-Null
+        $legacyText = [IO.File]::ReadAllText((Join-Path $script:repoSource 'tests\fixtures\dashboard\agy-legacy-transcript.jsonl'))
+        $legacyText = $legacyText.Replace('FIXTURE_TASK_PATH', ((Join-Path $agyLogs 'task-agy-legacy.md').Replace('\', '/'))).Replace('FIXTURE_WORKTREE', $f.Repo.Replace('\', '/'))
+        [IO.File]::WriteAllText((Join-Path $legacyDir 'transcript.jsonl'), $legacyText, [Text.UTF8Encoding]::new($false))
         [IO.File]::WriteAllText((Join-Path $agyLogs 'log-codex-fixture.txt'), "model: gpt-log-fixture`r`nreasoning effort: low`r`nsession id: $codexId`r`n", [Text.UTF8Encoding]::new($false))
         [IO.File]::WriteAllText((Join-Path $agyLogs 'meta-codex-fixture.json'), (@{ agent='codex'; started='2026-10-25T10:00:00'; finished='2026-10-25T10:01:00'; model='gpt-meta-fixture'; effort='high'; sessionId=$codexId } | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
         [IO.File]::WriteAllText((Join-Path $agyLogs 'agy-agy-fixture.log'), "label=`"Gemini Fixture (High)`"`r`ncascade_id:$agyId`r`nworkspaceDirs=[$($f.Repo)]`r`n", [Text.UTF8Encoding]::new($false))
@@ -557,7 +562,7 @@ Run-Case 'dashboard collects Codex Antigravity and Claude details and chats' {
         & $copyFixture 'claude-subagent.jsonl' (Join-Path $subDir "agent-$agentId.jsonl")
         [IO.File]::WriteAllText((Join-Path $subDir "agent-$agentId.meta.json"), (@{ agentType='general-purpose'; description='Fixture subagent'; model='fixture-haiku'; finished=$true } | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
         $board = Join-Path $f.Repo '.git\agent-board.md'
-        $sections = @('', '## codex-fixture', '- agent: codex', '- branch: -', '- worktree: -', '- scope: tests/*', '- status: done 2026-10-25 10:01', '', '## agy-fixture', '- agent: antigravity', '- branch: -', '- worktree: -', '- scope: tests/*', '- status: done 2026-10-25 10:01', '', '## claude-fixture', '- agent: claude', '- branch: -', '- worktree: -', '- scope: tests/*', "- session: $claudeId", '- status: working: fixture 2026-10-25 10:02') -join "`r`n"
+        $sections = @('', '## codex-fixture', '- agent: codex', '- branch: -', '- worktree: -', '- scope: tests/*', '- status: done 2026-10-25 10:01', '', '## agy-fixture', '- agent: antigravity', '- branch: -', '- worktree: -', '- scope: tests/*', '- status: done 2026-10-25 10:01', '', '## agy-legacy', '- agent: antigravity', '- branch: -', "- worktree: $($f.Repo)", '- scope: tests/*', '- status: done 2026-10-25 11:00', '', '## claude-fixture', '- agent: claude', '- branch: -', '- worktree: -', '- scope: tests/*', "- session: $claudeId", '- status: working: fixture 2026-10-25 10:02') -join "`r`n"
         [IO.File]::WriteAllText($board, $sections + "`r`n", [Text.UTF8Encoding]::new($false))
         $dashboard = Join-Path $f.Repo 'scripts\dashboard.ps1'; $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
         $json = & $powershell -NoProfile -ExecutionPolicy Bypass -File $dashboard -Once -Repos $f.Repo
@@ -566,12 +571,30 @@ Run-Case 'dashboard collects Codex Antigravity and Claude details and chats' {
         $tasks = @($state.repos | ForEach-Object { $_.tasks })
         $codex = $tasks | Where-Object task -eq 'codex-fixture' | Select-Object -First 1
         Assert-True ($codex.model -eq 'gpt-meta-fixture' -and $codex.effort -eq 'high' -and $codex.sessionId -eq $codexId) 'Codex log/meta fields were not collected'
-        Assert-True ($codex.tokens.total -eq 134 -and $codex.contextWindow -eq 200000 -and $codex.toolCalls -eq 1 -and $codex.rateLimits.Count -eq 1) ("Codex rollout metrics were not collected: tokens=$($codex.tokens.total), context=$($codex.contextWindow), tools=$($codex.toolCalls), limits=$($codex.rateLimits.Count)")
+        Assert-True ($codex.tokens.total -eq 134 -and $codex.contextWindow -eq 200000 -and $codex.toolCalls -eq 2 -and $codex.rateLimits.Count -eq 1) ("Codex rollout metrics were not collected: tokens=$($codex.tokens.total), context=$($codex.contextWindow), tools=$($codex.toolCalls), limits=$($codex.rateLimits.Count)")
+        Assert-True ($codex.contextUsed -eq 80 -and $codex.steps -eq 1 -and $codex.thinkingSteps -eq 1 -and $codex.lastTool -eq 'apply_patch' -and $codex.filesTouched[0] -eq 'tests/fixture-created.txt' -and $codex.backgroundTasks -eq 1) 'Codex v3 fields were not collected'
+        Assert-True (@($codex.toolBreakdown).Count -eq 2 -and @($codex.toolBreakdown | Where-Object { $_.name -eq 'apply_patch' -and $_.count -eq 1 }).Count -eq 1) 'Codex tool breakdown is wrong'
         Assert-True ($codex.chat -eq "codex:$codexId") 'Codex chat key is missing'
         $codexSubs = @($codex.subChats)
         Assert-True ($codexSubs.Count -eq 1 -and $codexSubs[0].chat -eq "codex:$codexChildId" -and $codexSubs[0].title -eq 'guardian') ("Codex subagent chat was not collected: " + (($codexSubs | ForEach-Object { "$($_.chat)/$($_.title)" }) -join ', '))
         $agy = $tasks | Where-Object task -eq 'agy-fixture' | Select-Object -First 1
         Assert-True ($agy.model -eq 'Gemini Fixture (High)' -and $agy.tokens.input -eq 50 -and $agy.tokens.cached -eq 5 -and $agy.tokens.output -eq 15 -and $agy.toolCalls -eq 1) 'Antigravity transcript metrics were not collected'
+        $legacy = $tasks | Where-Object task -eq 'agy-legacy' | Select-Object -First 1
+        $legacyStart = ([datetime]::Parse('2026-10-25T00:00:00Z').ToLocalTime()).ToString("yyyy-MM-dd'T'HH:mm:ss")
+        $legacyFinish = ([datetime]::Parse('2026-10-25T00:00:05Z').ToLocalTime()).ToString("yyyy-MM-dd'T'HH:mm:ss")
+        Assert-True ($legacy.sessionId -eq $legacyId -and $legacy.model -eq 'Gemini 3.8 Legacy (High)' -and $legacy.chat -eq "agy:$legacyId" -and $legacy.tokens.total -eq 112) 'Legacy Antigravity task lookup, model, chat, or tokens are missing'
+        Assert-True ($legacy.started -eq $legacyStart -and $legacy.finished -eq $legacyFinish -and $legacy.durationSec -eq 5) 'Legacy Antigravity transcript timing is wrong'
+        Assert-True ($legacy.contextUsed -eq 57 -and $legacy.steps -eq 2 -and $legacy.thinkingSteps -eq 1 -and $legacy.toolCalls -eq 4 -and $legacy.backgroundTasks -eq 1 -and $legacy.lastTool -eq 'write_file') 'Legacy Antigravity v3 counts are wrong'
+        Assert-True (@($legacy.toolBreakdown)[0].name -eq 'write_file' -and @($legacy.toolBreakdown)[0].count -eq 2 -and @($legacy.filesTouched).Count -eq 2 -and $legacy.filesTouched[0] -eq 'src/legacy.txt' -and $legacy.filesTouched[1] -eq 'src/second.txt') 'Legacy Antigravity tools or files are wrong'
+        $claudeTask = $tasks | Where-Object task -eq 'claude-fixture' | Select-Object -First 1
+        Assert-True ($claudeTask.contextUsed -eq 0 -and $claudeTask.steps -eq 0 -and $claudeTask.thinkingSteps -eq 0 -and @($claudeTask.toolBreakdown).Count -eq 0 -and @($claudeTask.filesTouched).Count -eq 0 -and $claudeTask.backgroundTasks -eq 0) 'Claude task v3 defaults are wrong'
+        [IO.File]::WriteAllText((Join-Path $legacyDir 'transcript.jsonl'), $legacyText.Replace(' and changed setting `Model Selection` from None to Gemini 3.8 Legacy (High).', '.'), [Text.UTF8Encoding]::new($false))
+        $cliDir = Join-Path $env:TRINITY_AGY_HOME 'log'; New-Item -ItemType Directory -Path $cliDir -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $cliDir 'cli-fixture.log'), "cascade_id:$legacyId label=`"Gemini CLI Fallback`"`r`n", [Text.UTF8Encoding]::new($false))
+        $fallbackJson = & $powershell -NoProfile -ExecutionPolicy Bypass -File $dashboard -Once -Repos $f.Repo
+        Assert-True ($LASTEXITCODE -eq 0) 'Dashboard failed during Antigravity model fallback check'
+        $fallbackTask = @(($fallbackJson -join "`n" | ConvertFrom-Json).repos | ForEach-Object { $_.tasks } | Where-Object task -eq 'agy-legacy' | Select-Object -First 1)
+        Assert-True ($fallbackTask -and $fallbackTask[0].model -eq 'Gemini CLI Fallback') 'Antigravity CLI log model fallback is missing'
         $repoState = $state.repos | Where-Object path -eq ([IO.Path]::GetFullPath($f.Repo)) | Select-Object -First 1
         $session = $repoState.claudeSessions | Where-Object id -eq $claudeId | Select-Object -First 1
         Assert-True ($session.title -eq 'Claude fixture title' -and $session.contextTokens -eq 55 -and $session.subagents.Count -eq 1) 'Claude session or subagent summary is missing'
