@@ -727,6 +727,61 @@ Run-Case 'dashboard caches Claude summaries and rejects non-loopback clients' {
     finally { if ($process) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }; $env:TRINITY_HOME = $oldHome; $env:CODEX_HOME = $oldCodexHome; $env:TRINITY_AGY_HOME = $oldAgyHome; $env:CLAUDE_CONFIG_DIR = $oldClaudeHome; $env:TRINITY_DISABLE = $oldDisable; $env:TRINITY_DASHBOARD_TEST_CLAUDE_SUMMARY_LOG = $oldSummaryLog }
 }
 
+Run-Case 'dashboard serves one shared snapshot to concurrent clients' {
+    param($f)
+    $oldHome=$env:TRINITY_HOME; $oldCollectLog=$env:TRINITY_DASHBOARD_TEST_COLLECT_LOG; $oldDemand=$env:TRINITY_DASHBOARD_TEST_DEMAND_SECONDS; $process=$null
+    try {
+        $env:TRINITY_HOME=Join-Path $f.Root 'isolated dashboard home'; $env:TRINITY_DASHBOARD_TEST_COLLECT_LOG=Join-Path $f.Root 'collect.log'; Remove-Item $env:TRINITY_DASHBOARD_TEST_COLLECT_LOG -Force -ErrorAction SilentlyContinue
+        $tcp=New-Object System.Net.Sockets.TcpListener([Net.IPAddress]::Loopback,0); $tcp.Start(); $port=$tcp.LocalEndpoint.Port; $tcp.Stop()
+        $dashboard=Join-Path $f.Repo 'scripts\dashboard.ps1'; $process=Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -WindowStyle Hidden -PassThru -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"{0}"' -f $dashboard),'-Port',[string]$port,'-Repos',('"{0}"' -f $f.Repo))
+        $first=$null; $deadline=(Get-Date).AddSeconds(15)
+        while(-not $first -and (Get-Date)-lt $deadline -and -not $process.HasExited){try{$first=Invoke-WebRequest -Uri "http://localhost:$port/api/state" -UseBasicParsing -TimeoutSec 60}catch{Start-Sleep -Milliseconds 100}}
+        if(-not $first){Skip-Case 'HttpListener is unsupported or blocked in this environment'}
+        $before=@([IO.File]::ReadAllLines($env:TRINITY_DASHBOARD_TEST_COLLECT_LOG)).Count
+        $bodies=@()
+        # Keep the request objects alongside their asynchronous handles for response collection.
+        $clients=@(); for($i=0;$i -lt 6;$i++){ $client=[Net.HttpWebRequest]::Create("http://localhost:$port/api/state"); $clients+=,$client }
+        $pending=@(); foreach($client in $clients){$pending+=,$client.BeginGetResponse($null,$client)}
+        foreach($async in $pending){$client=[Net.HttpWebRequest]$async.AsyncState; $response=$client.EndGetResponse($async); try{$reader=New-Object IO.StreamReader($response.GetResponseStream());$bodies+=,$reader.ReadToEnd();$reader.Dispose()}finally{$response.Close()}}
+        Assert-True (@($bodies | Select-Object -Unique).Count -eq 1) 'concurrent state requests did not receive identical snapshot bodies'
+        $after=@([IO.File]::ReadAllLines($env:TRINITY_DASHBOARD_TEST_COLLECT_LOG)).Count
+        Assert-True (($after-$before)-le 2) "collector ran $($after-$before) times during six concurrent requests"
+        $age=$first.Headers['X-Snapshot-Age-Ms']; Assert-True ($age -match '^\d+$') "snapshot age header was missing or invalid: $age"
+    }
+    finally { if($process){Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue}; $env:TRINITY_HOME=$oldHome; $env:TRINITY_DASHBOARD_TEST_COLLECT_LOG=$oldCollectLog; $env:TRINITY_DASHBOARD_TEST_DEMAND_SECONDS=$oldDemand }
+}
+
+Run-Case 'dashboard collector idles without clients' {
+    param($f)
+    $oldHome=$env:TRINITY_HOME; $oldCollectLog=$env:TRINITY_DASHBOARD_TEST_COLLECT_LOG; $oldDemand=$env:TRINITY_DASHBOARD_TEST_DEMAND_SECONDS; $process=$null
+    try {
+        $env:TRINITY_HOME=Join-Path $f.Root 'isolated dashboard home'; $env:TRINITY_DASHBOARD_TEST_COLLECT_LOG=Join-Path $f.Root 'collect.log'; $env:TRINITY_DASHBOARD_TEST_DEMAND_SECONDS='2'; Remove-Item $env:TRINITY_DASHBOARD_TEST_COLLECT_LOG -Force -ErrorAction SilentlyContinue
+        $tcp=New-Object System.Net.Sockets.TcpListener([Net.IPAddress]::Loopback,0); $tcp.Start(); $port=$tcp.LocalEndpoint.Port; $tcp.Stop()
+        $dashboard=Join-Path $f.Repo 'scripts\dashboard.ps1'; $process=Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -WindowStyle Hidden -PassThru -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"{0}"' -f $dashboard),'-Port',[string]$port,'-RefreshSeconds','1','-Repos',('"{0}"' -f $f.Repo))
+        $response=$null; $deadline=(Get-Date).AddSeconds(15)
+        while(-not $response -and (Get-Date)-lt $deadline -and -not $process.HasExited){try{$response=Invoke-WebRequest -Uri "http://localhost:$port/api/state" -UseBasicParsing -TimeoutSec 60}catch{Start-Sleep -Milliseconds 100}}
+        if(-not $response){Skip-Case 'HttpListener is unsupported or blocked in this environment'}
+        Start-Sleep -Seconds 4; $settled=@([IO.File]::ReadAllLines($env:TRINITY_DASHBOARD_TEST_COLLECT_LOG)).Count; Start-Sleep -Seconds 3
+        $final=@([IO.File]::ReadAllLines($env:TRINITY_DASHBOARD_TEST_COLLECT_LOG)).Count
+        Assert-True ($final -eq $settled) "collector continued running without clients ($settled to $final collections)"
+    }
+    finally { if($process){Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue}; $env:TRINITY_HOME=$oldHome; $env:TRINITY_DASHBOARD_TEST_COLLECT_LOG=$oldCollectLog; $env:TRINITY_DASHBOARD_TEST_DEMAND_SECONDS=$oldDemand }
+}
+
+Run-Case 'dashboard state reply carries snapshot age' {
+    param($f)
+    $oldHome=$env:TRINITY_HOME; $oldCollectLog=$env:TRINITY_DASHBOARD_TEST_COLLECT_LOG; $process=$null
+    try {
+        $env:TRINITY_HOME=Join-Path $f.Root 'isolated dashboard home'; $env:TRINITY_DASHBOARD_TEST_COLLECT_LOG=Join-Path $f.Root 'collect.log'; Remove-Item $env:TRINITY_DASHBOARD_TEST_COLLECT_LOG -Force -ErrorAction SilentlyContinue
+        $tcp=New-Object System.Net.Sockets.TcpListener([Net.IPAddress]::Loopback,0); $tcp.Start(); $port=$tcp.LocalEndpoint.Port; $tcp.Stop()
+        $dashboard=Join-Path $f.Repo 'scripts\dashboard.ps1'; $process=Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -WindowStyle Hidden -PassThru -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"{0}"' -f $dashboard),'-Port',[string]$port,'-Repos',('"{0}"' -f $f.Repo))
+        $response=$null; $deadline=(Get-Date).AddSeconds(15)
+        while(-not $response -and (Get-Date)-lt $deadline -and -not $process.HasExited){try{$response=Invoke-WebRequest -Uri "http://localhost:$port/api/state" -UseBasicParsing -TimeoutSec 60}catch{Start-Sleep -Milliseconds 100}}
+        if(-not $response){Skip-Case 'HttpListener is unsupported or blocked in this environment'}
+        $age=$response.Headers['X-Snapshot-Age-Ms']; Assert-True ($age -match '^\d+$') "snapshot age header was missing or invalid: $age"
+    }
+    finally { if($process){Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue}; $env:TRINITY_HOME=$oldHome; $env:TRINITY_DASHBOARD_TEST_COLLECT_LOG=$oldCollectLog }
+}
 Run-Case 'dashboard HTTP routes return state JSON and 404' {
     param($f)
     $tcp = New-Object System.Net.Sockets.TcpListener([Net.IPAddress]::Loopback, 0)

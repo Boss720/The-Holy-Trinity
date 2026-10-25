@@ -1,6 +1,8 @@
 ﻿param(
     [int]$Port = 7777,
+    [int]$RefreshSeconds = 3,
     [switch]$Once,
+    [switch]$LibraryOnly,
     [string]$Chat = '',
     [string[]]$Repos = @()
 )
@@ -817,20 +819,6 @@ function Convert-StateToJson($State) {
     return [regex]::Replace($json, '[^\x00-\x7F]', { param($m) '\u{0:x4}' -f [int][char]$m.Value })
 }
 
-if ($Chat) {
-    $kind = Get-ChatKeyKind $Chat
-    if (-not $kind) { [Console]::Error.WriteLine('Malformed chat id.'); exit 2 }
-    $chatResult = Resolve-Chat $Chat
-    if ($chatResult.status -ne 200) { [Console]::Error.WriteLine('Chat not found.'); exit 3 }
-    Convert-StateToJson $chatResult.value
-    exit 0
-}
-
-if ($Once) {
-    Convert-StateToJson (Get-DashboardState)
-    exit 0
-}
-
 # Request failures go to <trinity home>\dashboard-errors.log (route + exception only, never chat content), kept under 512 KB.
 function Write-DashboardError([string]$Route, $ErrorRecord) {
     try {
@@ -845,17 +833,66 @@ function Write-DashboardError([string]$Route, $ErrorRecord) {
     catch { }
 }
 
+if ($LibraryOnly) { return }
+
+if ($Chat) {
+    $kind = Get-ChatKeyKind $Chat
+    if (-not $kind) { [Console]::Error.WriteLine('Malformed chat id.'); exit 2 }
+    $chatResult = Resolve-Chat $Chat
+    if ($chatResult.status -ne 200) { [Console]::Error.WriteLine('Chat not found.'); exit 3 }
+    Convert-StateToJson $chatResult.value
+    exit 0
+}
+
+if ($Once) {
+    Convert-StateToJson (Get-DashboardState)
+    exit 0
+}
+
 $listener = $null
+$collectorRunspace = $null
+$collectorPowerShell = $null
+$collectorAsync = $null
+$sharedState = [hashtable]::Synchronized(@{ bytes = $null; builtAt = [datetime]::MinValue; lastRequestAt = [datetime]::MinValue; stop = $false; error = $null; errorSeq = 0 })
+$loggedErrorSeq = 0
 try {
     $listener = New-Object System.Net.HttpListener
     $listener.Prefixes.Add("http://localhost:$Port/")
     $listener.Start()
 }
-catch {
-    [Console]::Error.WriteLine("Dashboard could not listen on port ${Port}: $($_.Exception.Message)")
-    exit 2
-}
+catch { [Console]::Error.WriteLine("Dashboard could not listen on port ${Port}: $($_.Exception.Message)"); exit 2 }
 try {
+    $demandSeconds = 30
+    if ($env:TRINITY_DASHBOARD_TEST_DEMAND_SECONDS -match '^\d+$') { $demandSeconds = [Math]::Max(1, [int]$env:TRINITY_DASHBOARD_TEST_DEMAND_SECONDS) }
+    $collectorRunspace = [RunspaceFactory]::CreateRunspace()
+    $collectorRunspace.Open()
+    $collectorPowerShell = [PowerShell]::Create()
+    $collectorPowerShell.Runspace = $collectorRunspace
+    $collectorScript = {
+        param($dashboardPath, [string[]]$repos, $shared, [int]$refreshSeconds, [int]$demandSeconds)
+        try {
+            . $dashboardPath -LibraryOnly -Repos $repos
+            while (-not $shared.stop) {
+                $now = [datetime]::UtcNow
+                $hasBytes = ($null -ne $shared.bytes -and $shared.bytes.Length -gt 0)
+                $demanded = ($shared.lastRequestAt -ne [datetime]::MinValue -and ($now - $shared.lastRequestAt).TotalSeconds -lt $demandSeconds)
+                $due = (-not $hasBytes) -or ($demanded -and ($now - $shared.builtAt).TotalSeconds -ge $refreshSeconds)
+                if ($due) {
+                    try {
+                        $json = Convert-StateToJson (Get-DashboardState)
+                        $bytes = [Text.Encoding]::UTF8.GetBytes($json)
+                        $shared.bytes = $bytes
+                        $shared.builtAt = [datetime]::UtcNow
+                    }
+                    catch { $shared.error = $_.Exception.ToString(); $shared.errorSeq = [int]$shared.errorSeq + 1 }
+                }
+                Start-Sleep -Milliseconds 100
+            }
+        }
+        catch { $shared.error = $_.Exception.ToString(); $shared.errorSeq = [int]$shared.errorSeq + 1 }
+    }.ToString()
+    [void]$collectorPowerShell.AddScript($collectorScript).AddArgument($PSCommandPath).AddArgument($Repos).AddArgument($sharedState).AddArgument($RefreshSeconds).AddArgument($demandSeconds)
+    $collectorAsync = $collectorPowerShell.BeginInvoke()
     while ($listener.IsListening) {
         $context = $null
         try { $context = $listener.GetContext() }
@@ -875,12 +912,41 @@ try {
                 $response.StatusCode = 404
             }
             elseif ($context.Request.Url.AbsolutePath -eq '/api/state') {
-                $bytes = [Text.Encoding]::UTF8.GetBytes((Convert-StateToJson (Get-DashboardState)))
-                $response.StatusCode = 200
-                $response.ContentType = 'application/json; charset=utf-8'
-                $response.Headers['Cache-Control'] = 'no-store'
-                $response.ContentLength64 = $bytes.Length
-                $response.OutputStream.Write($bytes, 0, $bytes.Length)
+                $requestStarted = [datetime]::UtcNow
+                $sharedState.lastRequestAt = $requestStarted
+                $bytes = $null
+                $builtAt = [datetime]::MinValue
+                if ($sharedState.bytes -and (([datetime]::UtcNow - $sharedState.builtAt).TotalSeconds -lt 15)) {
+                    $bytes = $sharedState.bytes
+                    $builtAt = $sharedState.builtAt
+                }
+                else {
+                    $deadline = [datetime]::UtcNow.AddSeconds(60)
+                    while ([datetime]::UtcNow -lt $deadline) {
+                        if ($sharedState.bytes -and $sharedState.builtAt -gt $requestStarted) {
+                            $bytes = $sharedState.bytes
+                            $builtAt = $sharedState.builtAt
+                            break
+                        }
+                        if (-not $sharedState.bytes -and $sharedState.error) { break }
+                        Start-Sleep -Milliseconds 75
+                    }
+                    if (-not $bytes -and $sharedState.bytes) {
+                        $bytes = $sharedState.bytes
+                        $builtAt = $sharedState.builtAt
+                    }
+                }
+                if ($bytes) {
+                    $response.StatusCode = 200
+                    $response.ContentType = 'application/json; charset=utf-8'
+                    $response.Headers['Cache-Control'] = 'no-store'
+                    $ageMs = [int][Math]::Max(0, ([datetime]::UtcNow - $builtAt).TotalMilliseconds)
+                    $response.Headers['X-Snapshot-Age-Ms'] = [string]$ageMs
+                    $response.ContentLength64 = $bytes.Length
+                    $response.OutputStream.Write($bytes, 0, $bytes.Length)
+                }
+                elseif ($sharedState.error) { $response.StatusCode = 500 }
+                else { $response.StatusCode = 503; $response.Headers['Retry-After'] = '5' }
             }
             elseif ($context.Request.Url.AbsolutePath -eq '/api/chat') {
                 $key = [string]$context.Request.QueryString['id']
@@ -915,7 +981,19 @@ try {
         }
         finally {
             try { $response.Close() } catch { }
+        }        while ($loggedErrorSeq -lt $sharedState.errorSeq) {
+            $loggedErrorSeq++
+            $record = [System.Management.Automation.ErrorRecord]::new([Exception]::new([string]$sharedState.error), 'DashboardCollector', [System.Management.Automation.ErrorCategory]::NotSpecified, $null)
+            Write-DashboardError 'collector' $record
         }
     }
 }
-finally { $listener.Close() }
+finally {
+    $sharedState.stop = $true
+    if ($collectorAsync -and $collectorPowerShell) {
+        try { if (-not $collectorAsync.IsCompleted) { [void]$collectorAsync.AsyncWaitHandle.WaitOne(1500) } } catch { }
+        try { $collectorPowerShell.Stop() } catch { }; try { $collectorPowerShell.Dispose() } catch { }
+    }
+    if ($collectorRunspace) { try { $collectorRunspace.Close() } catch { }; try { $collectorRunspace.Dispose() } catch { } }
+    if ($listener) { $listener.Close() }
+}
