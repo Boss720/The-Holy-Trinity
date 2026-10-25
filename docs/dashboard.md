@@ -14,7 +14,7 @@ One local page that shows what Claude, Codex and Antigravity are doing across ev
 
 ## Repo registry
 
-`%USERPROFILE%\.trinity\repos.txt`: one absolute repo root per line (main checkout), written by `trinity init` and `trinity setup`. Missing or stale lines (path gone, not a git repo) are skipped silently. The repo the dashboard is started from is always included even if not listed.
+`%USERPROFILE%\.trinity\repos.txt`: one absolute repo root per line (main checkout), written by `trinity init` and `trinity setup`. `TRINITY_HOME` overrides the `.trinity` folder (the self-test sets it so it never touches the real registry). Missing or stale lines (path gone, not a git repo) are skipped silently. The repo the dashboard is started from is always included even if not listed.
 
 ## Data sources per repo
 
@@ -85,7 +85,9 @@ Rules:
 
 ## Server
 
-- `powershell -File scripts\dashboard.ps1 [-Port 7777]`: `System.Net.HttpListener` on `http://localhost:<port>/` only (never `+` or `*`). Routes: `GET /` -> `dashboard.html` next to the script; `GET /api/state` -> JSON above (`Content-Type: application/json; charset=utf-8`, `Cache-Control: no-store`); anything else 404. Read-only: no POST, no actions.
+- `powershell -File scripts\dashboard.ps1 [-Port 7777]`: `System.Net.HttpListener` on `http://localhost:<port>/` only (never `+` or `*`). Routes: `GET /` -> `dashboard.html` next to the script; `GET /api/state` -> JSON above (`Content-Type: application/json; charset=utf-8`, `Cache-Control: no-store`); `GET /dashboard-sample.json` -> the sample file (for `?sample=1`); anything else 404. Read-only: no POST, no actions.
+- JSON is ASCII-only (non-ASCII escaped as `\uXXXX`) so `-Once` output survives any console code page. Result and log files are read as UTF-8, at most 64 KB (head for results, tail for logs), with ReadWrite sharing so a running agent's log is readable.
+- Git cost: three git calls per repo (`rev-parse`, `status --porcelain=v2 --branch`, `for-each-ref` with `ahead-behind:main`, falling back to `rev-list` per branch on git older than 2.41). About 0.25 s per poll for one repo.
 - One request at a time is fine. Each request rebuilds state (must stay under ~1s for 10 repos with 20 tasks each).
 - `-Once` switch: print the state JSON to stdout and exit (used by tests and `trinity dashboard -Json`).
 - Clean shutdown on Ctrl+C / process stop; on startup, if the port is busy, exit 2 with a clear message.

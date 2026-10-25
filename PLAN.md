@@ -29,6 +29,7 @@ Per-module checklist. Owner = claude | codex | antigravity.
 - [x] Spec + JSON contract (`docs/dashboard.md`) - claude
 - [x] Repo registry, `trinity track`, `trinity dashboard` (-Json/-Stop/-Port), init/setup register - claude
 - [x] Army skill routes chunks to Codex and Antigravity through trinity - claude
-- [ ] Collector + localhost server `scripts/dashboard.ps1`, self-test cases - codex (task dash-server)
-- [ ] Page `scripts/dashboard.html` + sample JSON - antigravity (task dash-ui)
-- [ ] Live check: dashboard shows real tasks in all three lanes, screenshot - claude
+- [x] Collector + localhost server `scripts/dashboard.ps1`, self-test cases - codex (task dash-server; encoding, worktree paths, perf fixed by claude)
+- [x] Page `scripts/dashboard.html` + sample JSON - antigravity (task dash-ui)
+- [x] Runner strips agy background notices from results (they became a commit subject) - claude
+- [x] Live check: lanes, expand, filter, offline banner, 375px, repo card; `trinity dashboard` start/reuse/stop - claude

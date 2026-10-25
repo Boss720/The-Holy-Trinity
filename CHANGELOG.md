@@ -19,6 +19,10 @@
 - `trinity dashboard`: local read-only page (`scripts/dashboard.ps1` server + `scripts/dashboard.html`) with one lane per agent across every repo in `%USERPROFILE%\.trinity\repos.txt`; `-Json`, `-Stop`, `-Port`.
 - `trinity track <task> <note>`: Claude's own work shows on the board and dashboard next to its workers.
 - `init` and `setup` register the repo for the dashboard.
+- `TRINITY_HOME` overrides `%USERPROFILE%\.trinity` (registry, dashboard pid); the self-test isolates itself with it.
+
+### Fixed (dashboard)
+- Antigravity runs: the runner strips `agy -p` background `<SYSTEM_MESSAGE>` notices from the result before using it as the commit message, and reads results as UTF-8.
 
 ### Changed
 - MetaStrip, the first test project, moved to its own repo. This repo is now only the toolkit.

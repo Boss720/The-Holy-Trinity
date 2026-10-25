@@ -17,8 +17,30 @@ function Invoke-GitRead([string]$Directory, [string[]]$Arguments) {
 
 function Get-TextLines([string]$Path, [int]$Limit, [switch]$Tail) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return '' }
-    # Agent output is UTF-8; Get-Content in PS 5.1 would read it as ANSI.
-    $lines = @(try { [IO.File]::ReadAllLines($Path) } catch { })
+    # Agent output is UTF-8 (Get-Content in PS 5.1 would read it as ANSI). Read at most 64 KB from the head or
+    # the tail, since logs grow to megabytes, and share ReadWrite so a running agent's log is readable mid-write.
+    $text = ''
+    $partial = $false
+    try {
+        $stream = New-Object IO.FileStream($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        try {
+            $count = [int][Math]::Min($stream.Length, 65536)
+            if ($Tail -and $stream.Length -gt $count) { [void]$stream.Seek(-$count, [IO.SeekOrigin]::End); $partial = $true }
+            $buffer = New-Object byte[] $count
+            $read = 0
+            while ($read -lt $count) {
+                $n = $stream.Read($buffer, $read, $count - $read)
+                if ($n -le 0) { break }
+                $read += $n
+            }
+            $text = [Text.Encoding]::UTF8.GetString($buffer, 0, $read)
+        }
+        finally { $stream.Dispose() }
+    }
+    catch { return '' }
+    $lines = @($text.TrimStart([char]0xFEFF).TrimEnd("`r", "`n") -split "`r?`n")
+    # A tail read starts mid-line (maybe mid-character); drop that fragment.
+    if ($partial -and $lines.Count -gt 1) { $lines = $lines[1..($lines.Count - 1)] }
     if ($Tail -and $lines.Count -gt $Limit) { $lines = $lines[($lines.Count - $Limit)..($lines.Count - 1)] }
     elseif (-not $Tail -and $lines.Count -gt $Limit) { $lines = $lines[0..($Limit - 1)] }
     return ($lines -join "`n")
@@ -51,9 +73,19 @@ function Get-RepoTasks([string]$Main, [string]$Common) {
     if ($entry) { $sections.Add($entry) }
 
     $outDir = Join-Path $Main '.codex-out'
-    $branchNames = Invoke-GitRead $Main @('for-each-ref', '--format=%(refname:short)', 'refs/heads')
-    $branchSet = @{}
-    if ($branchNames) { foreach ($name in ($branchNames -split "`n")) { $branchSet[$name.Trim()] = $true } }
+    # Commits ahead of main for every branch in one git call (git 2.41+); older git falls back to rev-list per task.
+    $aheadOf = @{}
+    $refs = Invoke-GitRead $Main @('for-each-ref', '--format=%(refname:short) %(ahead-behind:main)', 'refs/heads')
+    $batched = [bool]$refs
+    if (-not $batched) { $refs = Invoke-GitRead $Main @('for-each-ref', '--format=%(refname:short)', 'refs/heads') }
+    if ($refs) {
+        foreach ($line in ($refs -split "`n")) {
+            $parts = @($line.Trim() -split '\s+')
+            if (-not $parts[0]) { continue }
+            $aheadOf[$parts[0]] = $null
+            if ($batched -and $parts.Count -ge 2 -and $parts[1] -match '^\d+$') { $aheadOf[$parts[0]] = [int]$parts[1] }
+        }
+    }
     $tasks = New-Object System.Collections.Generic.List[object]
     foreach ($item in $sections) {
         if ($item.agent -notin @('claude', 'codex', 'antigravity')) { continue }
@@ -71,9 +103,12 @@ function Get-RepoTasks([string]$Main, [string]$Common) {
         $updated = ''
         if ($status -match '(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\s*$') { $updated = $Matches[1] }
         $commits = 0
-        if ($item.branch -and $item.branch -ne '-' -and $branchSet.ContainsKey($item.branch)) {
-            $count = Invoke-GitRead $Main @('rev-list', '--count', "main..$($item.branch)")
-            if ($count -match '^\d+$') { $commits = [int]$count }
+        if ($item.branch -and $item.branch -ne '-' -and $aheadOf.ContainsKey($item.branch)) {
+            if ($null -ne $aheadOf[$item.branch]) { $commits = $aheadOf[$item.branch] }
+            else {
+                $count = Invoke-GitRead $Main @('rev-list', '--count', "main..$($item.branch)")
+                if ($count -match '^\d+$') { $commits = [int]$count }
+            }
         }
         $result = Get-TextLines (Join-Path $outDir ("result-{0}.md" -f $item.task)) 15
         $logTail = Get-TextLines (Join-Path $outDir ("log-{0}.txt" -f $item.task)) 15 -Tail
@@ -95,25 +130,26 @@ function Get-RepoTasks([string]$Main, [string]$Common) {
 }
 
 function Get-RepoState([string]$Path) {
-    $root = Invoke-GitRead $Path @('rev-parse', '--show-toplevel')
-    if (-not $root) { return $null }
-    $root = [IO.Path]::GetFullPath($root)
-    $common = Invoke-GitRead $root @('rev-parse', '--path-format=absolute', '--git-common-dir')
-    if (-not $common) { return $null }
-    $common = [IO.Path]::GetFullPath($common)
+    # Every poll rebuilds state, and each git spawn costs ~50 ms on Windows: three calls per repo in total.
+    $revParse = Invoke-GitRead $Path @('rev-parse', '--show-toplevel', '--path-format=absolute', '--git-common-dir')
+    $revLines = @(if ($revParse) { $revParse -split "`n" })
+    if ($revLines.Count -lt 2) { return $null }
+    $root = [IO.Path]::GetFullPath($revLines[0].Trim())
+    $common = [IO.Path]::GetFullPath($revLines[1].Trim())
     # A registered path may be a worktree; board, .codex-out and PLAN live with the main checkout.
     $main = Split-Path $common -Parent
     if (Test-Path -LiteralPath (Join-Path $main '.git')) { $root = $main }
-    $branch = Invoke-GitRead $root @('branch', '--show-current')
-    if (-not $branch) { $branch = '' }
-    $status = Invoke-GitRead $root @('status', '--porcelain')
-    $uncommitted = 0
-    if ($status) { $uncommitted = @($status -split "`n" | Where-Object { $_ }).Count }
+    # Branch, commits ahead of upstream and changed files in one call.
+    $branch = ''
     $ahead = 0
-    $upstream = Invoke-GitRead $root @('rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}')
-    if ($upstream) {
-        $aheadText = Invoke-GitRead $root @('rev-list', '--count', "$upstream..HEAD")
-        if ($aheadText -match '^\d+$') { $ahead = [int]$aheadText }
+    $uncommitted = 0
+    $status = Invoke-GitRead $root @('status', '--porcelain=v2', '--branch')
+    if ($status) {
+        foreach ($line in ($status -split "`n")) {
+            if ($line -match '^# branch\.head (.+)$') { if ($Matches[1] -ne '(detached)') { $branch = $Matches[1].Trim() } }
+            elseif ($line -match '^# branch\.ab \+(\d+) ') { $ahead = [int]$Matches[1] }
+            elseif ($line -and $line -notmatch '^#') { $uncommitted++ }
+        }
     }
     $plan = [ordered]@{ done = 0; total = 0; open = @() }
     $planPath = Join-Path $root 'PLAN.md'
