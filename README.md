@@ -1,12 +1,14 @@
 # The Holy Trinity
 
-A shared workspace where three coding agents work on one repo without stepping on each other:
+A coordination toolkit that makes three coding agents work on one repo as a team, without stepping on each other:
 
-- **Claude Code** (desktop): orchestrator. Plans, edits, tests, commits, merges.
-- **Codex**: reviewer and second opinion. Read-only by default.
+- **Claude Code** (desktop): orchestrator. Plans, splits work, delegates, merges, verifies.
+- **Codex**: headless worker in its own worktree, and the reviewer gate before every commit and merge.
 - **Antigravity** (Gemini): UI work and browser-agent verification.
 
 All three read the same rules file (`AGENTS.md`) and talk to each other through files, because none of them can see the others' chats.
+
+This repo is the toolkit itself. Install it into any project with `trinity init <path>` (see "Use it in another project").
 
 ## Requirements
 
@@ -33,6 +35,18 @@ All three read the same rules file (`AGENTS.md`) and talk to each other through 
 | `.githooks/pre-commit` | Encoding and secret checks (enabled by `trinity setup`). |
 | `.claude/settings.json` | Session-start hook that shows `trinity status`. |
 | `scripts/agent-task.ps1` | Creates a worktree + branch per parallel task and registers it on the agent board. |
+| `.claude/agents/` | Claude subagents that drive Codex and Antigravity (`codex-worker`, `codex-reviewer`, `antigravity-ui`). |
+| `tests/` | End-to-end self-test of the trinity CLI against throwaway repos with a fake Codex (`tests\run-tests.cmd`). |
+
+## Use it in another project
+
+```bat
+trinity init D:\code\myapp
+```
+
+Copies the toolkit (trinity CLI, Codex wrappers, subagent definitions, pre-commit hook) and writes `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `PLAN.md`, `HANDOFF.md` if missing. Then fill in "Project commands" in that repo's `AGENTS.md`: the `Test` line is what `trinity merge` runs, and `Shared files` lists files only Claude edits (registries, `package.json`). Commit, and open a new Claude session there so the subagents load.
+
+Rerun `init` to update an install: toolkit files are refreshed, the project's own docs are kept (`-Force` replaces them). Example install: the MetaStrip app (`D:\AI\projects\Dev\Projects\MetaStrip`).
 
 ## Quick start (automatic mode)
 
@@ -82,9 +96,9 @@ You talk to Claude only. Claude routes work to Codex and Antigravity through thr
 | `codex-reviewer` | `scripts\codex-review.cmd` / `codex-ask.cmd` | Review before every commit and merge, second opinions |
 | `antigravity-ui` | `trinity dispatch antigravity` + `trinity wait` | UI verification and visual fixes |
 
-The routing table and rules live in `CLAUDE.md`. Typical run: Claude splits a feature by files, launches several `codex-worker`s at once, keeps working itself, then runs `trinity merge <task> -Yes` per branch and wires shared files (registries, `package.json`) itself. Workers never touch shared files, so a review finding like "handler not registered" on a worker branch is expected; Claude merges that branch with `-Force` and does the wiring on `main`.
+The routing table and rules live in `CLAUDE.md`. Typical run: Claude splits a feature by files, launches several `codex-worker`s at once, keeps working itself, then runs `trinity merge <task> -Yes` per branch and wires shared files (registries, `package.json`) itself. Workers never touch shared files, so a review finding like "handler not registered" on a worker branch is expected. `merge` defers P0/P1 findings that mention a shared file when the branch left shared files untouched, writes them to `.codex-out\deferred-<task>.txt`, and Claude wires them on `main`. Every other P0/P1 still blocks.
 
-First real run (Module 2 in `PLAN.md`): two Codex workers built GIF and ODF stripping in parallel; Codex review then caught two real bugs (GIF plain-text frames dropped, ODF namespace prefixes hardcoded) that Claude fixed on `main`.
+First real run (in MetaStrip, before it moved to its own repo): two Codex workers built GIF and ODF stripping in parallel; Codex review then caught two real bugs that Claude fixed on `main`.
 
 ---
 

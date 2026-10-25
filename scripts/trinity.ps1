@@ -37,9 +37,39 @@ function Show-Usage {
     Write-Host '                                          trinity dispatch codex login-form -PromptFile prompt.txt'
     Write-Host '  merge <task> [-Yes] [-Force]          review, merge --no-ff, run tests, clean up'
     Write-Host '                                          trinity merge login-form'
+    Write-Host '  init <path> [-Force]                  install or update trinity in another git repo'
+    Write-Host '                                          trinity init D:\code\myapp   (keeps its docs unless -Force)'
     Write-Host '  ui                                    open the main checkout in Antigravity'
     Write-Host '  setup                                 enable .githooks and create .codex-out'
     Write-Host '  help                                  this text'
+}
+
+# Codex review findings: a "- [Pn] title" line plus the indented lines under it.
+function Split-Findings([string[]]$lines) {
+    $blocks = @()
+    $cur = $null
+    foreach ($l in $lines) {
+        if ($l -match '^\s*-\s*\[P[0-3]\]') {
+            if ($cur) { $blocks += $cur }
+            $cur = $l
+        }
+        elseif ($cur -and $l.Trim()) { $cur += "`n" + $l }
+        elseif ($cur) { $blocks += $cur; $cur = $null }
+    }
+    if ($cur) { $blocks += $cur }
+    $blocks
+}
+
+# Backticked paths/globs on the "- Shared files: ..." line of AGENTS.md.
+function Get-SharedFiles([string]$root) {
+    $md = Join-Path $root 'AGENTS.md'
+    if (-not (Test-Path $md)) { return @() }
+    foreach ($l in [IO.File]::ReadAllLines($md)) {
+        if ($l -match '^- Shared files: (.+)$') {
+            return @([regex]::Matches($Matches[1], '`([^`]+)`') | ForEach-Object { $_.Groups[1].Value } | Where-Object { $_ -ne 'TBD' })
+        }
+    }
+    @()
 }
 
 # Native stderr noise must not throw, so every git call here ignores stderr via cmd-free capture.
@@ -330,8 +360,25 @@ switch ($Command) {
         [IO.File]::WriteAllText((Join-Path $paths.Out "review-$task.txt"), (($review -join "`r`n") + "`r`n"), $script:Utf8)
         $review | ForEach-Object { Write-Host $_ }
 
-        $high = $review | Select-String '\[P[01]\]'
-        $any = $review | Select-String '\[P[0-3]\]'
+        $blocks = @(Split-Findings $review | Select-Object -Unique)
+        $high = @($blocks | Where-Object { $_ -match '\[P[01]\]' })
+        $any = $blocks.Count -gt 0
+
+        # Workers never edit shared files, so a finding about them on a branch that leaves them untouched
+        # is wiring the orchestrator does after the merge, not a reason to block it.
+        $shared = @(Get-SharedFiles $paths.Main)
+        if ($high -and $shared) {
+            $touched = @(Get-Git @('-C', $paths.Main, 'diff', '--name-only', "main...$branch"))
+            $touchesShared = @($touched | Where-Object { $f = $_; $shared | Where-Object { $f -like $_ } })
+            if (-not $touchesShared) {
+                $deferred = @($high | Where-Object { $b = $_ -replace '\\', '/'; $shared | Where-Object { $b -like "*$_*" } })
+                if ($deferred) {
+                    $high = @($high | Where-Object { $deferred -notcontains $_ })
+                    [IO.File]::WriteAllText((Join-Path $paths.Out "deferred-$task.txt"), (($deferred -join "`r`n`r`n") + "`r`n"), $script:Utf8)
+                    foreach ($d in $deferred) { Write-Host "Deferred to orchestrator (shared file): $(($d -split "`n")[0].Trim())" -ForegroundColor Yellow }
+                }
+            }
+        }
         if ($high -and -not $Force) { Fail 'P0/P1 findings; fix on the branch or rerun with -Force' }
         if ($any -and -not $Yes) {
             $ans = Read-Host 'Merge anyway? [y/N]'
@@ -375,6 +422,81 @@ switch ($Command) {
         git -C $paths.Main branch -d $branch
         Write-Host ''
         Write-Host "Merged $branch into main ($n commits). Worktree and branch removed."
+        if ($deferred) { Write-Host "Shared-file wiring left for you: .codex-out\deferred-$task.txt" -ForegroundColor Yellow }
+    }
+
+    'init' {
+        if (-not $Rest -or -not $Rest[0]) { Fail 'usage: trinity init <path-to-git-repo> [-Force]' }
+        $resolved = Resolve-Path $Rest[0] -ErrorAction SilentlyContinue
+        if (-not $resolved) { Fail "path not found: $($Rest[0])" }
+        $top = Get-Git @('-C', $resolved.Path, 'rev-parse', '--show-toplevel')
+        if (-not $top) { Fail "$($resolved.Path) is not a git repo; run git init there first" }
+        $target = $top -replace '/', '\'
+        $kit = Split-Path -Parent $PSScriptRoot
+        if ((Resolve-Path $kit).Path -eq $target) { Fail 'target is the toolkit repo itself' }
+
+        $copy = {
+            param([string]$rel)
+            $dst = Join-Path $target $rel
+            $dir = Split-Path -Parent $dst
+            if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+            Copy-Item (Join-Path $kit $rel) $dst -Force
+        }
+
+        # Toolkit files are always refreshed, so rerunning init updates an install.
+        $toolkit = @('trinity.cmd', 'scripts\trinity.ps1', 'scripts\agent-task.ps1', 'scripts\lib\board.ps1',
+            'scripts\codex.cmd', 'scripts\codex-review.cmd', 'scripts\codex-ask.cmd', '.githooks\pre-commit',
+            '.claude\agents\codex-worker.md', '.claude\agents\codex-reviewer.md', '.claude\agents\antigravity-ui.md')
+        foreach ($rel in $toolkit) { & $copy $rel; Write-Host "  updated  $rel" }
+
+        # Rule and memory docs belong to the project once written: created when missing, replaced only with -Force.
+        $agentsText = [IO.File]::ReadAllText((Join-Path $kit 'AGENTS.md'))
+        $blank = "## Project commands`r`n`r`nFill these in when code lands. Every agent runs them before claiming done.`r`n`r`n" +
+            "- Install: ``TBD```r`n- Typecheck/build: ``TBD```r`n- Test: ``TBD```r`n- Run: ``TBD```r`n" +
+            "- Shared files: ``TBD`` (files only the orchestrator edits, e.g. registries, package.json)`r`n`r`n"
+        $agentsText = [regex]::Replace($agentsText, '(?s)## Project commands\r?\n.*?(?=## )', { param($m) $blank })
+        $docs = [ordered]@{
+            'AGENTS.md'                    = $agentsText
+            'CLAUDE.md'                    = $null
+            'GEMINI.md'                    = $null
+            '.agent\rules\holy-trinity.md' = $null
+            '.claude\settings.json'        = $null
+            'PLAN.md'                      = "# PLAN.md`r`n`r`nPer-module checklist. Owner = claude | codex | antigravity.`r`n`r`n## Module 1`r`n- [ ] First task - unassigned`r`n"
+            'HANDOFF.md'                   = "# HANDOFF.md`r`n`r`nUpdate before you stop. Newest entry on top.`r`n`r`n## Status`r`n- Completed: none`r`n- In flight: none`r`n- Next command: fill in Project commands in AGENTS.md`r`n- Blockers: none`r`n`r`n## From Claude`r`n`r`n## From Codex`r`n`r`n## From Antigravity`r`n"
+        }
+        foreach ($rel in $docs.Keys) {
+            $dst = Join-Path $target $rel
+            if ((Test-Path $dst) -and -not $Force) { Write-Host "  kept     $rel (exists; -Force replaces it)"; continue }
+            if ($null -eq $docs[$rel]) { & $copy $rel }
+            else { [IO.File]::WriteAllText($dst, $docs[$rel], $script:Utf8) }
+            Write-Host "  wrote    $rel"
+        }
+        $settings = Join-Path $target '.claude\settings.json'
+        if (-not (Select-String -Path $settings -Pattern 'trinity.ps1 status' -Quiet)) {
+            Write-Host '  NOTE     .claude\settings.json has no trinity SessionStart hook; copy it from the toolkit' -ForegroundColor Yellow
+        }
+
+        # Line-based config files: append only the lines that are missing.
+        $append = @{
+            '.gitignore'     = @('.codex-out/')
+            '.gitattributes' = @('*.cmd text eol=crlf', '*.ps1 text eol=crlf', '.githooks/* text eol=lf')
+        }
+        foreach ($rel in $append.Keys) {
+            $dst = Join-Path $target $rel
+            $have = @(if (Test-Path $dst) { [IO.File]::ReadAllLines($dst) })
+            $missing = @($append[$rel] | Where-Object { $have -notcontains $_ })
+            if ($missing) {
+                $prefix = if ($have.Count -and (Get-Content $dst -Raw) -notmatch '\n$') { "`r`n" } else { '' }
+                [IO.File]::AppendAllText($dst, $prefix + (($missing -join "`r`n") + "`r`n"), $script:Utf8)
+                Write-Host "  appended $rel ($($missing -join ', '))"
+            }
+        }
+
+        git -C $target config core.hooksPath .githooks
+        $outDir = Join-Path $target '.codex-out'
+        if (-not (Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir | Out-Null }
+        Write-Host ''
+        Write-Host "Installed trinity into $target. Next: fill in Project commands in AGENTS.md, commit, then open a new Claude session there."
     }
 
     'ui' {

@@ -38,6 +38,8 @@ Global protocol also applies: `~/.codex/AGENTS.md` = `~/.gemini/AGENTS.md` (para
 - `trinity wait <task> [-Timeout 1800]` : block until a task leaves running; exit 0 done, 1 failed, 2 still running.
 - `trinity done <task> "<summary>"` : Antigravity/Claude agents mark their task finished. Codex: never run this; the runner commits your work and marks the task itself.
 - `trinity merge <task>` : Codex review of the branch, blocks on P0/P1 findings, merge into `main`, run the Test command, remove worktree and branch.
+  Findings that only concern "Shared files" (Project commands below) on a branch that left them untouched are deferred, not blocking: the orchestrator wires them after the merge (`.codex-out\deferred-<task>.txt`).
+- `trinity init <path>` : install or update this toolkit in another git repo. Toolkit files are refreshed; that repo's docs (AGENTS.md, PLAN.md, ...) are kept unless `-Force`.
 - `trinity review` / `trinity ask "<question>"` : read-only Codex.
 - `trinity ui` : open Antigravity on the main checkout.
 - `trinity setup` : once per clone; enables `.githooks` (pre-commit checks script encoding and secrets).
@@ -60,10 +62,11 @@ Global protocol also applies: `~/.codex/AGENTS.md` = `~/.gemini/AGENTS.md` (para
 
 Fill these in when code lands. Every agent runs them before claiming done.
 
-- Install: `npm install` (set `npm_config_cache=D:\npm-cache` and `ELECTRON_CACHE=D:\electron-cache` first: C: is nearly full)
-- Typecheck/build: none (plain JS, no build step)
-- Test: `npm test` (node:test, `test/*.test.js`)
-- Run: `npm start` (Electron app "MetaStrip", entry `src/main.js`)
+- Install: none (`trinity setup` once per clone)
+- Typecheck/build: none (PowerShell 5.1 scripts; the test suite parse-checks them)
+- Test: `TBD` (becomes `tests\run-tests.cmd` once the selftest suite lands)
+- Run: `trinity help`
+- Shared files: `AGENTS.md`, `CLAUDE.md`, `scripts/lib/board.ps1`
 
 ## Conventions
 

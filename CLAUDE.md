@@ -16,10 +16,10 @@ Codex and Antigravity are your subagents (`.claude/agents/`). Route by strength,
 | Cross-cutting design, shared files, merge, final verification, anything touching `main` | you | You hold the whole picture |
 
 Rules:
-- Split by files first. Two agents never get overlapping scopes; shared files (registries, `src/strip/index.js`, package.json) stay with you, wired in after merge.
+- Split by files first. Two agents never get overlapping scopes; shared files (the "Shared files" line in AGENTS.md: registries, package.json) stay with you, wired in after merge.
 - Give subagents complete prompts: they start cold. Include paths, conventions, and the test command.
 - Several independent tasks: launch all subagents in one message so they run concurrently.
-- When a `codex-worker`/`antigravity-ui` returns: read its diffstat, then `./trinity.cmd merge <task> -Yes` (runs Codex review + tests), then wire shared files and re-run `npm test` yourself.
+- When a `codex-worker`/`antigravity-ui` returns: read its diffstat, then `./trinity.cmd merge <task> -Yes` (runs Codex review + tests), then wire shared files (see `.codex-out\deferred-<task>.txt` if merge printed one) and re-run the Test command yourself.
 - Do the work yourself when it is small (under ~15 minutes), tangled across many files, or needs this conversation's context.
 - Never paste secrets or the user's personal data into delegated prompts.
 
