@@ -947,11 +947,13 @@ Run-Case 'dashboard chat HTTP validates ids and guards hosts' {
             $status=0; try { Invoke-WebRequest -Uri "http://localhost:$port/api/chat?id=$([uri]::EscapeDataString($pair[0]))" -UseBasicParsing -TimeoutSec 2 | Out-Null } catch { if ($_.Exception.Response) { $status=[int]$_.Exception.Response.StatusCode } }
             Assert-True ($status -eq [int]$pair[1]) "chat id $($pair[0]) returned $status"
         }
-        # A trailing-dot localhost host is routed by HTTP.sys but rejected by the app's exact Host check.
-        $client=New-Object Net.Sockets.TcpClient('127.0.0.1', $port); $hostLine=''
-        try { $stream=$client.GetStream(); $bytes=[Text.Encoding]::ASCII.GetBytes("GET /api/state HTTP/1.1`r`nHost: localhost.:$port`r`nConnection: close`r`n`r`n"); $stream.Write($bytes,0,$bytes.Length); $hostLine=(New-Object IO.StreamReader($stream)).ReadLine() }
+        # Forged localhost Host from a non-loopback address: HTTP.sys routes it, the app's loopback check refuses it (403).
+        $lanIp = [Net.Dns]::GetHostAddresses([Net.Dns]::GetHostName()) | Where-Object { $_.AddressFamily -eq 'InterNetwork' -and -not [Net.IPAddress]::IsLoopback($_) } | Select-Object -First 1
+        if (-not $lanIp) { Skip-Case 'no non-loopback IPv4 address to test the loopback guard' }
+        $client=New-Object Net.Sockets.TcpClient($lanIp.ToString(), $port); $hostLine=''
+        try { $stream=$client.GetStream(); $bytes=[Text.Encoding]::ASCII.GetBytes("GET /api/state HTTP/1.1`r`nHost: localhost:$port`r`nConnection: close`r`n`r`n"); $stream.Write($bytes,0,$bytes.Length); $hostLine=(New-Object IO.StreamReader($stream)).ReadLine() }
         finally { $client.Close() }
-        Assert-True ($hostLine -match '^HTTP/1\.[01] 403 ') "invalid Host header did not reach the server guard: $hostLine"
+        Assert-True ($hostLine -match '^HTTP/1\.[01] 403 ') "forged-Host request from a LAN address was not refused: $hostLine"
         $blockedState=$null; $blockedDeadline=(Get-Date).AddSeconds(8)
         while ((Get-Date) -lt $blockedDeadline) {
             try { $blockedResponse=Invoke-WebRequest -Uri "http://localhost:$port/api/state" -UseBasicParsing -TimeoutSec 2; $blockedState=$blockedResponse.Content | ConvertFrom-Json; if ($blockedState.server.blockedRemoteCount -ge 1) { break } } catch { }

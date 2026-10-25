@@ -813,6 +813,12 @@ function Get-DashboardState {
     }
     $agents.claude.models = @(@($agents.claude.models) + @($repoStates | ForEach-Object { $_.claudeSessions } | Where-Object { $_.active -and $_.model } | ForEach-Object { $_.model }) | Select-Object -Unique)
     $availability = Get-Availability $defaults
+    $repoChecks = @(foreach ($repo in $repoStates) {
+        $hooksPath = Invoke-GitRead $repo.path @('config', '--get', 'core.hooksPath')
+        $commonDir = [string](Invoke-GitRead $repo.path @('rev-parse', '--path-format=absolute', '--git-common-dir'))
+        $boardFound = [bool]($commonDir.Trim() -and (Test-Path -LiteralPath (Join-Path $commonDir.Trim() 'agent-board.md') -PathType Leaf))
+        [pscustomobject]@{ repo = $repo; hooksPath = [string]$hooksPath; boardFound = $boardFound }
+    })
     $stopwatch.Stop()
     $collectMs = [int][Math]::Round($stopwatch.Elapsed.TotalMilliseconds)
     $script:CollectDurations.Add($collectMs)
@@ -834,11 +840,15 @@ function Get-DashboardState {
     $health.Add([pscustomobject]@{ id='listener-loopback'; label='Listener'; status='ok'; detail="loopback only, $($server.blockedRemoteCount) blocked" })
     $hashStatus = if ($server.scriptHash -eq $server.scriptHashOnDisk) { 'ok' } else { 'warn' }
     $health.Add([pscustomobject]@{ id='server-outdated'; label='Server code'; status=$hashStatus; detail=$(if ($hashStatus -eq 'ok') { 'Running script matches disk' } else { 'Running script differs from disk' }) })
-    $health.Add([pscustomobject]@{ id='board-readable'; label='Agent boards'; status='ok'; detail='All repository boards parsed' })
-    foreach ($repo in $repoStates) {
+    $missingBoards = @($repoChecks | Where-Object { -not $_.boardFound } | ForEach-Object { $_.repo.name })
+    $boardStatus = if ($missingBoards.Count) { 'warn' } else { 'ok' }
+    $boardDetail = if ($missingBoards.Count) { 'No agent-board.md in: ' + ($missingBoards -join ', ') } else { 'All repository boards found and parsed' }
+    $health.Add([pscustomobject]@{ id='board-readable'; label='Agent boards'; status=$boardStatus; detail=$boardDetail })
+    foreach ($check in $repoChecks) {
+        $repo = $check.repo
         $repoId = ([string]$repo.name).ToLowerInvariant() -replace '[^a-z0-9]+', '-'
         $repoId = $repoId.Trim('-')
-        $hooksPath = Invoke-GitRead $repo.path @('config', '--get', 'core.hooksPath')
+        $hooksPath = $check.hooksPath
         $hooksOk = ([string]$hooksPath).TrimEnd('\', '/') -match '(^|[\\/])\.githooks$'
         $health.Add([pscustomobject]@{ id="hooks-enabled-$repoId"; label="Hooks: $($repo.name)"; status=$(if ($hooksOk) { 'ok' } else { 'warn' }); detail=$(if ($hooksOk) { 'core.hooksPath is .githooks' } else { 'core.hooksPath is not .githooks' }) })
     }
