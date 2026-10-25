@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- `trinity` command: `status`, `dispatch` (Codex headless in background, Antigravity opened with the prompt, Claude task file), `merge` (review, merge, test, cleanup), `review`, `ask`, `ui`, `setup`.
+- Windows notification and board status update when a dispatched Codex task finishes.
+- Claude Code session-start hook showing `trinity status -Brief`.
+- `.githooks/pre-commit`: `.ps1`/`.cmd` encoding checks and secret scan.
+- README: quick start for automatic mode.
+
+### Changed
+- Board and worktree logic moved to `scripts/lib/board.ps1`; `agent-task.ps1` uses it.
+
 ## v0.1.0 - 2026-10-25
 
 First release: shared workspace for Claude Code, Codex, and Antigravity (Gemini).

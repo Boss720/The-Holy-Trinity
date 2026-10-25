@@ -28,11 +28,53 @@ All three read the same rules file (`AGENTS.md`) and talk to each other through 
 | `scripts/codex.cmd` | Runs the Codex CLI bundled with the Codex app. |
 | `scripts/codex-review.cmd` | Codex code review, forced read-only. |
 | `scripts/codex-ask.cmd` | One-shot read-only Codex question. |
+| `trinity.cmd`, `scripts/trinity.ps1` | One command for status, dispatch, merge, review, ask. |
+| `scripts/lib/board.ps1` | Shared board/worktree helpers. |
+| `.githooks/pre-commit` | Encoding and secret checks (enabled by `trinity setup`). |
+| `.claude/settings.json` | Session-start hook that shows `trinity status`. |
 | `scripts/agent-task.ps1` | Creates a worktree + branch per parallel task and registers it on the agent board. |
+
+## Quick start (automatic mode)
+
+One command, `trinity`, drives everything. Run once per clone:
+```bat
+trinity setup
+```
+
+Hand a task to Codex. It gets its own worktree and branch, works headless in the background, and a Windows notification pops up when it finishes:
+```bat
+trinity dispatch codex add-search "Add a search command with tests" -Scope "src/search/*"
+```
+
+Hand a UI task to Antigravity. It opens in the task's worktree with the prompt already loaded in agent mode:
+```bat
+trinity dispatch antigravity polish-ui "Make the settings page responsive" -Scope "src/ui/*"
+```
+
+See who is doing what (Claude also sees this automatically at session start):
+```bat
+trinity status
+```
+
+When a task shows `done`, review, merge, test, and clean up in one step:
+```bat
+trinity merge add-search
+```
+
+`merge` blocks if Codex's review finds P0/P1 issues, and aborts the merge if the project's Test command (in `AGENTS.md`) fails.
+
+What runs by itself:
+
+| Trigger | What happens |
+|---|---|
+| Claude session starts | `trinity status -Brief` is injected (via `.claude/settings.json` hook) |
+| Claude is about to commit | Codex review runs first (rule in `CLAUDE.md`) |
+| Any `git commit` | `.githooks/pre-commit` checks `.ps1`/`.cmd` encoding and blocks likely secrets |
+| Dispatched Codex finishes | Board status set to done/failed, result saved to `.codex-out\`, Windows notification |
 
 ---
 
-## How to use it
+## How to use it (manual mode)
 
 All commands below are for cmd, run from the repo root.
 

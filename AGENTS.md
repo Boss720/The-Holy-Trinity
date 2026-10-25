@@ -22,11 +22,22 @@ Global protocol also applies: `~/.codex/AGENTS.md` = `~/.gemini/AGENTS.md` (para
 ## Parallel work
 
 - One writer per file set. Never two agents editing the same files at once.
-- Parallel task = own worktree + branch `agent/<agent>/<task>`. Create with:
-  `powershell -ExecutionPolicy Bypass -File scripts\agent-task.ps1 -Agent codex -Task login-form -Scope "src/auth/*"`
+- Parallel task = own worktree + branch `agent/<agent>/<task>`. Create and start with `trinity dispatch` (below),
+  or create only with `scripts\agent-task.ps1`.
 - Worktrees live in `..\Holy trinity.worktrees\`. Main checkout stays on `main`.
 - Only Claude (or the user) merges `agent/*` branches into `main`.
 - Commit a checkpoint before handing work to another agent.
+
+## trinity command (one entry point, cmd from repo root)
+
+- `trinity status` : branch, worktrees, board, HANDOFF status. Runs automatically when a Claude session starts here.
+- `trinity dispatch codex <task> "<prompt>" -Scope "src/x/*"` : worktree + branch, then Codex works headless in the background (workspace-write, inside its worktree only). Board shows running/done; Windows notification when finished. Log and final summary in `.codex-out\`.
+- `trinity dispatch antigravity <task> "<prompt>"` : worktree + branch, then Antigravity opens there with the task loaded in agent mode.
+- `trinity dispatch claude <task> "<prompt>"` : worktree + task file; open a Claude session there.
+- `trinity merge <task>` : Codex review of the branch, blocks on P0/P1 findings, merge into `main`, run the Test command, remove worktree and branch.
+- `trinity review` / `trinity ask "<question>"` : read-only Codex.
+- `trinity ui` : open Antigravity on the main checkout.
+- `trinity setup` : once per clone; enables `.githooks` (pre-commit checks script encoding and secrets).
 
 ## Codex calls (from any shell, cmd syntax)
 

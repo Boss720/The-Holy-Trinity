@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/trinity.ps1 status -Brief",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
