@@ -101,7 +101,34 @@
           "toolCalls": 18,
           "rateLimits": [],
           "chat": "agy:c8b55abe-5be3-4cac-aecf-d083281b63bd",
-          "subChats": []
+          "subChats": [],
+          "contextUsed": 28317,
+          "steps": 14,
+          "thinkingSteps": 6,
+          "toolBreakdown": [
+            {
+              "name": "read_file",
+              "count": 8
+            },
+            {
+              "name": "run_command",
+              "count": 6
+            },
+            {
+              "name": "write_file",
+              "count": 3
+            },
+            {
+              "name": "edit_file",
+              "count": 1
+            }
+          ],
+          "lastTool": "run_command",
+          "filesTouched": [
+            "scripts/dashboard.html",
+            "scripts/dashboard-sample.json"
+          ],
+          "backgroundTasks": 1
         },
         {
           "task": "strip-icc",
@@ -152,7 +179,30 @@
               "title": "subagent: reviewer",
               "model": "gpt-6-luna"
             }
-          ]
+          ],
+          "contextUsed": 61234,
+          "steps": 40,
+          "thinkingSteps": 12,
+          "toolBreakdown": [
+            {
+              "name": "read_file",
+              "count": 18
+            },
+            {
+              "name": "apply_patch",
+              "count": 7
+            },
+            {
+              "name": "run_command",
+              "count": 6
+            }
+          ],
+          "lastTool": "run_command",
+          "filesTouched": [
+            "src/icc.c",
+            "src/icc.h"
+          ],
+          "backgroundTasks": 1
         },
         {
           "task": "dash-detail",
@@ -217,7 +267,25 @@
             }
           ],
           "chat": "codex:03c3949d-d7de-9654-1ef5-53e75d6f6ff4",
-          "subChats": []
+          "subChats": [],
+          "contextUsed": 61234,
+          "steps": 40,
+          "thinkingSteps": 12,
+          "toolBreakdown": [
+            {
+              "name": "read_file",
+              "count": 18
+            },
+            {
+              "name": "run_command",
+              "count": 9
+            }
+          ],
+          "lastTool": "run_command",
+          "filesTouched": [
+            "scripts/dashboard.html"
+          ],
+          "backgroundTasks": 2
         },
         {
           "task": "visual-compare",
@@ -249,7 +317,30 @@
           "toolCalls": 24,
           "rateLimits": [],
           "chat": "agy:f1a23456-789a-4bc0-def1-23456789abcd",
-          "subChats": []
+          "subChats": [],
+          "contextUsed": 38400,
+          "steps": 22,
+          "thinkingSteps": 9,
+          "toolBreakdown": [
+            {
+              "name": "read_file",
+              "count": 12
+            },
+            {
+              "name": "edit_file",
+              "count": 7
+            },
+            {
+              "name": "run_command",
+              "count": 5
+            }
+          ],
+          "lastTool": "run_command",
+          "filesTouched": [
+            "web/compare.html",
+            "web/diff.js"
+          ],
+          "backgroundTasks": 0
         },
         {
           "task": "orchestrator-refactor",
