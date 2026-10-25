@@ -3251,7 +3251,8 @@
           chatErrorInline.classList.add('active');
           chatErrorInline.textContent = 'Error loading chat: ' + err.message;
         } finally {
-          chatFetchInFlight = false;
+          // Only the newest request clears the flag; an older one finishing late must not unblock a duplicate poll.
+          if (requestSeq === chatRequestSeq) chatFetchInFlight = false;
         }
       }
 
