@@ -1,0 +1,2 @@
+{"type":"assistant","message":{"id":"sub1","model":"claude-haiku-fixture","content":[{"type":"tool_use","name":"fixture_tool","input":{"token":"FIXTURE_FAKE_KEY"}}],"usage":{"input_tokens":3,"output_tokens":1}},"timestamp":"2026-10-25T10:02:04Z"}
+{"type":"user","message":{"content":[{"type":"tool_result","content":"fake key FIXTURE_FAKE_KEY"}]},"timestamp":"2026-10-25T10:02:05Z"}
