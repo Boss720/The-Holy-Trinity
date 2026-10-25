@@ -95,6 +95,15 @@ function New-AgentWorktree($Paths, [string]$Agent, [string]$Task, [string]$Scope
 }
 
 # Newest codex.exe shipped with the Codex desktop app, else codex.exe on PATH.
+function Resolve-AgyExe {
+    if ($env:AGY_EXE -and (Test-Path $env:AGY_EXE)) { return $env:AGY_EXE }
+    $exe = Join-Path $env:LOCALAPPDATA 'agy\bin\agy.exe'
+    if (Test-Path $exe) { return $exe }
+    $cmd = Get-Command agy.exe -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    Fail 'agy.exe (Antigravity CLI) not found. Install it or set AGY_EXE.'
+}
+
 function Resolve-CodexExe {
     if ($env:CODEX_EXE -and (Test-Path $env:CODEX_EXE)) { return $env:CODEX_EXE }
     $bin = Join-Path $env:LOCALAPPDATA 'OpenAI\Codex\bin'

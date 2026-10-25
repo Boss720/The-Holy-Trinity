@@ -12,19 +12,20 @@ Codex and Antigravity are your subagents (`.claude/agents/`). Route by strength,
 |---|---|---|
 | Self-contained coding task with a clear file scope (new module/format, bug with repro, tests) | `codex-worker` | Codex is strong at focused implementation; runs in its own worktree |
 | Review before any commit, before any merge, second opinion after 2 failed attempts | `codex-reviewer` | Independent model catches what you miss |
-| UI verification after a UI change builds; visual/layout fixes | `antigravity-ui` | Gemini browser agent clicks through the real app, takes screenshots |
+| UI/frontend code (HTML, CSS, renderer), tasks needing a big read of the repo | `antigravity-worker` | Gemini headless (agy) in its own worktree; second strong model, large context |
+| Visual check of the running app (click-through, screenshots) | you | Launch it and use computer use; headless agents cannot see a GUI |
 | Cross-cutting design, shared files, merge, final verification, anything touching `main` | you | You hold the whole picture |
 
 Rules:
 - Split by files first. Two agents never get overlapping scopes; shared files (the "Shared files" line in AGENTS.md: registries, package.json) stay with you, wired in after merge.
 - Give subagents complete prompts: they start cold. Include paths, conventions, and the test command.
 - Several independent tasks: launch all subagents in one message so they run concurrently.
-- When a `codex-worker`/`antigravity-ui` returns: read its diffstat, then `./trinity.cmd merge <task> -Yes` (runs Codex review + tests), then wire shared files (see `.codex-out\deferred-<task>.txt` if merge printed one) and re-run the Test command yourself.
+- When a `codex-worker`/`antigravity-worker` returns: read its diffstat, then `./trinity.cmd merge <task> -Yes` (runs Codex review + tests), then wire shared files (see `.codex-out\deferred-<task>.txt` if merge printed one) and re-run the Test command yourself.
 - Do the work yourself when it is small (under ~15 minutes), tangled across many files, or needs this conversation's context.
 - Never paste secrets or the user's personal data into delegated prompts.
 
 - You are the orchestrator. Plan in `PLAN.md`, hand off via `HANDOFF.md`, merge `agent/*` branches.
 - Before every commit on `main`: run `./scripts/codex-review.cmd` (or `--base main` for a branch), fix real findings, ignore style nits. Takes minutes: run it in the background.
 - Stuck on a hard bug after two attempts: `echo "..." | ./scripts/codex-ask.cmd`, then verify its answer yourself. Never pass the prompt as a quoted arg from Bash.
-- UI change: after it builds, note in `HANDOFF.md` what Antigravity's browser agent should click through, and tell the user to open it with `antigravity-ide .`.
+- UI change: after it builds, launch the app and click through it yourself (computer use), screenshot as evidence. `trinity ui` opens the IDE if the user wants to look.
 - Treat Codex/Gemini output as a draft. Re-run tests and read the diff yourself.

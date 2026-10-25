@@ -15,7 +15,7 @@ This repo is the toolkit itself. Install it into any project with `trinity init 
 - Windows 10/11, git
 - [Claude Code desktop](https://claude.com/claude-code)
 - Codex desktop app (the scripts use the `codex.exe` it ships with; set `CODEX_EXE` to override)
-- Antigravity IDE (`antigravity-ide` on PATH)
+- Antigravity CLI (`agy`, used headless for dispatched tasks; set `AGY_EXE` to override) and optionally Antigravity IDE (`antigravity-ide`, for `trinity ui`)
 
 ## Repo layout
 
@@ -35,7 +35,7 @@ This repo is the toolkit itself. Install it into any project with `trinity init 
 | `.githooks/pre-commit` | Encoding and secret checks (enabled by `trinity setup`). |
 | `.claude/settings.json` | Session-start hook that shows `trinity status`. |
 | `scripts/agent-task.ps1` | Creates a worktree + branch per parallel task and registers it on the agent board. |
-| `.claude/agents/` | Claude subagents that drive Codex and Antigravity (`codex-worker`, `codex-reviewer`, `antigravity-ui`). |
+| `.claude/agents/` | Claude subagents that drive Codex and Antigravity (`codex-worker`, `codex-reviewer`, `antigravity-worker`). |
 | `tests/` | End-to-end self-test of the trinity CLI against throwaway repos with a fake Codex (`tests\run-tests.cmd`). |
 
 ## Use it in another project
@@ -60,7 +60,7 @@ Hand a task to Codex. It gets its own worktree and branch, works headless in the
 trinity dispatch codex add-search "Add a search command with tests" -Scope "src/search/*"
 ```
 
-Hand a UI task to Antigravity. It opens in the task's worktree with the prompt already loaded in agent mode:
+Hand a UI task to Antigravity. Same flow as Codex: it works headless (Gemini via the `agy` CLI) in its own worktree, and the runner commits when it finishes:
 ```bat
 trinity dispatch antigravity polish-ui "Make the settings page responsive" -Scope "src/ui/*"
 ```
@@ -84,7 +84,7 @@ What runs by itself:
 | Claude session starts | `trinity status -Brief` is injected (via `.claude/settings.json` hook) |
 | Claude is about to commit | Codex review runs first (rule in `CLAUDE.md`) |
 | Any `git commit` | `.githooks/pre-commit` checks `.ps1`/`.cmd` encoding and blocks likely secrets |
-| Dispatched Codex finishes | Its changes are committed on its branch (Codex's sandbox keeps `.git` read-only, so the runner commits, using Codex's summary as the message), board status set to done/failed, result saved to `.codex-out\`, Windows notification |
+| Dispatched Codex or Antigravity finishes | Its changes are committed on its branch (Codex's sandbox keeps `.git` read-only, so the runner commits, using Codex's summary as the message), board status set to done/failed, result saved to `.codex-out\`, Windows notification |
 
 ### Auto-delegation (Claude drives the other two)
 
@@ -94,7 +94,7 @@ You talk to Claude only. Claude routes work to Codex and Antigravity through thr
 |---|---|---|
 | `codex-worker` | `trinity dispatch codex` + `trinity wait` | Self-contained coding tasks with a clear file scope |
 | `codex-reviewer` | `scripts\codex-review.cmd` / `codex-ask.cmd` | Review before every commit and merge, second opinions |
-| `antigravity-ui` | `trinity dispatch antigravity` + `trinity wait` | UI verification and visual fixes |
+| `antigravity-worker` | `trinity dispatch antigravity` + `trinity wait` | UI/frontend code and big-context tasks, headless via the `agy` CLI |
 
 The routing table and rules live in `CLAUDE.md`. Typical run: Claude splits a feature by files, launches several `codex-worker`s at once, keeps working itself, then runs `trinity merge <task> -Yes` per branch and wires shared files (registries, `package.json`) itself. Workers never touch shared files, so a review finding like "handler not registered" on a worker branch is expected. `merge` defers P0/P1 findings that mention a shared file when the branch left shared files untouched, writes them to `.codex-out\deferred-<task>.txt`, and Claude wires them on `main`. Every other P0/P1 still blocks.
 

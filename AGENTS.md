@@ -32,7 +32,8 @@ Global protocol also applies: `~/.codex/AGENTS.md` = `~/.gemini/AGENTS.md` (para
 
 - `trinity status` : branch, worktrees, board, HANDOFF status. Runs automatically when a Claude session starts here.
 - `trinity dispatch codex <task> "<prompt>" -Scope "src/x/*"` : worktree + branch, then Codex works headless in the background (workspace-write, inside its worktree only). Board shows running/done; Windows notification when finished. Log and final summary in `.codex-out\`.
-- `trinity dispatch antigravity <task> "<prompt>"` : worktree + branch, then Antigravity opens there with the task loaded in agent mode.
+- `trinity dispatch antigravity <task> "<prompt>" -Scope "src/ui/*"` : same as Codex, but Antigravity (Gemini, `agy -p` CLI) works headless in the worktree. Permissions are skipped, so the task rules confine it to its worktree; the runner commits.
+- `trinity cancel <task>` : remove a task's worktree and branch, mark it cancelled (`-Force` if it has commits).
 - `trinity dispatch claude <task> "<prompt>"` : worktree + task file; open a Claude session there.
 - `trinity run <agent> <task> -PromptFile <file>` : dispatch, then wait for it to finish and print summary, commits, diffstat. Use `-PromptFile` for any prompt with quotes.
 - `trinity wait <task> [-Timeout 1800]` : block until a task leaves running; exit 0 done, 1 failed, 2 still running.

@@ -26,7 +26,7 @@ function Show-Usage {
     Write-Host '                                          trinity ask "why does the login test fail?"'
     Write-Host '  dispatch <agent> <task> <prompt...>   worktree + task file + start the agent'
     Write-Host '                                          trinity dispatch codex login-form -Scope "src/auth/*" Build the login form'
-    Write-Host '                                          (agent: codex | antigravity | claude)'
+    Write-Host '                                          (agent: codex | antigravity = headless, background; claude = task file)'
     Write-Host '  run <agent> <task> <prompt...>        dispatch, then wait and print result + commits'
     Write-Host '                                          trinity run codex login-form -Timeout 900 Build the login form'
     Write-Host '  wait <task> [-Timeout 1800]           block until done; exit 0 done, 1 failed, 2 timeout, 3 other'
@@ -37,6 +37,7 @@ function Show-Usage {
     Write-Host '                                          trinity dispatch codex login-form -PromptFile prompt.txt'
     Write-Host '  merge <task> [-Yes] [-Force]          review, merge --no-ff, run tests, clean up'
     Write-Host '                                          trinity merge login-form'
+    Write-Host '  cancel <task> [-Force]                remove the worktree and branch, mark cancelled'
     Write-Host '  init <path> [-Force]                  install or update trinity in another git repo'
     Write-Host '                                          trinity init D:\code\myapp   (keeps its docs unless -Force)'
     Write-Host '  ui                                    open the main checkout in Antigravity'
@@ -128,8 +129,9 @@ function Wait-Task([string]$task, [int]$timeoutSec) {
     while ($true) {
         $entry = Get-BoardEntry $paths $task
         $status = $entry.status
-        # Codex tasks finish only when the runner writes its own status (after committing), never on a bare "done".
-        $runnerDone = ($entry.agent -ne 'codex') -or ($status -match '^(done \(|done, no commits|failed|merged)')
+        # Headless tasks finish only when the runner writes its own status (after committing), never on a bare "done".
+        $headless = $entry.agent -in @('codex', 'antigravity')
+        $runnerDone = (-not $headless) -or ($status -match '^(done \(|done, no commits|failed|merged|cancelled)')
         if ($runnerDone -and $status -notmatch '^(started|running|waiting)') { break }
         if (((Get-Date) - $start).TotalSeconds -ge $timeoutSec) { break }
         if (((Get-Date) - $lastNote).TotalSeconds -ge 60) {
@@ -155,12 +157,15 @@ function Wait-Task([string]$task, [int]$timeoutSec) {
     }
     if ($pending) { return 2 }
     if ($status -match '^done') { return 0 }
-    if ($status -match '^failed') { return 1 }
+    if ($status -match '^(failed|cancelled)') { return 1 }
     3
 }
 
 # Create worktree + task file for one agent and start it (codex/antigravity) or park it (claude).
 function Start-Dispatch([string]$agent, [string]$task, [string]$prompt) {
+    # Fail here, in the foreground, rather than in the hidden runner where nobody sees it.
+    if ($agent -eq 'codex') { [void](Resolve-CodexExe) }
+    if ($agent -eq 'antigravity') { [void](Resolve-AgyExe) }
     $wt = New-AgentWorktree $paths $agent $task $Scope $Base
 
     $taskFile = Join-Path $paths.Out "task-$task.md"
@@ -182,7 +187,8 @@ function Start-Dispatch([string]$agent, [string]$task, [string]$prompt) {
         '',
         '- Read AGENTS.md first.',
         '- Edit only files within the scope.',
-        $(if ($agent -eq 'codex') { '- Do not run git commit; your sandbox cannot write .git. The runner commits your changes when you finish, using your final summary as the message.' }
+        $(if ($agent -ne 'claude') { '- Work only inside your current directory (your worktree). Do not run git commit or push; the runner commits your changes when you finish, using your final summary as the message.',
+             '- Do not start GUI apps or long-running servers; you run headless.' }
           else { '- Commit your work on this branch with clear messages (no Co-Authored-By trailers).',
              "- When finished: write your summary to $resultPath, then run in your worktree: trinity done $task <one-line summary>" }),
         '- Do not push.',
@@ -195,18 +201,14 @@ function Start-Dispatch([string]$agent, [string]$task, [string]$prompt) {
     Write-Host "Branch:   $($wt.Branch)"
     Write-Host "Task:     $taskFile"
     switch ($agent) {
-        'codex' {
+        { $_ -in @('codex', 'antigravity') } {
             Set-BoardStatus $paths $task 'running'
-            Start-Process powershell.exe -WindowStyle Hidden -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '_run-codex', $task
-            Write-Host "Codex started in background."
+            $runner = Start-Process powershell.exe -WindowStyle Hidden -PassThru -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '_run', $task
+            [IO.File]::WriteAllText((Join-Path $paths.Out "pid-$task.txt"), "$($runner.Id)", $script:Utf8)
+            Write-Host "$agent started headless in background."
             Write-Host "Log:    $(Join-Path $paths.Out "log-$task.txt")"
             Write-Host "Result: $(Join-Path $paths.Out "result-$task.md")"
             Write-Host 'Check progress with: trinity status'
-        }
-        'antigravity' {
-            Set-BoardStatus $paths $task 'running (antigravity)'
-            Start-Process -FilePath 'cmd.exe' -WorkingDirectory $wt.Path -ArgumentList '/c', 'antigravity-ide', 'chat', '-m', 'agent', '-a', "`"$taskFile`"", '"Read the attached task file and do it."' -WindowStyle Hidden
-            Write-Host 'Antigravity started. Check progress with: trinity status'
         }
         'claude' {
             Set-BoardStatus $paths $task 'waiting for claude session'
@@ -285,11 +287,10 @@ switch ($Command) {
         Write-Host "status: $status"
     }
 
-    '_run-codex' {
+    { $_ -in @('_run', '_run-codex') } {
         $task = $Rest[0]
         $entry = Get-BoardEntry $paths $task
         if (-not $entry) { Fail "no board entry for $task" }
-        $exe = Resolve-CodexExe
         $taskFile = Join-Path $paths.Out "task-$task.md"
         $log = Join-Path $paths.Out "log-$task.txt"
         $result = Join-Path $paths.Out "result-$task.md"
@@ -297,12 +298,21 @@ switch ($Command) {
         # Run through a generated .cmd file: PS 5.1 mangles embedded quotes passed to cmd /c,
         # and cmd gives stdin/stdout redirection that works with spaces in paths.
         $runFile = Join-Path $paths.Out "run-$task.cmd"
-        $cmdLine = '"' + $exe + '" exec --sandbox workspace-write --add-dir "' + $paths.Common + '" --skip-git-repo-check -C "' + $entry.worktree + '" -o "' + $result + '" - < "' + $taskFile + '" > "' + $log + '" 2>&1'
+        if ($entry.agent -eq 'antigravity') {
+            # agy -p prints only the final answer on stdout; permissions are skipped, so the task rules confine it to its worktree.
+            $exe = Resolve-AgyExe
+            $cmdLine = 'cd /d "' + $entry.worktree + '" && "' + $exe + '" -p "Read the task file ' + $taskFile + ' and do it. Your final message is your summary." --dangerously-skip-permissions --add-dir "' + $paths.Out + '" > "' + $result + '" 2> "' + $log + '"'
+        }
+        else {
+            $exe = Resolve-CodexExe
+            $cmdLine = '"' + $exe + '" exec --sandbox workspace-write --add-dir "' + $paths.Common + '" --skip-git-repo-check -C "' + $entry.worktree + '" -o "' + $result + '" - < "' + $taskFile + '" > "' + $log + '" 2>&1'
+        }
         [IO.File]::WriteAllText($runFile, "@echo off`r`n$cmdLine`r`nexit /b %ERRORLEVEL%`r`n", $script:Utf8)
         & $runFile
         $rc = $LASTEXITCODE
+        if ((Get-BoardEntry $paths $task).status -match '^cancelled') { exit 0 }
 
-        # Codex's sandbox keeps .git read-only, so commit its changes here; its final summary is the message.
+        # Codex's sandbox keeps .git read-only, so the runner commits for every headless agent; the final summary is the message.
         if ($rc -eq 0 -and (Get-Git @('-C', $entry.worktree, 'status', '--porcelain'))) {
             $summary = @(Get-Content $result -ErrorAction SilentlyContinue | Where-Object { $_.Trim() })
             $subject = "$($task): " + $(if ($summary) { ($summary[0] -replace '\[([^\]]*)\]\([^)]*\)', '$1' -replace '[\[\]`*]', '') } else { 'Codex changes' })
@@ -333,6 +343,38 @@ switch ($Command) {
             $ni.Dispose()
         }
         catch { }
+    }
+
+    'cancel' {
+        $task = $Rest[0]
+        if (-not $task) { Fail 'usage: trinity cancel <task>' }
+        $entry = Get-BoardEntry $paths $task
+        if (-not $entry) { Fail "no board entry for $task" }
+        $n = [int](Get-Git @('-C', $paths.Main, 'rev-list', '--count', "main..$($entry.branch)"))
+        if ($n -gt 0 -and -not $Force) { Fail "$($entry.branch) has $n commits; rerun with -Force to drop them" }
+        # Mark first so a runner that is still finishing never overwrites it, then stop the runner and its agent.
+        Set-BoardStatus $paths $task 'cancelled'
+        $pidFile = Join-Path $paths.Out "pid-$task.txt"
+        if (Test-Path $pidFile) {
+            $runnerPid = [IO.File]::ReadAllText($pidFile).Trim()
+            if ($runnerPid -and (Get-Process -Id $runnerPid -ErrorAction SilentlyContinue)) {
+                taskkill.exe /PID $runnerPid /T /F | Out-Null
+                Write-Host "Stopped runner process tree $runnerPid."
+            }
+            Remove-Item $pidFile
+        }
+        $registered = @(Get-Git @('-C', $paths.Main, 'worktree', 'list', '--porcelain') | Where-Object { $_ -like 'worktree *' } |
+            ForEach-Object { ($_.Substring(9)) -replace '/', '\' }) -contains $entry.worktree
+        if ($registered) {
+            git -C $paths.Main worktree remove --force $entry.worktree
+            if ($LASTEXITCODE -ne 0) { Fail "could not remove worktree $($entry.worktree); close programs using it and retry" }
+        }
+        git -C $paths.Main worktree prune
+        if ($entry.worktree -and (Test-Path $entry.worktree)) {
+            Write-Host "Leftover folder (no longer a worktree), delete it when nothing holds it: $($entry.worktree)" -ForegroundColor Yellow
+        }
+        git -C $paths.Main branch -D $entry.branch 2>$null | Out-Null
+        Write-Host "Cancelled $task. Worktree and branch removed."
     }
 
     'merge' {
@@ -446,7 +488,7 @@ switch ($Command) {
         # Toolkit files are always refreshed, so rerunning init updates an install.
         $toolkit = @('trinity.cmd', 'scripts\trinity.ps1', 'scripts\agent-task.ps1', 'scripts\lib\board.ps1',
             'scripts\codex.cmd', 'scripts\codex-review.cmd', 'scripts\codex-ask.cmd', '.githooks\pre-commit',
-            '.claude\agents\codex-worker.md', '.claude\agents\codex-reviewer.md', '.claude\agents\antigravity-ui.md')
+            '.claude\agents\codex-worker.md', '.claude\agents\codex-reviewer.md', '.claude\agents\antigravity-worker.md')
         foreach ($rel in $toolkit) { & $copy $rel; Write-Host "  updated  $rel" }
 
         # Rule and memory docs belong to the project once written: created when missing, replaced only with -Force.
