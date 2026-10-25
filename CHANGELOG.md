@@ -16,6 +16,9 @@
 - Antigravity dispatch runs headless through the `agy` CLI, same lifecycle as Codex.
 - `trinity cancel <task>`: stops the runner, removes worktree and branch.
 - `init` removes retired toolkit files from installs.
+- `trinity dashboard`: local read-only page (`scripts/dashboard.ps1` server + `scripts/dashboard.html`) with one lane per agent across every repo in `%USERPROFILE%\.trinity\repos.txt`; `-Json`, `-Stop`, `-Port`.
+- `trinity track <task> <note>`: Claude's own work shows on the board and dashboard next to its workers.
+- `init` and `setup` register the repo for the dashboard.
 
 ### Changed
 - MetaStrip, the first test project, moved to its own repo. This repo is now only the toolkit.

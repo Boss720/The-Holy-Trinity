@@ -9,6 +9,9 @@ param(
     [switch]$Brief,
     [string]$PromptFile,
     [int]$Timeout = 1800,
+    [int]$Port = 7777,
+    [switch]$Json,
+    [switch]$Stop,
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest
 )
 
@@ -40,6 +43,8 @@ function Show-Usage {
     Write-Host '  cancel <task> [-Force]                remove the worktree and branch, mark cancelled'
     Write-Host '  init <path> [-Force]                  install or update trinity in another git repo'
     Write-Host '                                          trinity init D:\code\myapp   (keeps its docs unless -Force)'
+    Write-Host '  track <task> <note...>                put your own (Claude) work on the board; finish with done'
+    Write-Host '  dashboard [-Port 7777] [-Json] [-Stop] live page of all three agents across every trinity repo'
     Write-Host '  ui                                    open the main checkout in Antigravity'
     Write-Host '  setup                                 enable .githooks and create .codex-out'
     Write-Host '  help                                  this text'
@@ -499,8 +504,12 @@ switch ($Command) {
         # Toolkit files are always refreshed, so rerunning init updates an install.
         $toolkit = @('trinity.cmd', 'scripts\trinity.ps1', 'scripts\agent-task.ps1', 'scripts\lib\board.ps1',
             'scripts\codex.cmd', 'scripts\codex-review.cmd', 'scripts\codex-ask.cmd', '.githooks\pre-commit',
+            'scripts\dashboard.ps1', 'scripts\dashboard.html',
             '.claude\agents\codex-worker.md', '.claude\agents\codex-reviewer.md', '.claude\agents\antigravity-worker.md')
-        foreach ($rel in $toolkit) { & $copy $rel; Write-Host "  updated  $rel" }
+        foreach ($rel in $toolkit) {
+            if (-not (Test-Path (Join-Path $kit $rel))) { Write-Host "  missing  $rel (not in this toolkit checkout; skipped)"; continue }
+            & $copy $rel; Write-Host "  updated  $rel"
+        }
         foreach ($rel in @('.claude\agents\antigravity-ui.md')) {
             $old = Join-Path $target $rel
             if (Test-Path $old) { Remove-Item $old; Write-Host "  removed  $rel (retired toolkit file)" }
@@ -550,6 +559,7 @@ switch ($Command) {
         }
 
         git -C $target config core.hooksPath .githooks
+        Register-Repo $target
         $outDir = Join-Path $target '.codex-out'
         if (-not (Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir | Out-Null }
         Write-Host ''
@@ -563,7 +573,51 @@ switch ($Command) {
     'setup' {
         git -C $paths.Main config core.hooksPath .githooks
         if (-not (Test-Path $paths.Out)) { New-Item -ItemType Directory -Path $paths.Out | Out-Null }
-        Write-Host 'Setup done: core.hooksPath=.githooks, .codex-out ready.'
+        Register-Repo $paths.Main
+        Write-Host 'Setup done: core.hooksPath=.githooks, .codex-out ready, repo listed for the dashboard.'
+    }
+
+    'track' {
+        # Claude's own work on the board, so the dashboard shows the orchestrator next to its workers.
+        $task = $Rest[0]
+        if (-not $task) { Fail 'usage: trinity track <task> <what you are doing...>   (finish with: trinity done <task> <summary>)' }
+        $note = if (@($Rest).Count -gt 1) { (($Rest[1..($Rest.Count - 1)]) -join ' ') -replace '[\r\n]+', ' ' } else { 'in progress' }
+        $entry = Get-BoardEntry $paths $task
+        if ($entry -and $entry.agent -ne 'claude') { Fail "$task belongs to $($entry.agent); pick another task name" }
+        if (-not $entry) { Add-BoardEntry $paths $task 'claude' '-' '-' $Scope }
+        Set-BoardStatus $paths $task "working: $note"
+        Write-Host "tracking $($task): $note"
+    }
+
+    'dashboard' {
+        $script = Join-Path $PSScriptRoot 'dashboard.ps1'
+        if (-not (Test-Path $script)) { Fail 'scripts\dashboard.ps1 is missing' }
+        if ($Json) { & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script -Once; exit $LASTEXITCODE }
+        $pidFile = Join-Path $env:USERPROFILE '.trinity\dashboard.pid'
+        $running = $null
+        if (Test-Path $pidFile) {
+            $saved = [IO.File]::ReadAllText($pidFile).Trim() -split ' '
+            # A saved pid only counts if it is still our server (Windows reuses pids).
+            $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$saved[0])" -ErrorAction SilentlyContinue
+            if ($proc -and $proc.CommandLine -like '*dashboard.ps1*') { $running = Get-Process -Id $proc.ProcessId -ErrorAction SilentlyContinue }
+            if ($running) { $Port = [int]$saved[1] }
+        }
+        if ($Stop) {
+            if ($running) { Stop-Process -Id $running.Id -Force; Write-Host "Dashboard stopped (pid $($running.Id))." }
+            else { Write-Host 'Dashboard is not running.' }
+            Remove-Item $pidFile -ErrorAction SilentlyContinue
+            exit 0
+        }
+        if (-not $running) {
+            Register-Repo $paths.Main
+            $server = Start-Process powershell.exe -WindowStyle Hidden -PassThru -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$script`"", '-Port', $Port
+            Start-Sleep -Seconds 2
+            if ($server.HasExited) { Fail "dashboard server exited (code $($server.ExitCode)); is port $Port busy? Try -Port 7788" }
+            [IO.File]::WriteAllText($pidFile, "$($server.Id) $Port", $script:Utf8)
+        }
+        $url = "http://localhost:$Port/"
+        Start-Process cmd.exe -ArgumentList '/c', 'start', '""', $url -WindowStyle Hidden
+        Write-Host "Dashboard: $url   (stop with: trinity dashboard -Stop)"
     }
 
     default { Show-Usage }

@@ -94,7 +94,15 @@ function New-AgentWorktree($Paths, [string]$Agent, [string]$Task, [string]$Scope
     [pscustomobject]@{ Branch = $branch; Path = $wtPath }
 }
 
-# Newest codex.exe shipped with the Codex desktop app, else codex.exe on PATH.
+# Every repo that uses trinity, one root per line; the dashboard reads it.
+function Register-Repo([string]$Root) {
+    $dir = Join-Path $env:USERPROFILE '.trinity'
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
+    $file = Join-Path $dir 'repos.txt'
+    $have = @(if (Test-Path $file) { [IO.File]::ReadAllLines($file) })
+    if ($have -notcontains $Root) { [IO.File]::AppendAllText($file, "$Root`r`n", $script:Utf8) }
+}
+
 function Resolve-AgyExe {
     if ($env:AGY_EXE -and (Test-Path $env:AGY_EXE)) { return $env:AGY_EXE }
     $exe = Join-Path $env:LOCALAPPDATA 'agy\bin\agy.exe'
@@ -104,6 +112,7 @@ function Resolve-AgyExe {
     Fail 'agy.exe (Antigravity CLI) not found. Install it or set AGY_EXE.'
 }
 
+# Newest codex.exe shipped with the Codex desktop app, else codex.exe on PATH.
 function Resolve-CodexExe {
     if ($env:CODEX_EXE -and (Test-Path $env:CODEX_EXE)) { return $env:CODEX_EXE }
     $bin = Join-Path $env:LOCALAPPDATA 'OpenAI\Codex\bin'

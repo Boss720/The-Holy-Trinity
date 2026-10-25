@@ -42,8 +42,10 @@ Global protocol also applies: `~/.codex/AGENTS.md` = `~/.gemini/AGENTS.md` (para
   Findings that only concern "Shared files" (Project commands below) on a branch that left them untouched are deferred, not blocking: the orchestrator wires them after the merge (`.codex-out\deferred-<task>.txt`).
 - `trinity init <path>` : install or update this toolkit in another git repo. Toolkit files are refreshed; that repo's docs (AGENTS.md, PLAN.md, ...) are kept unless `-Force`.
 - `trinity review` / `trinity ask "<question>"` : read-only Codex.
+- `trinity track <task> <note...>` : Claude puts its own chunk on the board (status `working: <note>`); finish with `trinity done <task> "<summary>"`.
+- `trinity dashboard [-Port 7777]` : live page of all three agents across every trinity repo (`http://localhost:7777/`). `-Json` prints the state once, `-Stop` stops the server. Repos are listed in `%USERPROFILE%\.trinity\repos.txt` by `init`/`setup`. Spec: `docs/dashboard.md`.
 - `trinity ui` : open Antigravity on the main checkout.
-- `trinity setup` : once per clone; enables `.githooks` (pre-commit checks script encoding and secrets).
+- `trinity setup` : once per clone; enables `.githooks` (pre-commit checks script encoding and secrets) and lists the repo for the dashboard.
 
 ## Codex calls (from any shell, cmd syntax)
 
