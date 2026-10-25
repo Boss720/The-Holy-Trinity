@@ -63,6 +63,22 @@ function Set-BoardStatus($Paths, [string]$Task, [string]$Status) {
     }
 }
 
+# Set an extra "- <field>: <value>" line of one task section (replaced in place, else added before its status).
+function Set-BoardField($Paths, [string]$Task, [string]$Field, [string]$Value) {
+    Invoke-BoardLocked $Paths {
+        $lines = New-Object System.Collections.Generic.List[string]
+        $lines.AddRange([string[]][IO.File]::ReadAllLines($Paths.Board))
+        $inTask = $false
+        $done = $false
+        for ($i = 0; $i -lt $lines.Count -and -not $done; $i++) {
+            if ($lines[$i] -match '^## ') { $inTask = ($lines[$i] -eq "## $Task") }
+            elseif ($inTask -and $lines[$i] -match "^- $($Field):") { $lines[$i] = "- $($Field): $Value"; $done = $true }
+            elseif ($inTask -and $lines[$i] -match '^- status:') { $lines.Insert($i, "- $($Field): $Value"); $done = $true }
+        }
+        [IO.File]::WriteAllText($Paths.Board, (($lines -join "`r`n") + "`r`n"), $script:Utf8)
+    }
+}
+
 # Board section for one task as a hashtable (agent, branch, worktree, scope, status).
 function Get-BoardEntry($Paths, [string]$Task) {
     if (-not (Test-Path $Paths.Board)) { return $null }

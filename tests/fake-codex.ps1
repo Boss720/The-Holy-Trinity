@@ -3,7 +3,15 @@ $mode = $env:FAKE_CODEX_MODE
 if (-not $mode) { $mode = 'ok' }
 $arguments = $env:FAKE_CODEX_ARGUMENTS
 
+if ($arguments -match '^\s*login\s+status') {
+    if ($env:FAKE_CODEX_LOGGED_OUT) { [Console]::WriteLine('Not logged in'); exit 1 }
+    [Console]::WriteLine('Logged in using ChatGPT')
+    exit 0
+}
+
 if ($arguments -match '^\s*review(?:\s|$)') {
+    # Like the real CLI: a review needs exactly one well-formed target flag.
+    if ($arguments -notmatch '(?:^|\s)--(?:uncommitted|base\s+\S+|commit\s+\S+)(?:\s|$)') { [Console]::Error.WriteLine("error: unexpected argument in: $arguments"); exit 2 }
     if ($env:FAKE_REVIEW_OUTPUT) { [Console]::WriteLine($env:FAKE_REVIEW_OUTPUT) }
     else { [Console]::WriteLine('No findings.') }
     exit 0

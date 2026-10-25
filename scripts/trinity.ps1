@@ -22,14 +22,18 @@ if (-not (Test-Path $paths.Out)) { New-Item -ItemType Directory -Path $paths.Out
 function Show-Usage {
     Write-Host 'trinity <command> [options]'
     Write-Host ''
-    Write-Host '  status [-Brief]                       branch, worktrees, board, HANDOFF status'
-    Write-Host '  review [codex review args]            Codex reviews uncommitted changes (read-only)'
+    Write-Host '  status [-Brief]                       branch, agents available, worktrees, board, HANDOFF status'
+    Write-Host '  review [--base <b> | --commit <sha>]  read-only review of uncommitted changes (default), a branch, or a commit'
     Write-Host '                                          trinity review --base main'
-    Write-Host '  ask <prompt...>                       one-shot read-only question to Codex'
+    Write-Host '  ask <prompt...>                       one-shot read-only question (prompt can also come on stdin)'
+    Write-Host '                                          review/ask/merge use Codex, else Claude Code, else Antigravity'
+    Write-Host '                                          (TRINITY_REVIEWER=codex|claude|antigravity|none picks one)'
     Write-Host '                                          trinity ask "why does the login test fail?"'
     Write-Host '  dispatch <agent> <task> <prompt...>   worktree + task file + start the agent'
     Write-Host '                                          trinity dispatch codex login-form -Scope "src/auth/*" Build the login form'
     Write-Host '                                          (agent: codex | antigravity = headless, background; claude = task file)'
+    Write-Host '                                          if that agent cannot run here, the other headless one takes it'
+    Write-Host '                                          (TRINITY_DISABLE=codex turns Codex off, e.g. without a ChatGPT plan)'
     Write-Host '  run <agent> <task> <prompt...>        dispatch, then wait and print result + commits'
     Write-Host '                                          trinity run codex login-form -Timeout 900 Build the login form'
     Write-Host '  wait <task> [-Timeout 1800]           block until done; exit 0 done, 1 failed, 2 timeout, 3 other'
@@ -85,10 +89,126 @@ function Get-Git([string[]]$GitArgs) {
     $out
 }
 
+function Format-Availability($avail) {
+    (@($avail.Keys | ForEach-Object { if ($avail[$_].available) { "$_ ok" } else { "$_ unavailable ($($avail[$_].detail))" } }) -join ', ')
+}
+
+# Headless worker for a dispatch: the requested one if it can run here, else the other headless agent.
+function Select-Worker([string]$agent, [string]$task) {
+    if ($agent -notin @('codex', 'antigravity')) { return $agent }
+    $avail = Get-AgentAvailability @('codex', 'antigravity')
+    if ($avail[$agent].available) { return $agent }
+    $other = if ($agent -eq 'codex') { 'antigravity' } else { 'codex' }
+    if (-not $avail[$other].available) {
+        Fail "no headless worker can run here ($(Format-Availability $avail)); do $task yourself or use: trinity dispatch claude $task ..."
+    }
+    Write-Host "$agent unavailable ($($avail[$agent].detail)); routing $task to $other." -ForegroundColor Yellow
+    $other
+}
+
+# Reviewer: TRINITY_REVIEWER (codex|claude|antigravity|none) if usable, else Codex, else Claude or Antigravity,
+# preferring one that did not write the change. $null = nobody can review.
+function Select-Reviewer([string]$author) {
+    $choice = "$env:TRINITY_REVIEWER".Trim().ToLowerInvariant()
+    if ($choice -eq 'none') { return $null }
+    $avail = Get-AgentAvailability
+    if ($choice) {
+        if ($avail.Contains($choice) -and $avail[$choice].available) { return $choice }
+        Write-Host "TRINITY_REVIEWER=$choice cannot run here; picking another reviewer." -ForegroundColor Yellow
+    }
+    if ($avail.codex.available) { return 'codex' }
+    $usable = @('claude', 'antigravity' | Where-Object { $avail[$_].available })
+    $pick = @(@($usable | Where-Object { $_ -ne $author }) + $usable) | Select-Object -First 1
+    if (-not $pick) { Write-Host "No reviewer can run here ($(Format-Availability $avail))." -ForegroundColor Yellow }
+    $pick
+}
+
+# Run Claude or Antigravity headless and read-only on a prompt file; returns @{ ExitCode; Lines }.
+function Invoke-ReadOnlyAgent([string]$agent, [string]$dir, [string]$promptFile, [string]$tag) {
+    $out = Join-Path $paths.Out "$agent-out-$tag.txt"
+    $err = Join-Path $paths.Out "$agent-err-$tag.txt"
+    $runFile = Join-Path $paths.Out "run-$agent-$tag.cmd"
+    if ($agent -eq 'claude') {
+        $exe = Find-ClaudeExe
+        $cmdLine = 'cd /d "' + $dir + '" && "' + $exe + '" -p --tools Read,Grep,Glob --add-dir "' + $paths.Out + '" < "' + $promptFile + '" > "' + $out + '" 2> "' + $err + '"'
+    }
+    else {
+        $exe = Find-AgyExe
+        # Plan mode cannot edit; headless it also cannot run commands, so the prompt asks for the file viewer.
+        # A read outside the workspace is auto-denied headless, and one denial drops agy's whole answer.
+        $cmdLine = 'cd /d "' + $dir + '" && "' + $exe + '" -p "Use your file viewing tool (not the terminal) to read ' + $promptFile + ' and follow it. Do not run any commands. Read only files inside ' + $dir + ' or ' + $paths.Out + ': anything outside them is blocked and ends your turn without an answer." --mode plan --output-format json --add-dir "' + $paths.Out + '" --print-timeout 1200s > "' + $out + '" 2> "' + $err + '"'
+    }
+    [IO.File]::WriteAllText($runFile, "@echo off`r`n$cmdLine`r`nexit /b %ERRORLEVEL%`r`n", $script:Utf8)
+    # A Claude child refuses to start while it looks nested in this Claude session.
+    $nested = $env:CLAUDECODE
+    $env:CLAUDECODE = $null
+    try {
+        & $runFile; $rc = $LASTEXITCODE
+        if ($agent -eq 'antigravity' -and (Test-Path $err) -and ([IO.File]::ReadAllText($err) -match 'auto-denied')) {
+            Write-Host 'antigravity strayed outside its workspace; retrying once.' -ForegroundColor Yellow
+            & $runFile; $rc = $LASTEXITCODE
+        }
+    }
+    finally { $env:CLAUDECODE = $nested }
+    $text = if (Test-Path $out) { [IO.File]::ReadAllText($out) } else { '' }
+    if ($agent -eq 'antigravity') {
+        try {
+            $j = $text | ConvertFrom-Json
+            $text = "$($j.response)"
+            if ($j.status -ne 'SUCCESS' -or -not $text.Trim()) { $rc = [Math]::Max($rc, 1) }
+        }
+        catch { $rc = [Math]::Max($rc, 1) }
+        $text = $text -replace '(?s)The following is a <SYSTEM_MESSAGE>.*?</SYSTEM_MESSAGE>\s*', ''
+    }
+    if ($rc -ne 0 -and (Test-Path $err)) { $text += "`n" + [IO.File]::ReadAllText($err) }
+    [pscustomobject]@{ ExitCode = $rc; Lines = @($text -split '\r?\n') }
+}
+
+# Review uncommitted changes ('uncommitted'), the current branch against $ref ('base'), or one commit ('commit').
+function Invoke-Review([string]$reviewer, [string]$dir, [string]$mode, [string]$ref, [string]$tag) {
+    Write-Host "reviewer: $reviewer"
+    if ($reviewer -eq 'codex') {
+        $exe = Resolve-CodexExe
+        # @() keeps a one-element result an array; splatting a bare string would pass it char by char.
+        $codexArgs = @(switch ($mode) { 'base' { '--base', $ref } 'commit' { '--commit', $ref } default { '--uncommitted' } })
+        Push-Location $dir
+        try { $lines = @($null | & $exe review -c sandbox_mode=read-only @codexArgs 2>&1 | ForEach-Object { "$_" }); $rc = $LASTEXITCODE }
+        finally { Pop-Location }
+        return [pscustomobject]@{ ExitCode = $rc; Lines = $lines }
+    }
+    switch ($mode) {
+        'base' { $diff = Get-Git @('-C', $dir, 'diff', "$ref...HEAD"); $what = "the current branch against $ref" }
+        'commit' { $diff = Get-Git @('-C', $dir, 'show', $ref); $what = "commit $ref" }
+        default { $diff = Get-Git @('-C', $dir, 'diff', 'HEAD'); $what = 'the uncommitted changes' }
+    }
+    $diffText = ($diff -join "`n")
+    if ($diffText.Length -gt 400000) { $diffText = $diffText.Substring(0, 400000) + "`n[patch truncated at 400 KB]" }
+    $patch = Join-Path $paths.Out "review-diff-$tag.patch"
+    [IO.File]::WriteAllText($patch, $diffText + "`n", $script:Utf8)
+    $untracked = @(if ($mode -eq 'uncommitted') { Get-Git @('-C', $dir, 'ls-files', '--others', '--exclude-standard') })
+    $prompt = @(
+        '# Code review', '',
+        "Review $what. The patch is in: $patch",
+        "Repository: $dir. Read any file there you need for context; do not open files outside it.",
+        $(if ($untracked) { 'New untracked files, not in the patch (read them directly): ' + ($untracked -join ', ') }),
+        'Do not edit, create or delete files, and do not run commands.', '',
+        'Report only real problems: bugs, security holes, data loss, broken behaviour, missing error handling that matters. Skip style and naming.',
+        'Answer with findings only, one block per finding, in exactly this format:', '',
+        '- [P1] <one-line title> - <path>:<line>',
+        '  <one or two lines: what breaks and when>', '',
+        'P0 = security hole, data loss or crash on the main path; P1 = wrong behaviour users will hit; P2 = edge-case bug; P3 = minor.',
+        'If there is nothing to report, answer exactly: No findings.'
+    ) -join "`r`n"
+    $promptFile = Join-Path $paths.Out "review-prompt-$tag.md"
+    [IO.File]::WriteAllText($promptFile, $prompt + "`r`n", $script:Utf8)
+    Invoke-ReadOnlyAgent $reviewer $dir $promptFile "review-$tag"
+}
+
 function Show-Status {
     $branch = Get-Git @('-C', $paths.Main, 'branch', '--show-current')
     $dirty = @(Get-Git @('-C', $paths.Main, 'status', '--porcelain') | Where-Object { $_ }).Count
     Write-Host "main checkout: branch=$branch uncommitted=$dirty"
+    Write-Host "agents: $(Format-Availability (Get-AgentAvailability))"
     Write-Host ''
     Write-Host 'Worktrees:'
     Get-Git @('-C', $paths.Main, 'worktree', 'list') | ForEach-Object { Write-Host "  $_" }
@@ -176,9 +296,8 @@ function Wait-Task([string]$task, [int]$timeoutSec) {
 
 # Create worktree + task file for one agent and start it (codex/antigravity) or park it (claude).
 function Start-Dispatch([string]$agent, [string]$task, [string]$prompt) {
-    # Fail here, in the foreground, rather than in the hidden runner where nobody sees it.
-    if ($agent -eq 'codex') { [void](Resolve-CodexExe) }
-    if ($agent -eq 'antigravity') { [void](Resolve-AgyExe) }
+    # Pick a worker that can run here now, in the foreground, rather than failing in the hidden runner.
+    $agent = Select-Worker $agent $task
     $wt = New-AgentWorktree $paths $agent $task $Scope $Base
 
     $taskFile = Join-Path $paths.Out "task-$task.md"
@@ -234,22 +353,44 @@ switch ($Command) {
     'status' { Show-Status }
 
     'review' {
-        $exe = Resolve-CodexExe
+        # PowerShell binds "--base x" to -Base, so a bound Base means a branch review.
         $reviewArgs = @($Rest | Where-Object { $_ })
-        if ($reviewArgs.Count -eq 0) { $reviewArgs = @('--uncommitted') }
-        Push-Location $paths.Root
-        $null | & $exe review -c sandbox_mode=read-only @reviewArgs
-        $rc = $LASTEXITCODE
-        Pop-Location
-        exit $rc
+        $mode = 'uncommitted'; $ref = ''
+        $i = [array]::IndexOf($reviewArgs, '--commit')
+        if ($i -ge 0 -and $i + 1 -lt $reviewArgs.Count) { $mode = 'commit'; $ref = $reviewArgs[$i + 1] }
+        elseif ($PSBoundParameters.ContainsKey('Base')) { $mode = 'base'; $ref = $Base }
+        else {
+            $i = [array]::IndexOf($reviewArgs, '--base')
+            if ($i -ge 0 -and $i + 1 -lt $reviewArgs.Count) { $mode = 'base'; $ref = $reviewArgs[$i + 1] }
+        }
+        $reviewer = Select-Reviewer ''
+        if (-not $reviewer) { Fail 'no reviewer available; install or log in to Codex, Claude Code or Antigravity' }
+        $rv = Invoke-Review $reviewer $paths.Root $mode $ref 'last'
+        $rv.Lines | ForEach-Object { Write-Host $_ }
+        [IO.File]::WriteAllText((Join-Path $paths.Out 'review-last.txt'), (($rv.Lines -join "`r`n") + "`r`n"), $script:Utf8)
+        exit $rv.ExitCode
     }
 
     'ask' {
-        if (-not $Rest) { Fail 'usage: trinity ask <prompt...>' }
-        $exe = Resolve-CodexExe
         $prompt = $Rest -join ' '
-        $null | & $exe exec --sandbox read-only --ephemeral --skip-git-repo-check -C $paths.Root -o (Join-Path $paths.Out 'codex-last.md') $prompt
-        exit $LASTEXITCODE
+        if (-not $prompt.Trim() -and [Console]::IsInputRedirected) { $prompt = [Console]::In.ReadToEnd() }
+        if (-not $prompt.Trim()) { Fail 'usage: trinity ask <prompt...>   (or pipe the prompt on stdin)' }
+        $answer = Join-Path $paths.Out 'codex-last.md'
+        $asker = Select-Reviewer ''
+        if (-not $asker) { Fail 'nobody to ask; install or log in to Codex, Claude Code or Antigravity' }
+        Write-Host "asking: $asker"
+        if ($asker -eq 'codex') {
+            $exe = Resolve-CodexExe
+            $OutputEncoding = $script:Utf8
+            $prompt | & $exe exec --sandbox read-only --ephemeral --skip-git-repo-check -C $paths.Root -o $answer -
+            exit $LASTEXITCODE
+        }
+        $promptFile = Join-Path $paths.Out 'ask-prompt.md'
+        [IO.File]::WriteAllText($promptFile, "Answer this question about the repository at $($paths.Root). Read files as needed; do not edit anything or run commands.`r`n`r`n$prompt`r`n", $script:Utf8)
+        $rv = Invoke-ReadOnlyAgent $asker $paths.Root $promptFile 'ask'
+        [IO.File]::WriteAllText($answer, (($rv.Lines -join "`r`n") + "`r`n"), $script:Utf8)
+        $rv.Lines | ForEach-Object { Write-Host $_ }
+        exit $rv.ExitCode
     }
 
     'dispatch' {
@@ -312,11 +453,20 @@ switch ($Command) {
 
         # Run through a generated .cmd file: PS 5.1 mangles embedded quotes passed to cmd /c,
         # and cmd gives stdin/stdout redirection that works with spaces in paths.
+        # Metadata for the dashboard (docs/dashboard.md): start now, model/session/tokens when the agent ends.
+        $metaFile = Join-Path $paths.Out "meta-$task.json"
+        $meta = [ordered]@{ agent = $entry.agent; started = (Get-Date -Format 'yyyy-MM-ddTHH:mm:ss') }
+        [IO.File]::WriteAllText($metaFile, ($meta | ConvertTo-Json -Compress), $script:Utf8)
+        $agyJson = Join-Path $paths.Out "agyout-$task.json"
+        $agyLog = Join-Path $paths.Out "agy-$task.log"
+
         $runFile = Join-Path $paths.Out "run-$task.cmd"
         if ($entry.agent -eq 'antigravity') {
-            # agy -p prints only the final answer on stdout; permissions are skipped, so the task rules confine it to its worktree.
+            # agy -p --output-format json returns the final answer plus conversation id and token use;
+            # permissions are skipped, so the task rules confine it to its worktree.
             $exe = Resolve-AgyExe
-            $cmdLine = 'cd /d "' + $entry.worktree + '" && "' + $exe + '" -p "Read the task file ' + $taskFile + ' and do it. Your final message is your summary." --dangerously-skip-permissions --add-dir "' + $paths.Out + '" > "' + $result + '" 2> "' + $log + '"'
+            Remove-Item $agyJson, $agyLog -ErrorAction SilentlyContinue
+            $cmdLine = 'cd /d "' + $entry.worktree + '" && "' + $exe + '" -p "Read the task file ' + $taskFile + ' and do it. Your final message is your summary." --dangerously-skip-permissions --add-dir "' + $paths.Out + '" --output-format json --log-file "' + $agyLog + '" > "' + $agyJson + '" 2> "' + $log + '"'
         }
         else {
             $exe = Resolve-CodexExe
@@ -327,11 +477,44 @@ switch ($Command) {
         $rc = $LASTEXITCODE
         if ((Get-BoardEntry $paths $task).status -match '^cancelled') { exit 0 }
 
-        # agy -p echoes its internal background-task notices to stdout; keep only the agent's own summary.
-        if ($entry.agent -eq 'antigravity' -and (Test-Path $result)) {
-            $text = [IO.File]::ReadAllText($result) -replace '(?s)The following is a <SYSTEM_MESSAGE>.*?</SYSTEM_MESSAGE>\s*', ''
+        $meta.finished = Get-Date -Format 'yyyy-MM-ddTHH:mm:ss'
+        $meta.exitCode = $rc
+        if ($entry.agent -eq 'antigravity') {
+            # The JSON answer becomes the result file; output that is not JSON is kept as the summary as-is.
+            $raw = if (Test-Path $agyJson) { [IO.File]::ReadAllText($agyJson) } else { '' }
+            $text = $raw
+            try {
+                $j = $raw | ConvertFrom-Json
+                if ($j -and $null -ne $j.response) {
+                    $text = "$($j.response)"
+                    $meta.sessionId = "$($j.conversation_id)"
+                    if ($j.duration_seconds) { $meta.durationSec = [double]$j.duration_seconds }
+                    if ($j.usage) {
+                        $meta.tokens = [ordered]@{ input = [long]$j.usage.input_tokens; cached = [long]$j.usage.cache_read_tokens
+                            output = [long]$j.usage.output_tokens; reasoning = [long]$j.usage.thinking_tokens; total = [long]$j.usage.total_tokens }
+                    }
+                }
+            }
+            catch { }
+            # agy -p echoes its internal background-task notices; keep only the agent's own summary.
+            $text = $text -replace '(?s)The following is a <SYSTEM_MESSAGE>.*?</SYSTEM_MESSAGE>\s*', ''
             [IO.File]::WriteAllText($result, $text, $script:Utf8)
+            if (Test-Path $agyLog) {
+                $m = [regex]::Match([IO.File]::ReadAllText($agyLog), 'label="([^"]+)"')
+                if ($m.Success) { $meta.model = $m.Groups[1].Value }
+            }
         }
+        elseif (Test-Path $log) {
+            # Codex prints its settings in the log header.
+            $head = [IO.File]::ReadAllText($log)
+            if ($head.Length -gt 8192) { $head = $head.Substring(0, 8192) }
+            foreach ($pair in @(@('model', '(?m)^model:\s*(\S+)'), @('effort', '(?m)^reasoning effort:\s*(\S+)'), @('sessionId', '(?m)^session id:\s*(\S+)'))) {
+                $m = [regex]::Match($head, $pair[1])
+                if ($m.Success) { $meta[$pair[0]] = $m.Groups[1].Value }
+            }
+        }
+        if (-not $meta.Contains('durationSec')) { $meta.durationSec = [Math]::Round(((Get-Date $meta.finished) - (Get-Date $meta.started)).TotalSeconds, 1) }
+        [IO.File]::WriteAllText($metaFile, ($meta | ConvertTo-Json -Compress -Depth 4), $script:Utf8)
 
         # Codex's sandbox keeps .git read-only, so the runner commits for every headless agent; the final summary is the message.
         if ($rc -eq 0 -and (Get-Git @('-C', $entry.worktree, 'status', '--porcelain'))) {
@@ -405,7 +588,6 @@ switch ($Command) {
         $entry = Get-BoardEntry $paths $task
         if (-not $entry) { Fail "no board entry for $task" }
         $branch = $entry.branch
-        $exe = Resolve-CodexExe
 
         $cur = Get-Git @('-C', $paths.Main, 'branch', '--show-current')
         if ($cur -ne 'main') { Fail "main checkout is on '$cur', switch it to main first" }
@@ -414,13 +596,22 @@ switch ($Command) {
         $n = [int](Get-Git @('-C', $paths.Main, 'rev-list', '--count', "main..$branch"))
         if ($n -eq 0) { Fail "nothing to merge: $branch has no commits ahead of main" }
 
-        Write-Host "Reviewing $branch ($n commits) with Codex..."
-        Push-Location $entry.worktree
-        $review = $null | & $exe review -c sandbox_mode=read-only --base main 2>&1 | ForEach-Object { "$_" }
-        $reviewRc = $LASTEXITCODE
-        Pop-Location
-        # A failed review has no findings to parse, so it must not count as a clean one.
-        if ($reviewRc -ne 0 -and -not $Force) { Fail "Codex review failed (exit $reviewRc); see output above, or rerun with -Force" }
+        # Codex reviews when it can; without it Claude Code or Antigravity (read-only) does, else tests alone gate.
+        $reviewer = Select-Reviewer $entry.agent
+        if ($reviewer) {
+            Write-Host "Reviewing $branch ($n commits) with $reviewer..."
+            $rv = Invoke-Review $reviewer $entry.worktree 'base' 'main' $task
+            $review = $rv.Lines
+            # A failed review has no findings to parse, so it must not count as a clean one.
+            if ($rv.ExitCode -ne 0 -and -not $Force) {
+                $review | Select-Object -Last 20 | ForEach-Object { Write-Host $_ }
+                Fail "$reviewer review failed (exit $($rv.ExitCode)); rerun, set TRINITY_REVIEWER to another agent, or use -Force"
+            }
+        }
+        else {
+            $review = @('No review: no reviewer can run here (TRINITY_REVIEWER=none, or Codex, Claude Code and Antigravity all unavailable). Tests alone gate this merge.')
+            Write-Host $review[0] -ForegroundColor Yellow
+        }
         [IO.File]::WriteAllText((Join-Path $paths.Out "review-$task.txt"), (($review -join "`r`n") + "`r`n"), $script:Utf8)
         $review | ForEach-Object { Write-Host $_ }
 
@@ -591,6 +782,8 @@ switch ($Command) {
         $entry = Get-BoardEntry $paths $task
         if ($entry -and $entry.agent -ne 'claude') { Fail "$task belongs to $($entry.agent); pick another task name" }
         if (-not $entry) { Add-BoardEntry $paths $task 'claude' '-' '-' $Scope }
+        # Inside a Claude Code session, link the task to it so the dashboard shows its model and chat.
+        if ($env:CLAUDE_CODE_SESSION_ID -match '^[0-9a-fA-F-]{36}$') { Set-BoardField $paths $task 'session' $env:CLAUDE_CODE_SESSION_ID }
         Set-BoardStatus $paths $task "working: $note"
         Write-Host "tracking $($task): $note"
     }
