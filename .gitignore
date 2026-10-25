@@ -1,0 +1,6 @@
+.env
+.env.*
+!.env.example
+.codex-out/
+node_modules/
+.claude/settings.local.json
