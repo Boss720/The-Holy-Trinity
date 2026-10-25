@@ -40,9 +40,10 @@ async function strip(buf) {
   const manifest = zip.file('META-INF/manifest.xml');
   if (manifest && removeNames.size) {
     const xml = await manifest.async('string');
-    const updated = xml.replace(/<manifest:file-entry\b[^>]*(?:\/>|>[\s\S]*?<\/manifest:file-entry\s*>)/g, (element) => {
-      const openingTag = element.match(/^<manifest:file-entry\b[^>]*>/);
-      const path = openingTag && openingTag[0].match(/\bmanifest:full-path\s*=\s*(['"])(.*?)\1/);
+    // Namespace prefixes are not fixed by the spec, so match any prefix.
+    const updated = xml.replace(/<([\w.-]+):file-entry(?=[\s/>])[^>]*(?:\/>|>[\s\S]*?<\/\1:file-entry\s*>)/g, (element) => {
+      const openingTag = element.match(/^<[\w.-]+:file-entry[^>]*>/);
+      const path = openingTag && openingTag[0].match(/\s[\w.-]+:full-path\s*=\s*(['"])(.*?)\1/);
       if (!path) return element;
       const value = path[2];
       return value === 'meta.xml' || value.startsWith('Thumbnails/') ? '' : element;
@@ -53,7 +54,7 @@ async function strip(buf) {
   const settings = zip.file('settings.xml');
   if (settings) {
     const xml = await settings.async('string');
-    const updated = xml.replace(/<config:config-item\b(?=[^>]*\bconfig:name\s*=\s*(['"])(?:PrinterName|PrinterSetup)\1)[^>]*(?:\/>|>[\s\S]*?<\/config:config-item\s*>)/g, '');
+    const updated = xml.replace(/<([\w.-]+):config-item(?=[\s/>])(?=[^>]*\s[\w.-]+:name\s*=\s*(['"])(?:PrinterName|PrinterSetup)\2)[^>]*(?:\/>|>[\s\S]*?<\/\1:config-item\s*>)/g, '');
     if (updated !== xml) {
       zip.file('settings.xml', updated);
       if (!labels.has('Printer settings')) {

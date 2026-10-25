@@ -87,7 +87,8 @@ function strip(buf) {
     if (label === 0xfe) {
       addRemoved('Comment');
     } else if (label === 0x01) {
-      addRemoved('Plain text');
+      // Plain Text Extension draws visible text on the canvas: rendering data, not metadata.
+      kept.push(buf.subarray(start, end));
     } else if (label === 0xff) {
       if (appIdentifier === 'NETSCAPE2.0' || appIdentifier === 'ANIMEXTS1.0') {
         kept.push(buf.subarray(start, end));

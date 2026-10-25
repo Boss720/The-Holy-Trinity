@@ -6,6 +6,8 @@ const png = require('./png');
 const webp = require('./webp');
 const pdf = require('./pdf');
 const ooxml = require('./ooxml');
+const gif = require('./gif');
+const odf = require('./odf');
 
 const HANDLERS = {
   jpg: jpeg.strip,
@@ -16,6 +18,10 @@ const HANDLERS = {
   docx: ooxml.strip,
   xlsx: ooxml.strip,
   pptx: ooxml.strip,
+  gif: gif.strip,
+  odt: odf.strip,
+  ods: odf.strip,
+  odp: odf.strip,
 };
 
 const SUPPORTED_EXTENSIONS = Object.keys(HANDLERS);

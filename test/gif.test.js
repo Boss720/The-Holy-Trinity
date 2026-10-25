@@ -96,3 +96,11 @@ test('gif: rejects truncated input', () => {
   const truncated = makeGif([extension(0xfe, Buffer.from('comment'))]).subarray(0, -2);
   assert.throws(() => strip(truncated), /Corrupt GIF/);
 });
+
+test('gif: keeps plain text extensions because they render visible text', () => {
+  const plainText = extension(0x01, Buffer.from('visible caption', 'ascii'));
+  const input = makeGif([plainText, image()]);
+  const { data, removed } = strip(input);
+  assert.ok(data.includes(plainText));
+  assert.deepEqual(removed, []);
+});

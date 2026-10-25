@@ -72,6 +72,20 @@ What runs by itself:
 | Any `git commit` | `.githooks/pre-commit` checks `.ps1`/`.cmd` encoding and blocks likely secrets |
 | Dispatched Codex finishes | Its changes are committed on its branch (Codex's sandbox keeps `.git` read-only, so the runner commits, using Codex's summary as the message), board status set to done/failed, result saved to `.codex-out\`, Windows notification |
 
+### Auto-delegation (Claude drives the other two)
+
+You talk to Claude only. Claude routes work to Codex and Antigravity through three subagents in `.claude/agents/` (loaded when a Claude session starts):
+
+| Subagent | Wraps | Gets |
+|---|---|---|
+| `codex-worker` | `trinity dispatch codex` + `trinity wait` | Self-contained coding tasks with a clear file scope |
+| `codex-reviewer` | `scripts\codex-review.cmd` / `codex-ask.cmd` | Review before every commit and merge, second opinions |
+| `antigravity-ui` | `trinity dispatch antigravity` + `trinity wait` | UI verification and visual fixes |
+
+The routing table and rules live in `CLAUDE.md`. Typical run: Claude splits a feature by files, launches several `codex-worker`s at once, keeps working itself, then runs `trinity merge <task> -Yes` per branch and wires shared files (registries, `package.json`) itself. Workers never touch shared files, so a review finding like "handler not registered" on a worker branch is expected; Claude merges that branch with `-Force` and does the wiring on `main`.
+
+First real run (Module 2 in `PLAN.md`): two Codex workers built GIF and ODF stripping in parallel; Codex review then caught two real bugs (GIF plain-text frames dropped, ODF namespace prefixes hardcoded) that Claude fixed on `main`.
+
 ---
 
 ## How to use it (manual mode)

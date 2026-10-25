@@ -17,6 +17,7 @@ Per-module checklist. Owner = claude | codex | antigravity.
 - [ ] More formats: TIFF, HEIC, MP4/MOV - unassigned
 
 ## Module 2: Formats via parallel Codex workers (first auto-delegation run)
-- [ ] GIF `src/strip/gif.js` + `test/gif.test.js` - codex (task strip-gif)
-- [ ] ODF `src/strip/odf.js` + `test/odf.test.js` - codex (task strip-odf)
-- [ ] Register both in `src/strip/index.js`, run full suite - claude
+- [x] GIF `src/strip/gif.js` + `test/gif.test.js` - codex (task strip-gif)
+- [x] ODF `src/strip/odf.js` + `test/odf.test.js` - codex (task strip-odf)
+- [x] Register both in `src/strip/index.js`, fix review P2s, run full suite (22 pass) - claude
+- [ ] UI click-through with a real .gif and .odt - antigravity (not yet run)

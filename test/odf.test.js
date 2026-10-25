@@ -73,3 +73,20 @@ test('odf: rejects non-OpenDocument zip files', async () => {
   zip.file('mimetype', 'application/zip');
   await assert.rejects(strip(await zip.generateAsync({ type: 'nodebuffer' })), /Not a valid OpenDocument file/);
 });
+
+test('odf: handles non-default namespace prefixes', async () => {
+  const input = await makeOdt({
+    'META-INF/manifest.xml': '<m:manifest><m:file-entry m:full-path="meta.xml"/><m:file-entry m:full-path="content.xml"/></m:manifest>',
+    'meta.xml': '<office:document-meta/>',
+    'content.xml': '<office:document-content/>',
+    'settings.xml': '<c:config-item-set c:name="Print"><c:config-item c:name="PrinterName" c:type="string">Office Printer</c:config-item><c:config-item c:name="Keep" c:type="string">value</c:config-item></c:config-item-set>',
+  });
+
+  const { data } = await strip(input);
+  const output = await JSZip.loadAsync(data);
+  const manifest = await output.file('META-INF/manifest.xml').async('string');
+  assert.ok(!manifest.includes('meta.xml') && manifest.includes('content.xml'));
+  const settings = await output.file('settings.xml').async('string');
+  assert.ok(!settings.includes('Office Printer'));
+  assert.ok(settings.includes('c:name="Keep"') && settings.includes('<c:config-item-set'));
+});

@@ -197,6 +197,7 @@ test('docx: removes docProps and their references, keeps content', async () => {
 
 test('isSupported', () => {
   assert.ok(isSupported('C:\\x\\Photo.JPG'));
+  assert.ok(isSupported('a.gif') && isSupported('b.ODT') && isSupported('c.ods') && isSupported('d.odp'));
   assert.ok(isSupported('a.docx'));
   assert.ok(!isSupported('a.exe'));
 });
