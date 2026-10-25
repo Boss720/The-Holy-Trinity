@@ -1,0 +1,1620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="data:,">
+  <title>Trinity Operator Dashboard</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+
+      /* Base canvas & surface */
+      --bg-base: #f0f2f5;
+      --bg-surface: #ffffff;
+      --bg-surface-hover: #f7f9fa;
+      --bg-subtle: #eaedf1;
+      --bg-input: #ffffff;
+
+      /* Borders */
+      --border-color: #d0d7de;
+      --border-subtle: #e1e4e8;
+      --border-focus: #0969da;
+
+      /* Text tokens */
+      --text-main: #1f2328;
+      --text-secondary: #57606a;
+      --text-muted: #8c959f;
+
+      /* Monospace block */
+      --code-bg: #1f2328;
+      --code-text: #f0f6fc;
+      --code-border: #30363d;
+
+      /* Status colors */
+      --status-live: #1a7f37;
+      --status-live-bg: #dafbe1;
+      --status-offline: #cf222e;
+      --status-offline-bg: #ffebe9;
+
+      /* Agent accents - Light */
+      --claude-accent: #c2410c;
+      --claude-bg: #fff7ed;
+      --claude-border: #fdba74;
+
+      --codex-accent: #047857;
+      --codex-bg: #ecfdf5;
+      --codex-border: #6ee7b7;
+
+      --antigravity-accent: #1d4ed8;
+      --antigravity-bg: #eff6ff;
+      --antigravity-border: #93c5fd;
+
+      /* State badge colors - Light */
+      --badge-running-bg: #ddf4ff;
+      --badge-running-text: #0969da;
+      --badge-running-border: #54aeff;
+
+      --badge-done-bg: #dafbe1;
+      --badge-done-text: #1a7f37;
+      --badge-done-border: #4ac26b;
+
+      --badge-failed-bg: #ffebe9;
+      --badge-failed-text: #cf222e;
+      --badge-failed-border: #ff8182;
+
+      --badge-merged-bg: #fbefff;
+      --badge-merged-text: #8250df;
+      --badge-merged-border: #c297ff;
+
+      --badge-cancelled-bg: #f6f8fa;
+      --badge-cancelled-text: #57606a;
+      --badge-cancelled-border: #d0d7de;
+
+      --badge-waiting-bg: #fff8c5;
+      --badge-waiting-text: #9a6700;
+      --badge-waiting-border: #d4a72c;
+
+      --badge-other-bg: #f6f8fa;
+      --badge-other-text: #57606a;
+      --badge-other-border: #d0d7de;
+
+      /* Progress track */
+      --track-bg: #e1e4e8;
+      --track-fill: #1a7f37;
+
+      /* Shadows */
+      --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-base: #0a0d12;
+        --bg-surface: #121820;
+        --bg-surface-hover: #18202b;
+        --bg-subtle: #1e2634;
+        --bg-input: #0a0d12;
+
+        --border-color: #273142;
+        --border-subtle: #1c2430;
+        --border-focus: #58a6ff;
+
+        --text-main: #e6edf3;
+        --text-secondary: #9da7b3;
+        --text-muted: #657182;
+
+        --code-bg: #07090d;
+        --code-text: #c9d1d9;
+        --code-border: #212936;
+
+        --status-live: #3fb950;
+        --status-live-bg: rgba(63, 185, 80, 0.15);
+        --status-offline: #f85149;
+        --status-offline-bg: rgba(248, 81, 73, 0.15);
+
+        /* Agent accents - Dark */
+        --claude-accent: #fb923c;
+        --claude-bg: rgba(251, 146, 60, 0.12);
+        --claude-border: rgba(251, 146, 60, 0.35);
+
+        --codex-accent: #34d399;
+        --codex-bg: rgba(52, 211, 153, 0.12);
+        --codex-border: rgba(52, 211, 153, 0.35);
+
+        --antigravity-accent: #60a5fa;
+        --antigravity-bg: rgba(96, 165, 250, 0.12);
+        --antigravity-border: rgba(96, 165, 250, 0.35);
+
+        /* State badge colors - Dark */
+        --badge-running-bg: rgba(56, 139, 253, 0.15);
+        --badge-running-text: #58a6ff;
+        --badge-running-border: rgba(56, 139, 253, 0.4);
+
+        --badge-done-bg: rgba(46, 160, 67, 0.15);
+        --badge-done-text: #3fb950;
+        --badge-done-border: rgba(46, 160, 67, 0.4);
+
+        --badge-failed-bg: rgba(248, 81, 73, 0.15);
+        --badge-failed-text: #ff7b72;
+        --badge-failed-border: rgba(248, 81, 73, 0.4);
+
+        --badge-merged-bg: rgba(163, 113, 247, 0.15);
+        --badge-merged-text: #bc8cff;
+        --badge-merged-border: rgba(163, 113, 247, 0.4);
+
+        --badge-cancelled-bg: rgba(110, 118, 129, 0.15);
+        --badge-cancelled-text: #8b949e;
+        --badge-cancelled-border: rgba(110, 118, 129, 0.4);
+
+        --badge-waiting-bg: rgba(210, 153, 34, 0.15);
+        --badge-waiting-text: #e3b341;
+        --badge-waiting-border: rgba(210, 153, 34, 0.4);
+
+        --badge-other-bg: rgba(110, 118, 129, 0.15);
+        --badge-other-text: #8b949e;
+        --badge-other-border: rgba(110, 118, 129, 0.4);
+
+        --track-bg: #1e2634;
+        --track-fill: #238636;
+
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+      }
+    }
+
+    /* Reset & layout */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-base);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-size: 13px;
+      line-height: 1.45;
+      padding: 14px;
+      min-width: 0;
+      width: 100%;
+      overflow-x: hidden;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .container {
+      max-width: 1540px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    /* Top bar */
+    .header-bar {
+      background-color: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .header-row-primary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .brand-section {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .brand-title {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .brand-tag {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background-color: var(--bg-subtle);
+      color: var(--text-secondary);
+      border: 1px solid var(--border-color);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .status-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 12px;
+    }
+
+    .indicator-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-weight: 600;
+      font-size: 11px;
+      letter-spacing: 0.03em;
+    }
+
+    .indicator-pill.live {
+      background-color: var(--status-live-bg);
+      color: var(--status-live);
+      border: 1px solid currentColor;
+    }
+
+    .indicator-pill.offline {
+      background-color: var(--status-offline-bg);
+      color: var(--status-offline);
+      border: 1px solid currentColor;
+    }
+
+    .indicator-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background-color: currentColor;
+    }
+
+    .indicator-pill.live .indicator-dot {
+      box-shadow: 0 0 6px currentColor;
+    }
+
+    .refresh-time {
+      color: var(--text-secondary);
+      font-size: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    /* Agent stats cards in header */
+    .agent-counts-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    @media (max-width: 768px) {
+      .agent-counts-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .agent-stat-card {
+      padding: 8px 12px;
+      border-radius: 5px;
+      border: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      background-color: var(--bg-surface);
+    }
+
+    .agent-stat-card.claude {
+      border-left: 4px solid var(--claude-accent);
+      background-color: var(--claude-bg);
+    }
+
+    .agent-stat-card.codex {
+      border-left: 4px solid var(--codex-accent);
+      background-color: var(--codex-bg);
+    }
+
+    .agent-stat-card.antigravity {
+      border-left: 4px solid var(--antigravity-accent);
+      background-color: var(--antigravity-bg);
+    }
+
+    .agent-label {
+      font-weight: 700;
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .agent-stat-card.claude .agent-label { color: var(--claude-accent); }
+    .agent-stat-card.codex .agent-label { color: var(--codex-accent); }
+    .agent-stat-card.antigravity .agent-label { color: var(--antigravity-accent); }
+
+    .agent-metrics {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .metric-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+    }
+
+    .metric-pill.running {
+      font-weight: 700;
+    }
+
+    /* Offline alert bar */
+    .offline-alert-bar {
+      display: none;
+      background-color: var(--status-offline-bg);
+      border: 1px solid var(--status-offline);
+      color: var(--status-offline);
+      padding: 8px 12px;
+      border-radius: 5px;
+      font-size: 12px;
+      font-weight: 600;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .offline-alert-bar.active {
+      display: flex;
+    }
+
+    /* Filter & Controls bar */
+    .controls-bar {
+      background-color: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 8px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .filter-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .filter-item label {
+      font-weight: 600;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    select.filter-select {
+      background-color: var(--bg-input);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      padding: 4px 8px;
+      font-size: 12px;
+      outline: none;
+      font-family: inherit;
+    }
+
+    select.filter-select:focus {
+      border-color: var(--border-focus);
+    }
+
+    input[type="checkbox"] {
+      cursor: pointer;
+      accent-color: var(--border-focus);
+    }
+
+    .filter-stats {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    /* Lanes section */
+    .lanes-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      align-items: start;
+    }
+
+    @media (max-width: 900px) {
+      .lanes-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .lane-column {
+      background-color: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      display: flex;
+      flex-direction: column;
+      box-shadow: var(--shadow-sm);
+      min-width: 0;
+    }
+
+    .lane-header {
+      padding: 10px 14px;
+      border-bottom: 2px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .lane-column.claude .lane-header {
+      border-bottom-color: var(--claude-accent);
+      background-color: var(--claude-bg);
+    }
+
+    .lane-column.codex .lane-header {
+      border-bottom-color: var(--codex-accent);
+      background-color: var(--codex-bg);
+    }
+
+    .lane-column.antigravity .lane-header {
+      border-bottom-color: var(--antigravity-accent);
+      background-color: var(--antigravity-bg);
+    }
+
+    .lane-title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .lane-title {
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .lane-column.claude .lane-title { color: var(--claude-accent); }
+    .lane-column.codex .lane-title { color: var(--codex-accent); }
+    .lane-column.antigravity .lane-title { color: var(--antigravity-accent); }
+
+    .lane-task-count {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: 10px;
+      border: 1px solid var(--border-color);
+      background-color: var(--bg-surface);
+      color: var(--text-secondary);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .lane-body {
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 80px;
+    }
+
+    .lane-empty {
+      padding: 24px 12px;
+      text-align: center;
+      color: var(--text-muted);
+      font-style: italic;
+      font-size: 12px;
+    }
+
+    /* Task Card */
+    .task-card {
+      border: 1px solid var(--border-color);
+      border-radius: 5px;
+      background-color: var(--bg-surface);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transition: border-color 0.15s ease, background-color 0.15s ease;
+      cursor: pointer;
+    }
+
+    .task-card:hover {
+      background-color: var(--bg-surface-hover);
+      border-color: var(--border-focus);
+    }
+
+    .task-card.is-running {
+      border-left: 3px solid var(--badge-running-text);
+    }
+
+    .task-card-header {
+      padding: 9px 11px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      user-select: none;
+    }
+
+    .task-title-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .task-name-group {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+
+    .task-name {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-weight: 700;
+      font-size: 13px;
+      color: var(--text-main);
+      word-break: break-all;
+    }
+
+    .repo-pill {
+      font-size: 11px;
+      padding: 1px 6px;
+      border-radius: 3px;
+      background-color: var(--bg-subtle);
+      border: 1px solid var(--border-color);
+      color: var(--text-secondary);
+      white-space: nowrap;
+    }
+
+    .badges-group {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      flex-shrink: 0;
+    }
+
+    /* State badge - Readable by text, not color alone */
+    .state-badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 3px;
+      letter-spacing: 0.05em;
+      border: 1px solid currentColor;
+      text-transform: uppercase;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      white-space: nowrap;
+    }
+
+    .state-badge.state-running {
+      background-color: var(--badge-running-bg);
+      color: var(--badge-running-text);
+      border-color: var(--badge-running-border);
+    }
+
+    .state-badge.state-done {
+      background-color: var(--badge-done-bg);
+      color: var(--badge-done-text);
+      border-color: var(--badge-done-border);
+    }
+
+    .state-badge.state-failed {
+      background-color: var(--badge-failed-bg);
+      color: var(--badge-failed-text);
+      border-color: var(--badge-failed-border);
+    }
+
+    .state-badge.state-merged {
+      background-color: var(--badge-merged-bg);
+      color: var(--badge-merged-text);
+      border-color: var(--badge-merged-border);
+    }
+
+    .state-badge.state-cancelled {
+      background-color: var(--badge-cancelled-bg);
+      color: var(--badge-cancelled-text);
+      border-color: var(--badge-cancelled-border);
+    }
+
+    .state-badge.state-waiting {
+      background-color: var(--badge-waiting-bg);
+      color: var(--badge-waiting-text);
+      border-color: var(--badge-waiting-border);
+    }
+
+    .state-badge.state-other {
+      background-color: var(--badge-other-bg);
+      color: var(--badge-other-text);
+      border-color: var(--badge-other-border);
+    }
+
+    .task-status-row {
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.35;
+      word-break: break-word;
+    }
+
+    .task-meta-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding-top: 4px;
+      border-top: 1px dashed var(--border-subtle);
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .meta-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .runner-pill {
+      font-size: 10px;
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+    }
+
+    .runner-pill.alive {
+      background-color: var(--status-live-bg);
+      color: var(--status-live);
+      border: 1px solid var(--status-live);
+    }
+
+    .runner-pill.idle {
+      background-color: var(--bg-subtle);
+      color: var(--text-muted);
+      border: 1px solid var(--border-color);
+    }
+
+    .task-scope-row {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      word-break: break-all;
+    }
+
+    .card-toggle-icon {
+      font-size: 10px;
+      color: var(--text-muted);
+      transition: transform 0.2s ease;
+      display: inline-block;
+    }
+
+    .task-card.expanded .card-toggle-icon {
+      transform: rotate(90deg);
+    }
+
+    /* Expandable drawer */
+    .task-card-drawer {
+      display: none;
+      border-top: 1px solid var(--border-color);
+      background-color: var(--bg-base);
+      padding: 10px 12px;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .task-card.expanded .task-card-drawer {
+      display: flex;
+    }
+
+    .drawer-section {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .drawer-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .mono-block {
+      background-color: var(--code-bg);
+      color: var(--code-text);
+      border: 1px solid var(--code-border);
+      border-radius: 4px;
+      padding: 8px 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.4;
+      max-height: 220px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .mono-empty {
+      color: var(--text-muted);
+      font-style: italic;
+      font-size: 11px;
+      padding: 4px 0;
+    }
+
+    /* Repositories Section */
+    .repos-section {
+      background-color: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      box-shadow: var(--shadow-sm);
+      overflow: hidden;
+    }
+
+    .repos-header {
+      padding: 10px 16px;
+      background-color: var(--bg-subtle);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .repos-title {
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .repos-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+      gap: 14px;
+      padding: 14px;
+    }
+
+    @media (max-width: 600px) {
+      .repos-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .repo-card {
+      border: 1px solid var(--border-color);
+      border-radius: 5px;
+      background-color: var(--bg-surface);
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .repo-card-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .repo-title-group {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .repo-name {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .repo-path {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      word-break: break-all;
+    }
+
+    .repo-badges {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .repo-badge {
+      font-size: 11px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      padding: 2px 6px;
+      border-radius: 4px;
+      border: 1px solid var(--border-color);
+      background-color: var(--bg-subtle);
+      color: var(--text-secondary);
+      font-weight: 600;
+    }
+
+    .repo-badge.active-alert {
+      background-color: var(--badge-waiting-bg);
+      color: var(--badge-waiting-text);
+      border-color: var(--badge-waiting-border);
+    }
+
+    /* Progress bar */
+    .progress-box {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .progress-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .progress-label {
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+
+    .progress-track {
+      width: 100%;
+      height: 7px;
+      background-color: var(--track-bg);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background-color: var(--track-fill);
+      transition: width 0.3s ease;
+    }
+
+    .plan-open-list {
+      margin-top: 4px;
+      padding-left: 18px;
+      font-size: 11px;
+      color: var(--text-secondary);
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .plan-open-list li {
+      word-break: break-word;
+    }
+
+    .handoff-box {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      border-top: 1px dashed var(--border-subtle);
+      padding-top: 8px;
+    }
+
+    .handoff-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-secondary);
+    }
+
+    .handoff-list {
+      padding-left: 18px;
+      font-size: 11px;
+      color: var(--text-secondary);
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .handoff-list li {
+      word-break: break-word;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header bar -->
+    <header class="header-bar">
+      <div class="header-row-primary">
+        <div class="brand-section">
+          <div class="brand-title">
+            <span>TRINITY</span>
+            <span class="brand-tag">OPERATOR CONSOLE</span>
+          </div>
+        </div>
+        <div class="status-group">
+          <div id="live-indicator" class="indicator-pill live">
+            <span class="indicator-dot"></span>
+            <span id="live-text">LIVE</span>
+          </div>
+          <div id="refresh-time" class="refresh-time">Connecting...</div>
+        </div>
+      </div>
+
+      <!-- Agent stats counters -->
+      <div class="agent-counts-grid">
+        <div class="agent-stat-card claude">
+          <div class="agent-label">Claude</div>
+          <div class="agent-metrics" id="metrics-claude">
+            <span class="metric-pill running"><span id="claude-running">0</span> run</span>
+            <span>·</span>
+            <span class="metric-pill"><span id="claude-done">0</span> done</span>
+            <span>·</span>
+            <span class="metric-pill"><span id="claude-failed">0</span> fail</span>
+            <span>·</span>
+            <span class="metric-pill"><span id="claude-total">0</span> tot</span>
+          </div>
+        </div>
+        <div class="agent-stat-card codex">
+          <div class="agent-label">Codex</div>
+          <div class="agent-metrics" id="metrics-codex">
+            <span class="metric-pill running"><span id="codex-running">0</span> run</span>
+            <span>·</span>
+            <span class="metric-pill"><span id="codex-done">0</span> done</span>
+            <span>·</span>
+            <span class="metric-pill"><span id="codex-failed">0</span> fail</span>
+            <span>·</span>
+            <span class="metric-pill"><span id="codex-total">0</span> tot</span>
+          </div>
+        </div>
+        <div class="agent-stat-card antigravity">
+          <div class="agent-label">Antigravity</div>
+          <div class="agent-metrics" id="metrics-antigravity">
+            <span class="metric-pill running"><span id="antigravity-running">0</span> run</span>
+            <span>·</span>
+            <span class="metric-pill"><span id="antigravity-done">0</span> done</span>
+            <span>·</span>
+            <span class="metric-pill"><span id="antigravity-failed">0</span> fail</span>
+            <span>·</span>
+            <span class="metric-pill"><span id="antigravity-total">0</span> tot</span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Offline Alert Banner -->
+    <div id="offline-alert" class="offline-alert-bar">
+      <span><strong>SERVER OFFLINE:</strong> Unable to connect to state API. Retrying every 3s. Preserving last known snapshot.</span>
+      <span id="offline-alert-time" style="font-family: ui-monospace, monospace;"></span>
+    </div>
+
+    <!-- Filter & Controls Toolbar -->
+    <div class="controls-bar">
+      <div class="filter-group">
+        <div class="filter-item">
+          <label for="repo-filter">Repository:</label>
+          <select id="repo-filter" class="filter-select">
+            <option value="all">All Repositories</option>
+          </select>
+        </div>
+        <div class="filter-item">
+          <input type="checkbox" id="hide-finished">
+          <label for="hide-finished">Hide finished (merged &amp; cancelled)</label>
+        </div>
+      </div>
+      <div class="filter-stats" id="filter-stats">
+        Showing all tasks
+      </div>
+    </div>
+
+    <!-- 3-Lane Grid -->
+    <main class="lanes-grid">
+      <!-- Claude Lane -->
+      <section class="lane-column claude" id="lane-claude">
+        <div class="lane-header">
+          <div class="lane-title-wrap">
+            <span class="lane-title">Claude</span>
+          </div>
+          <span class="lane-task-count" id="count-claude">0 tasks</span>
+        </div>
+        <div class="lane-body" id="body-claude">
+          <div class="lane-empty">No tasks</div>
+        </div>
+      </section>
+
+      <!-- Codex Lane -->
+      <section class="lane-column codex" id="lane-codex">
+        <div class="lane-header">
+          <div class="lane-title-wrap">
+            <span class="lane-title">Codex</span>
+          </div>
+          <span class="lane-task-count" id="count-codex">0 tasks</span>
+        </div>
+        <div class="lane-body" id="body-codex">
+          <div class="lane-empty">No tasks</div>
+        </div>
+      </section>
+
+      <!-- Antigravity Lane -->
+      <section class="lane-column antigravity" id="lane-antigravity">
+        <div class="lane-header">
+          <div class="lane-title-wrap">
+            <span class="lane-title">Antigravity</span>
+          </div>
+          <span class="lane-task-count" id="count-antigravity">0 tasks</span>
+        </div>
+        <div class="lane-body" id="body-antigravity">
+          <div class="lane-empty">No tasks</div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Repositories Section -->
+    <section class="repos-section">
+      <div class="repos-header">
+        <div class="repos-title">
+          <span>Tracked Repositories</span>
+          <span class="lane-task-count" id="repo-count-badge">0</span>
+        </div>
+      </div>
+      <div class="repos-grid" id="repos-container">
+        <!-- Rendered dynamically -->
+      </div>
+    </section>
+  </div>
+
+  <script>
+    (function () {
+      'use strict';
+
+      // State and configuration
+      const urlParams = new URLSearchParams(window.location.search);
+      const isSample = urlParams.get('sample') === '1';
+      const stateUrl = isSample ? 'dashboard-sample.json' : '/api/state';
+
+      let lastStateData = null;
+      let expandedTaskKeys = new Set();
+      let currentRepoFilter = 'all';
+      let hideFinished = false;
+
+      // DOM Elements
+      const liveIndicator = document.getElementById('live-indicator');
+      const liveText = document.getElementById('live-text');
+      const refreshTime = document.getElementById('refresh-time');
+      const offlineAlert = document.getElementById('offline-alert');
+      const offlineAlertTime = document.getElementById('offline-alert-time');
+
+      const repoFilterSelect = document.getElementById('repo-filter');
+      const hideFinishedCheckbox = document.getElementById('hide-finished');
+      const filterStats = document.getElementById('filter-stats');
+
+      const laneBodies = {
+        claude: document.getElementById('body-claude'),
+        codex: document.getElementById('body-codex'),
+        antigravity: document.getElementById('body-antigravity')
+      };
+
+      const laneCounts = {
+        claude: document.getElementById('count-claude'),
+        codex: document.getElementById('count-codex'),
+        antigravity: document.getElementById('count-antigravity')
+      };
+
+      const reposContainer = document.getElementById('repos-container');
+      const repoCountBadge = document.getElementById('repo-count-badge');
+
+      // Safe localStorage utilities
+      function loadSavedPreferences() {
+        try {
+          const savedRepo = localStorage.getItem('trinity_dash_repo');
+          const savedHide = localStorage.getItem('trinity_dash_hide_finished');
+          if (savedRepo !== null) {
+            currentRepoFilter = savedRepo;
+          }
+          if (savedHide !== null) {
+            hideFinished = savedHide === 'true';
+            hideFinishedCheckbox.checked = hideFinished;
+          }
+        } catch (err) {
+          // localStorage disabled or security exception
+        }
+      }
+
+      function savePreferences() {
+        try {
+          localStorage.setItem('trinity_dash_repo', currentRepoFilter);
+          localStorage.setItem('trinity_dash_hide_finished', hideFinished ? 'true' : 'false');
+        } catch (err) {
+          // localStorage disabled or security exception
+        }
+      }
+
+      // Safe DOM element builder (ZERO innerHTML with dynamic data)
+      function el(tag, className, textContent) {
+        const element = document.createElement(tag);
+        if (className) element.className = className;
+        if (textContent !== undefined && textContent !== null) {
+          element.textContent = textContent;
+        }
+        return element;
+      }
+
+      // Format updated timestamp
+      function formatTime(isoOrString) {
+        if (!isoOrString) return '';
+        try {
+          if (isoOrString.includes('T')) {
+            const d = new Date(isoOrString);
+            if (!isNaN(d.getTime())) {
+              return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+            }
+          }
+        } catch (e) {}
+        return isoOrString;
+      }
+
+      // Update header agent counts
+      function updateAgentMetrics(agents) {
+        const agentNames = ['claude', 'codex', 'antigravity'];
+        agentNames.forEach(function (name) {
+          const stats = (agents && agents[name]) ? agents[name] : { running: 0, done: 0, failed: 0, total: 0 };
+          const runEl = document.getElementById(name + '-running');
+          const doneEl = document.getElementById(name + '-done');
+          const failEl = document.getElementById(name + '-failed');
+          const totEl = document.getElementById(name + '-total');
+
+          if (runEl) runEl.textContent = String(stats.running || 0);
+          if (doneEl) doneEl.textContent = String(stats.done || 0);
+          if (failEl) failEl.textContent = String(stats.failed || 0);
+          if (totEl) totEl.textContent = String(stats.total || 0);
+        });
+      }
+
+      // Synchronize repo filter dropdown
+      function updateRepoFilterOptions(repos) {
+        const existingValues = new Set();
+        for (let i = 0; i < repoFilterSelect.options.length; i++) {
+          existingValues.add(repoFilterSelect.options[i].value);
+        }
+
+        const currentRepos = new Set(['all']);
+        (repos || []).forEach(function (r) {
+          if (r && r.name) {
+            currentRepos.add(r.name);
+            if (!existingValues.has(r.name)) {
+              const opt = el('option', '', r.name);
+              opt.value = r.name;
+              repoFilterSelect.appendChild(opt);
+            }
+          }
+        });
+
+        // Ensure current selection is applied
+        if (currentRepos.has(currentRepoFilter)) {
+          repoFilterSelect.value = currentRepoFilter;
+        } else {
+          currentRepoFilter = 'all';
+          repoFilterSelect.value = 'all';
+        }
+      }
+
+      // Task card component generator
+      function createTaskCard(task) {
+        const taskKey = (task.repoName || '') + '::' + (task.agent || '') + '::' + (task.task || '');
+        const isExpanded = expandedTaskKeys.has(taskKey);
+
+        const card = el('div', 'task-card' + (task.state === 'running' ? ' is-running' : '') + (isExpanded ? ' expanded' : ''));
+        card.setAttribute('role', 'button');
+        card.setAttribute('tabindex', '0');
+        card.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+
+        // Header section of card
+        const cardHeader = el('div', 'task-card-header');
+
+        // Row 1: Task title & badges
+        const titleRow = el('div', 'task-title-row');
+
+        const nameGroup = el('div', 'task-name-group');
+        const chevron = el('span', 'card-toggle-icon', '▶');
+        nameGroup.appendChild(chevron);
+
+        const taskName = el('span', 'task-name', task.task || 'unknown-task');
+        nameGroup.appendChild(taskName);
+
+        if (task.repoName) {
+          const repoPill = el('span', 'repo-pill', task.repoName);
+          nameGroup.appendChild(repoPill);
+        }
+        titleRow.appendChild(nameGroup);
+
+        const badgesGroup = el('div', 'badges-group');
+        const stateClass = 'state-' + (task.state || 'other').toLowerCase();
+        const stateBadge = el('span', 'state-badge ' + stateClass, task.state || 'OTHER');
+        badgesGroup.appendChild(stateBadge);
+        titleRow.appendChild(badgesGroup);
+
+        cardHeader.appendChild(titleRow);
+
+        // Row 2: Status text
+        if (task.status) {
+          const statusRow = el('div', 'task-status-row', task.status);
+          cardHeader.appendChild(statusRow);
+        }
+
+        // Row 3: Scope if available
+        if (task.scope && task.scope !== '-') {
+          const scopeRow = el('div', 'task-scope-row', 'scope: ' + task.scope);
+          cardHeader.appendChild(scopeRow);
+        }
+
+        // Row 4: Meta row (runner, commits, updated)
+        const metaRow = el('div', 'task-meta-row');
+
+        const metaLeft = el('div', 'meta-left');
+        if (task.runnerAlive) {
+          const runnerBadge = el('span', 'runner-pill alive', '● RUNNER ACTIVE');
+          metaLeft.appendChild(runnerBadge);
+        } else {
+          const runnerBadge = el('span', 'runner-pill idle', 'runner idle');
+          metaLeft.appendChild(runnerBadge);
+        }
+
+        const commitsCount = typeof task.commits === 'number' ? task.commits : 0;
+        const commitsText = commitsCount === 1 ? '1 commit' : commitsCount + ' commits';
+        const commitsEl = el('span', '', commitsText);
+        metaLeft.appendChild(commitsEl);
+
+        if (task.branch && task.branch !== '-') {
+          const branchEl = el('span', '', task.branch);
+          metaLeft.appendChild(branchEl);
+        }
+
+        metaRow.appendChild(metaLeft);
+
+        if (task.updated) {
+          const updatedEl = el('span', '', task.updated);
+          metaRow.appendChild(updatedEl);
+        }
+
+        cardHeader.appendChild(metaRow);
+        card.appendChild(cardHeader);
+
+        // Expandable drawer
+        const drawer = el('div', 'task-card-drawer');
+
+        // Result subsection
+        const resultSection = el('div', 'drawer-section');
+        const resultLabel = el('div', 'drawer-label', 'Agent Summary (result-' + (task.task || 'task') + '.md)');
+        resultSection.appendChild(resultLabel);
+
+        if (task.result && task.result.trim()) {
+          const resultBlock = el('pre', 'mono-block', task.result);
+          resultSection.appendChild(resultBlock);
+        } else {
+          const resultEmpty = el('div', 'mono-empty', '(no result output recorded)');
+          resultSection.appendChild(resultEmpty);
+        }
+        drawer.appendChild(resultSection);
+
+        // Log tail subsection
+        const logSection = el('div', 'drawer-section');
+        const logLabel = el('div', 'drawer-label', 'Log Tail (log-' + (task.task || 'task') + '.txt)');
+        logSection.appendChild(logLabel);
+
+        if (task.logTail && task.logTail.trim()) {
+          const logBlock = el('pre', 'mono-block', task.logTail);
+          logSection.appendChild(logBlock);
+        } else {
+          const logEmpty = el('div', 'mono-empty', '(no log tail recorded)');
+          logSection.appendChild(logEmpty);
+        }
+        drawer.appendChild(logSection);
+
+        card.appendChild(drawer);
+
+        // Click / Key toggle handler
+        function toggleExpand(e) {
+          // If user clicked inside the pre block (e.g. selecting text), don't collapse
+          if (e.target.closest('pre')) return;
+
+          if (expandedTaskKeys.has(taskKey)) {
+            expandedTaskKeys.delete(taskKey);
+            card.classList.remove('expanded');
+            card.setAttribute('aria-expanded', 'false');
+          } else {
+            expandedTaskKeys.add(taskKey);
+            card.classList.add('expanded');
+            card.setAttribute('aria-expanded', 'true');
+          }
+        }
+
+        card.addEventListener('click', toggleExpand);
+        card.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            toggleExpand(e);
+          }
+        });
+
+        return card;
+      }
+
+      // Repositories card generator
+      function createRepoCard(repo) {
+        const card = el('div', 'repo-card');
+
+        // Head
+        const head = el('div', 'repo-card-head');
+        const titleGroup = el('div', 'repo-title-group');
+        const nameEl = el('div', 'repo-name', repo.name || 'Untitled Repo');
+        titleGroup.appendChild(nameEl);
+
+        if (repo.path) {
+          const pathEl = el('div', 'repo-path', repo.path);
+          titleGroup.appendChild(pathEl);
+        }
+        head.appendChild(titleGroup);
+
+        const badgesGroup = el('div', 'repo-badges');
+        if (repo.branch) {
+          const branchBadge = el('span', 'repo-badge', 'branch: ' + repo.branch);
+          badgesGroup.appendChild(branchBadge);
+        }
+
+        const uncommitted = typeof repo.uncommitted === 'number' ? repo.uncommitted : 0;
+        const uncommittedBadge = el('span', 'repo-badge' + (uncommitted > 0 ? ' active-alert' : ''), 'uncommitted: ' + uncommitted);
+        badgesGroup.appendChild(uncommittedBadge);
+
+        const ahead = typeof repo.ahead === 'number' ? repo.ahead : 0;
+        const aheadBadge = el('span', 'repo-badge' + (ahead > 0 ? ' active-alert' : ''), 'ahead: ' + ahead);
+        badgesGroup.appendChild(aheadBadge);
+
+        head.appendChild(badgesGroup);
+        card.appendChild(head);
+
+        // PLAN progress section
+        if (repo.plan) {
+          const planBox = el('div', 'progress-box');
+          const planHead = el('div', 'progress-header');
+
+          const doneCount = typeof repo.plan.done === 'number' ? repo.plan.done : 0;
+          const totalCount = typeof repo.plan.total === 'number' ? repo.plan.total : 0;
+          const pct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 100;
+
+          const planLabel = el('span', 'progress-label', 'PLAN Progress: ' + doneCount + ' / ' + totalCount + ' tasks (' + pct + '%)');
+          planHead.appendChild(planLabel);
+          planBox.appendChild(planHead);
+
+          const track = el('div', 'progress-track');
+          const fill = el('div', 'progress-fill');
+          fill.style.width = Math.min(100, Math.max(0, pct)) + '%';
+          track.appendChild(fill);
+          planBox.appendChild(track);
+
+          if (Array.isArray(repo.plan.open) && repo.plan.open.length > 0) {
+            const openUl = el('ul', 'plan-open-list');
+            repo.plan.open.forEach(function (item) {
+              const li = el('li', '', item);
+              openUl.appendChild(li);
+            });
+            planBox.appendChild(openUl);
+          }
+
+          card.appendChild(planBox);
+        }
+
+        // HANDOFF status section
+        if (Array.isArray(repo.handoff) && repo.handoff.length > 0) {
+          const handoffBox = el('div', 'handoff-box');
+          const handoffTitle = el('div', 'handoff-title', 'HANDOFF Status');
+          handoffBox.appendChild(handoffTitle);
+
+          const handoffUl = el('ul', 'handoff-list');
+          repo.handoff.forEach(function (line) {
+            const li = el('li', '', line);
+            handoffUl.appendChild(li);
+          });
+          handoffBox.appendChild(handoffUl);
+          card.appendChild(handoffBox);
+        }
+
+        return card;
+      }
+
+      // Render full dashboard from state object
+      function renderDashboard(state) {
+        if (!state) return;
+
+        // Header metrics
+        updateAgentMetrics(state.agents);
+        updateRepoFilterOptions(state.repos);
+
+        // Collect all tasks across repositories
+        const allTasksByAgent = {
+          claude: [],
+          codex: [],
+          antigravity: []
+        };
+
+        let visibleCount = 0;
+        let totalCount = 0;
+
+        (state.repos || []).forEach(function (repo) {
+          (repo.tasks || []).forEach(function (t) {
+            totalCount++;
+            const agentKey = (t.agent || '').toLowerCase();
+            if (!allTasksByAgent[agentKey]) {
+              allTasksByAgent[agentKey] = [];
+            }
+
+            // Filter by repo
+            if (currentRepoFilter !== 'all' && repo.name !== currentRepoFilter) {
+              return;
+            }
+
+            // Filter finished tasks (merged & cancelled)
+            if (hideFinished && (t.state === 'merged' || t.state === 'cancelled')) {
+              return;
+            }
+
+            visibleCount++;
+            allTasksByAgent[agentKey].push({
+              ...t,
+              repoName: repo.name,
+              repoPath: repo.path
+            });
+          });
+        });
+
+        // Update filter stats
+        filterStats.textContent = 'Showing ' + visibleCount + ' of ' + totalCount + ' tasks' +
+          (currentRepoFilter !== 'all' ? ' in "' + currentRepoFilter + '"' : '') +
+          (hideFinished ? ' (finished hidden)' : '');
+
+        // Render each agent lane
+        const agentKeys = ['claude', 'codex', 'antigravity'];
+        agentKeys.forEach(function (key) {
+          const container = laneBodies[key];
+          const countBadge = laneCounts[key];
+          const tasks = allTasksByAgent[key] || [];
+
+          // Sort: running first, then by updated descending
+          tasks.sort(function (a, b) {
+            const aRunning = a.state === 'running' ? 1 : 0;
+            const bRunning = b.state === 'running' ? 1 : 0;
+            if (aRunning !== bRunning) {
+              return bRunning - aRunning;
+            }
+            const dateA = a.updated || '';
+            const dateB = b.updated || '';
+            return dateB.localeCompare(dateA);
+          });
+
+          countBadge.textContent = tasks.length === 1 ? '1 task' : tasks.length + ' tasks';
+
+          // Clear container safely
+          while (container.firstChild) {
+            container.removeChild(container.firstChild);
+          }
+
+          if (tasks.length === 0) {
+            const emptyEl = el('div', 'lane-empty', 'No tasks matching filters');
+            container.appendChild(emptyEl);
+          } else {
+            tasks.forEach(function (task) {
+              container.appendChild(createTaskCard(task));
+            });
+          }
+        });
+
+        // Render Repositories section
+        while (reposContainer.firstChild) {
+          reposContainer.removeChild(reposContainer.firstChild);
+        }
+
+        const repos = state.repos || [];
+        repoCountBadge.textContent = String(repos.length);
+
+        if (repos.length === 0) {
+          const emptyRepo = el('div', 'lane-empty', 'No repositories tracked');
+          reposContainer.appendChild(emptyRepo);
+        } else {
+          repos.forEach(function (repo) {
+            if (currentRepoFilter === 'all' || repo.name === currentRepoFilter) {
+              reposContainer.appendChild(createRepoCard(repo));
+            }
+          });
+        }
+      }
+
+      // Fetch state from server or sample file
+      async function pollState() {
+        try {
+          const response = await fetch(stateUrl + (stateUrl.includes('?') ? '&' : '?') + '_t=' + Date.now(), {
+            cache: 'no-store'
+          });
+
+          if (!response.ok) {
+            throw new Error('HTTP ' + response.status + ' ' + response.statusText);
+          }
+
+          const data = await response.json();
+          lastStateData = data;
+
+          // Update UI for online state
+          offlineAlert.classList.remove('active');
+          liveIndicator.className = 'indicator-pill live';
+          liveText.textContent = isSample ? 'SAMPLE DATA' : 'LIVE';
+
+          const timeStr = data.generated ? formatTime(data.generated) : new Date().toLocaleTimeString();
+          refreshTime.textContent = 'Updated ' + timeStr;
+
+          renderDashboard(data);
+        } catch (err) {
+          // Fetch failed: show offline alert, keep last state
+          liveIndicator.className = 'indicator-pill offline';
+          liveText.textContent = 'OFFLINE';
+          refreshTime.textContent = 'Connection error';
+
+          offlineAlert.classList.add('active');
+          offlineAlertTime.textContent = new Date().toLocaleTimeString();
+
+          // If we had prior data, maintain it
+          if (lastStateData) {
+            renderDashboard(lastStateData);
+          }
+        }
+      }
+
+      // Filter events
+      repoFilterSelect.addEventListener('change', function () {
+        currentRepoFilter = repoFilterSelect.value;
+        savePreferences();
+        if (lastStateData) {
+          renderDashboard(lastStateData);
+        }
+      });
+
+      hideFinishedCheckbox.addEventListener('change', function () {
+        hideFinished = hideFinishedCheckbox.checked;
+        savePreferences();
+        if (lastStateData) {
+          renderDashboard(lastStateData);
+        }
+      });
+
+      // Initialization
+      loadSavedPreferences();
+      pollState();
+      setInterval(pollState, 3000);
+    })();
+  </script>
+</body>
+</html>
