@@ -147,6 +147,8 @@ function Get-CodexRollout([string]$SessionId, [string]$Started) {
 function Get-RelativeTouchedPath([string]$Path, [string]$Worktree) {
     if (-not $Path) { return '' }
     $pathText = $Path.Replace('\', '/')
+    # A patch quoted inside another file's content leaves fragments such as "tests/"; a file path never ends in a slash.
+    if ($pathText.EndsWith('/')) { return '' }
     if ($Worktree -and $Worktree -ne '-') {
         try {
             $root = [IO.Path]::GetFullPath($Worktree).TrimEnd('\', '/').Replace('\', '/')
@@ -182,6 +184,8 @@ function Get-AgyTaskSession([string]$OutDir, [string]$Task) {
             if ($found.session) { break }
         }
     }
+    # A found conversation never changes; only misses expire, so a task started later is still picked up.
+    if ($found.session) { $found.until = [datetime]::MaxValue }
     $script:AgyTaskCache[$taskPath] = $found
     return $found
 }
@@ -224,10 +228,16 @@ function Get-CodexData([string]$OutDir, [string]$Task, $Meta, [bool]$Running, [s
         if ($type -eq 'response_item' -and $payloadType -in @('custom_tool_call', 'function_call')) {
             $toolCalls++; $name = [string](Get-JsonValue $payload 'name' ''); $lastTool = $name
             if ($name) { if (-not $toolCounts.ContainsKey($name)) { $toolCounts[$name] = 0 }; $toolCounts[$name]++ }
-            if ($name -eq 'apply_patch') {
-                $inputText = [string](Get-JsonValue $payload 'input' (Get-JsonValue $payload 'arguments' ''))
-                foreach ($match in [regex]::Matches($inputText, '(?m)^\*\*\* (?:Add|Update|Delete) File: (.+?)\s*$')) {
-                    $path = Get-RelativeTouchedPath $match.Groups[1].Value.Trim() $Worktree
+            # apply_patch runs directly or inside an exec script, where the patch is a JS string literal (newlines as \n, backslashes doubled).
+            $inputText = [string](Get-JsonValue $payload 'input' (Get-JsonValue $payload 'arguments' ''))
+            # Headers start a line; quoted headers in added lines start with "+". A direct patch has real newlines and plain paths,
+            # an exec-embedded one is a JS string: escaped newlines (not doubly escaped ones) and doubled backslashes, or a template literal with real newlines.
+            $embedded = $name -ne 'apply_patch'
+            if ($inputText.Contains('*** Begin Patch') -and (-not $embedded -or $inputText.Contains('apply_patch('))) {
+                $headerPattern = if ($embedded) { '(?:(?<!\\)\\n|\n)\*\*\* (?:Add|Update|Delete) File: (.+?)\s*(?=(?<!\\)\\[nr]|["`]|\r?\n|$)' } else { '(?m)^\*\*\* (?:Add|Update|Delete) File: (.+?)\s*$' }
+                foreach ($match in [regex]::Matches($inputText, $headerPattern)) {
+                    $path = $match.Groups[1].Value.Trim(); if ($embedded) { $path = $path.Replace('\\', '\') }
+                    $path = Get-RelativeTouchedPath $path $Worktree
                     if ($path -and $filesTouched.Count -lt 20 -and -not $filesTouched.Contains($path)) { $filesTouched.Add($path) }
                 }
             }
@@ -300,8 +310,10 @@ function Get-AgyData([string]$OutDir, [string]$Task, $Meta, [bool]$Running, [str
                 if ($name) { if (-not $toolCounts.ContainsKey($name)) { $toolCounts[$name] = 0 }; $toolCounts[$name]++ }
                 if ($name -eq 'manage_task') { $backgroundTasks++ }
                 if ($name -in @('write_file', 'write_to_file', 'edit_file', 'replace_file_content', 'multi_replace_file_content')) {
-                    $args = Get-JsonValue $call 'args'; if ($args -is [string]) { try { $args = $script:JsonSerializer.DeserializeObject($args) } catch { $args = $null } }
-                    $path = [string](Get-JsonValue $args 'Path' (Get-JsonValue $args 'TargetFile' ''))
+                    $callArgs = Get-JsonValue $call 'args'; if ($callArgs -is [string]) { try { $callArgs = $script:JsonSerializer.DeserializeObject($callArgs) } catch { $callArgs = $null } }
+                    $path = [string](Get-JsonValue $callArgs 'Path' (Get-JsonValue $callArgs 'TargetFile' ''))
+                    # agy stores each argument value JSON-encoded, quotes included.
+                    if ($path.StartsWith('"')) { try { $path = [string]$script:JsonSerializer.DeserializeObject($path) } catch { } }
                     $path = Get-RelativeTouchedPath $path $Worktree
                     if ($path -and $filesTouched.Count -lt 20 -and -not $filesTouched.Contains($path)) { $filesTouched.Add($path) }
                 }

@@ -572,7 +572,7 @@ Run-Case 'dashboard collects Codex Antigravity and Claude details and chats' {
         $codex = $tasks | Where-Object task -eq 'codex-fixture' | Select-Object -First 1
         Assert-True ($codex.model -eq 'gpt-meta-fixture' -and $codex.effort -eq 'high' -and $codex.sessionId -eq $codexId) 'Codex log/meta fields were not collected'
         Assert-True ($codex.tokens.total -eq 134 -and $codex.contextWindow -eq 200000 -and $codex.toolCalls -eq 2 -and $codex.rateLimits.Count -eq 1) ("Codex rollout metrics were not collected: tokens=$($codex.tokens.total), context=$($codex.contextWindow), tools=$($codex.toolCalls), limits=$($codex.rateLimits.Count)")
-        Assert-True ($codex.contextUsed -eq 80 -and $codex.steps -eq 1 -and $codex.thinkingSteps -eq 1 -and $codex.lastTool -eq 'apply_patch' -and $codex.filesTouched[0] -eq 'tests/fixture-created.txt' -and $codex.backgroundTasks -eq 1) 'Codex v3 fields were not collected'
+        Assert-True ($codex.contextUsed -eq 80 -and $codex.steps -eq 1 -and $codex.thinkingSteps -eq 1 -and $codex.lastTool -eq 'apply_patch' -and $codex.filesTouched[0] -eq 'C:/wt/new/exec.txt' -and $codex.filesTouched[1] -eq 'tests/fixture-created.txt' -and $codex.filesTouched[2] -eq 'src/render.ps1' -and @($codex.filesTouched).Count -eq 3 -and $codex.backgroundTasks -eq 1) 'Codex v3 fields were not collected'
         Assert-True (@($codex.toolBreakdown).Count -eq 2 -and @($codex.toolBreakdown | Where-Object { $_.name -eq 'apply_patch' -and $_.count -eq 1 }).Count -eq 1) 'Codex tool breakdown is wrong'
         Assert-True ($codex.chat -eq "codex:$codexId") 'Codex chat key is missing'
         $codexSubs = @($codex.subChats)

@@ -3,7 +3,7 @@
 Update before you stop. Newest entry on top.
 
 ## Status
-- Completed: Modules 0-4 (dashboard detail + chats; works without Codex)
+- Completed: Modules 0-4 (dashboard detail + chats; works without Codex), dashboard detail v3 (Antigravity parity)
 - In flight: none
 - Next command: `trinity dashboard` to watch; `trinity init <repo>` to add a repo to it
 - Blockers: none (one PLAN box needs the user: notification seen on screen)

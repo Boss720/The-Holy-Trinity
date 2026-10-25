@@ -2538,7 +2538,7 @@
           });
           if (validFiles.length > 0) {
             const filesSection = el('div', 'drawer-section');
-            const filesLabel = el('div', 'drawer-label', 'Files touched (' + validFiles.length + ')');
+            const filesLabel = el('div', 'drawer-label', 'Files touched (' + validFiles.length + (validFiles.length >= 20 ? ', first 20' : '') + ')');
             filesSection.appendChild(filesLabel);
 
             const filesBox = el('div', 'files-touched-box');

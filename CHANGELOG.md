@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- Dashboard detail v3 for every agent: context in use, steps, thinking steps, per-tool call counts, last tool, files touched, background tasks (tool bars and file list in the task drawer). Antigravity tasks without a meta file or CLI log are found by their task file in the agy transcripts, so older runs show model, tokens, tools, duration and chat too.
 - `trinity` command: `status`, `dispatch` (Codex headless in background, Antigravity opened with the prompt, Claude task file), `merge` (review, merge, test, cleanup), `review`, `ask`, `ui`, `setup`.
 - Windows notification and board status update when a dispatched Codex task finishes.
 - Claude Code session-start hook showing `trinity status -Brief`.
