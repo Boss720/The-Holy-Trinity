@@ -131,7 +131,15 @@ function Wait-Task([string]$task, [int]$timeoutSec) {
         $status = $entry.status
         # Headless tasks finish only when the runner writes its own status (after committing), never on a bare "done".
         $headless = $entry.agent -in @('codex', 'antigravity')
-        $runnerDone = (-not $headless) -or ($status -match '^(done \(|done, no commits|failed|merged|cancelled)')
+        # The runner deletes its pid file once it has committed and written the status, so a live runner
+        # means pending whatever the board says (an agent could write a lookalike status itself).
+        $pidFile = Join-Path $paths.Out "pid-$task.txt"
+        $runnerAlive = $false
+        if ($headless -and (Test-Path $pidFile)) {
+            $runnerPid = [IO.File]::ReadAllText($pidFile).Trim()
+            $runnerAlive = [bool]($runnerPid -and (Get-Process -Id $runnerPid -ErrorAction SilentlyContinue))
+        }
+        $runnerDone = -not $runnerAlive -and ((-not $headless) -or ($status -match '^(done \(|done, no commits|failed|merged|cancelled)'))
         if ($runnerDone -and $status -notmatch '^(started|running|waiting)') { break }
         if (((Get-Date) - $start).TotalSeconds -ge $timeoutSec) { break }
         if (((Get-Date) - $lastNote).TotalSeconds -ge 60) {
@@ -279,7 +287,9 @@ switch ($Command) {
     'done' {
         $task = $Rest[0]
         if (-not $task) { Fail 'usage: trinity done <task> [summary...]' }
-        if (-not (Get-BoardEntry $paths $task)) { Fail "no board entry for $task" }
+        $entry = Get-BoardEntry $paths $task
+        if (-not $entry) { Fail "no board entry for $task" }
+        if ($entry.agent -in @('codex', 'antigravity')) { Fail "$task is a headless $($entry.agent) task; its runner marks it done after committing" }
         $summary = ''
         if (@($Rest).Count -gt 1) { $summary = (($Rest[1..($Rest.Count - 1)]) -join ' ') -replace '[\r\n]+', ' ' }
         $status = if ($summary.Trim()) { "done: $($summary.Trim())" } else { 'done' }
@@ -329,6 +339,7 @@ switch ($Command) {
         elseif ($rc -eq 0) { $status = 'done, no commits' }
         else { $status = "failed (exit $rc)" }
         Set-BoardStatus $paths $task $status
+        Remove-Item (Join-Path $paths.Out "pid-$task.txt") -ErrorAction SilentlyContinue
 
         try {
             Add-Type -AssemblyName System.Windows.Forms
