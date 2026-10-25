@@ -16,6 +16,7 @@ $script:CodexSubChatCache = @{}
 $script:AgyTaskCache = @{}
 $script:AgyModelCache = @{}
 $script:ClaudeModelCache = @{}
+$script:ClaudeSummaryCache = @{}
 $script:AvailabilityCache = $null
 $script:AvailabilityCachedAt = [datetime]::MinValue
 $script:JsonLinesDroppedLong = $false
@@ -333,41 +334,52 @@ function Get-AgyData([string]$OutDir, [string]$Task, $Meta, [bool]$Running, [str
 function Get-ClaudeProjectSlug([string]$Path) { return [regex]::Replace([IO.Path]::GetFullPath($Path), '[^A-Za-z0-9]', '-') }
 
 function Get-ClaudeSummary([string]$Path, [string]$Slug, [string]$SessionId, [string]$TaskName = '', [switch]$NoSubagents) {
-    $records = Read-JsonLinesBounded $Path 131072 -HeadAndTail
-    $title = ''; $model = ''; $effort = ''; $branch = ''; $cwd = ''; $started = ''; $last = ''; $context = 0L; $seenMessage = @{}
-    foreach ($r in $records) {
-        $type = [string](Get-JsonValue $r 'type' '')
-        $stamp = Convert-ToIso (Get-JsonValue $r 'timestamp' '')
-        if ($stamp) { if (-not $started) { $started = $stamp }; $last = $stamp }
-        $branch = [string](Get-JsonValue $r 'gitBranch' $branch); $cwd = [string](Get-JsonValue $r 'cwd' $cwd)
-        if ($type -eq 'custom-title') { $title = [string](Get-JsonValue $r 'customTitle' $title) }
-        elseif ($type -eq 'user' -and -not (Get-JsonValue $r 'isMeta' $false) -and -not $title) {
-            $content = Get-JsonValue (Get-JsonValue $r 'message') 'content'
-            if ($content -is [string]) { $title = [regex]::Replace($content, '<system-reminder>.*?</system-reminder>', '', 'Singleline') }
-            elseif ($content) { $title = (@($content | ForEach-Object { if ((Get-JsonValue $_ 'type') -eq 'text') { Get-JsonValue $_ 'text' } }) -join ' ') }
-        }
-        elseif ($type -eq 'assistant') {
-            $message = Get-JsonValue $r 'message'; $msgModel = [string](Get-JsonValue $message 'model' '')
-            if ($msgModel -and $msgModel -ne '<synthetic>') { $model = $msgModel }
-            $effort = [string](Get-JsonValue $r 'effort' $effort)
-            $msgId = [string](Get-JsonValue $message 'id' '')
-            if ($msgId -and -not $seenMessage.ContainsKey($msgId)) { $seenMessage[$msgId] = $true; $usage = Get-JsonValue $message 'usage'; $context = [long](Get-JsonValue $usage 'input_tokens' 0) + [long](Get-JsonValue $usage 'cache_creation_input_tokens' 0) + [long](Get-JsonValue $usage 'cache_read_input_tokens' 0) }
-        }
+    # Optional test instrumentation counts summary calls without timing the collector.
+    if ($env:TRINITY_DASHBOARD_TEST_CLAUDE_SUMMARY_LOG) { [IO.File]::AppendAllText($env:TRINITY_DASHBOARD_TEST_CLAUDE_SUMMARY_LOG, [IO.Path]::GetFullPath($Path) + "`r`n") }
+    $item = Get-Item -LiteralPath $Path
+    $cacheKey = [IO.Path]::GetFullPath($Path).ToLowerInvariant()
+    $cache = $script:ClaudeSummaryCache[$cacheKey]
+    if ($cache -and $cache.length -eq $item.Length -and $cache.lastWriteTimeUtc -eq $item.LastWriteTimeUtc) {
+        $cached = $cache.summary; $title = $cached.title; $model = $cached.model; $effort = $cached.effort; $branch = $cached.branch; $cwd = $cached.cwd; $started = $cached.started; $last = $cached.lastActivity; $context = $cached.contextTokens
     }
-    # One big tool result can fill the whole tail window; keep the last model and context seen instead of blanking them.
-    $modelKey = $Path.ToLowerInvariant()
-    if ($model) { $script:ClaudeModelCache[$modelKey] = @{ model = $model; effort = $effort; context = $context } }
-    elseif ($script:ClaudeModelCache.ContainsKey($modelKey)) { $known = $script:ClaudeModelCache[$modelKey]; $model = $known.model; if (-not $effort) { $effort = $known.effort }; if (-not $context) { $context = $known.context } }
-    $title = (($title -split "`r?`n", 2)[0]).Trim()
-    if ($title.Length -gt 100) { $title = $title.Substring(0, 100) }
-    if (-not $last) { try { $last = (Get-Item -LiteralPath $Path).LastWriteTime.ToString("yyyy-MM-dd'T'HH:mm:ss") } catch { } }
+    else {
+        $records = Read-JsonLinesBounded $Path 131072 -HeadAndTail
+        $title = ''; $model = ''; $effort = ''; $branch = ''; $cwd = ''; $started = ''; $last = ''; $context = 0L; $seenMessage = @{}
+        foreach ($r in $records) {
+            $type = [string](Get-JsonValue $r 'type' '')
+            $stamp = Convert-ToIso (Get-JsonValue $r 'timestamp' '')
+            if ($stamp) { if (-not $started) { $started = $stamp }; $last = $stamp }
+            $branch = [string](Get-JsonValue $r 'gitBranch' $branch); $cwd = [string](Get-JsonValue $r 'cwd' $cwd)
+            if ($type -eq 'custom-title') { $title = [string](Get-JsonValue $r 'customTitle' $title) }
+            elseif ($type -eq 'user' -and -not (Get-JsonValue $r 'isMeta' $false) -and -not $title) {
+                $content = Get-JsonValue (Get-JsonValue $r 'message') 'content'
+                if ($content -is [string]) { $title = [regex]::Replace($content, '<system-reminder>.*?</system-reminder>', '', 'Singleline') }
+                elseif ($content) { $title = (@($content | ForEach-Object { if ((Get-JsonValue $_ 'type') -eq 'text') { Get-JsonValue $_ 'text' } }) -join ' ') }
+            }
+            elseif ($type -eq 'assistant') {
+                $message = Get-JsonValue $r 'message'; $msgModel = [string](Get-JsonValue $message 'model' '')
+                if ($msgModel -and $msgModel -ne '<synthetic>') { $model = $msgModel }
+                $effort = [string](Get-JsonValue $r 'effort' $effort)
+                $msgId = [string](Get-JsonValue $message 'id' '')
+                if ($msgId -and -not $seenMessage.ContainsKey($msgId)) { $seenMessage[$msgId] = $true; $usage = Get-JsonValue $message 'usage'; $context = [long](Get-JsonValue $usage 'input_tokens' 0) + [long](Get-JsonValue $usage 'cache_creation_input_tokens' 0) + [long](Get-JsonValue $usage 'cache_read_input_tokens' 0) }
+            }
+        }
+        # One big tool result can fill the whole tail window; keep the last model and context seen instead of blanking them.
+        $modelKey = $Path.ToLowerInvariant()
+        if ($model) { $script:ClaudeModelCache[$modelKey] = @{ model = $model; effort = $effort; context = $context } }
+        elseif ($script:ClaudeModelCache.ContainsKey($modelKey)) { $known = $script:ClaudeModelCache[$modelKey]; $model = $known.model; if (-not $effort) { $effort = $known.effort }; if (-not $context) { $context = $known.context } }
+        $title = (($title -split "`r?`n", 2)[0]).Trim()
+        if ($title.Length -gt 100) { $title = $title.Substring(0, 100) }
+        if (-not $last) { $last = $item.LastWriteTime.ToString("yyyy-MM-dd'T'HH:mm:ss") }
+        $script:ClaudeSummaryCache[$cacheKey] = @{ length=$item.Length; lastWriteTimeUtc=$item.LastWriteTimeUtc; summary=@{ title=$title; model=$model; effort=$effort; branch=$branch; cwd=$cwd; started=$started; lastActivity=$last; contextTokens=$context } }
+    }
     $subagents = New-Object System.Collections.Generic.List[object]
     $subDir = Join-Path (Join-Path (Join-Path $script:ClaudeHome 'projects') $Slug) (Join-Path $SessionId 'subagents')
     if (-not $NoSubagents -and (Test-Path -LiteralPath $subDir -PathType Container)) {
         foreach ($file in (Get-ChildItem -LiteralPath $subDir -Filter 'agent-*.jsonl' -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 20)) {
             $id = [IO.Path]::GetFileNameWithoutExtension($file.Name) -replace '^agent-', ''
             $metaPath = Join-Path $subDir ("agent-{0}.meta.json" -f $id); $meta = $null
-            if (Test-Path -LiteralPath $metaPath) { try { $meta = $script:JsonSerializer.DeserializeObject([IO.File]::ReadAllText($metaPath)) } catch { } }
+            if (Test-Path -LiteralPath $metaPath) { try { $metaItem = Get-Item -LiteralPath $metaPath; $metaKey = 'meta:' + [IO.Path]::GetFullPath($metaPath).ToLowerInvariant(); $metaCache = $script:ClaudeSummaryCache[$metaKey]; if ($metaCache -and $metaCache.lastWriteTimeUtc -eq $metaItem.LastWriteTimeUtc) { $meta = $metaCache.value } else { $meta = $script:JsonSerializer.DeserializeObject([IO.File]::ReadAllText($metaPath)); $script:ClaudeSummaryCache[$metaKey] = @{ lastWriteTimeUtc=$metaItem.LastWriteTimeUtc; value=$meta } } } catch { } }
             $sub = Get-ClaudeSummary $file.FullName $Slug $SessionId '' -NoSubagents
             $finished = [bool](Get-JsonValue $meta 'finished' $false)
             $subagents.Add([pscustomobject]@{ id = $id; description = [string](Get-JsonValue $meta 'description' ''); type = [string](Get-JsonValue $meta 'agentType' ''); model = [string](Get-JsonValue $meta 'model' $sub.model); finished = $finished; active = (-not $finished -and $file.LastWriteTime -gt (Get-Date).AddSeconds(-120)); lastActivity = $sub.lastActivity; chat = "claude:${Slug}:${SessionId}:$id" })
@@ -378,21 +390,24 @@ function Get-ClaudeSummary([string]$Path, [string]$Slug, [string]$SessionId, [st
 
 function Get-ClaudeSessions([string]$Main, $Tasks) {
     $sessions = New-Object System.Collections.Generic.List[object]
+    $files = New-Object System.Collections.Generic.List[object]
     $slugs = New-Object System.Collections.Generic.List[string]
     $slugs.Add((Get-ClaudeProjectSlug $Main))
     foreach ($task in $Tasks) { if ($task.agent -eq 'claude' -and $task.worktree -and $task.worktree -ne '-') { $slugs.Add((Get-ClaudeProjectSlug $task.worktree)) } }
     foreach ($slug in ($slugs | Select-Object -Unique)) {
         $folder = Join-Path (Join-Path $script:ClaudeHome 'projects') $slug
         if (-not (Test-Path -LiteralPath $folder -PathType Container)) { continue }
-        foreach ($file in (Get-ChildItem -LiteralPath $folder -Filter '*.jsonl' -File -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -gt (Get-Date).AddDays(-7) } | Sort-Object LastWriteTime -Descending | Select-Object -First 15)) {
+        foreach ($file in (Get-ChildItem -LiteralPath $folder -Filter '*.jsonl' -File -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -gt (Get-Date).AddDays(-7) })) { $files.Add([pscustomobject]@{ file=$file; slug=$slug }) }
+    }
+    foreach ($candidate in ($files | Sort-Object { $_.file.LastWriteTime } -Descending | Select-Object -First 5)) {
+            $file = $candidate.file; $slug = $candidate.slug
             $id = [IO.Path]::GetFileNameWithoutExtension($file.Name)
             $linked = @($Tasks | Where-Object { $_.sessionId -eq $id } | Select-Object -First 1)
             $taskName = if ($linked.Count) { $linked[0].task } else { '' }
             $summary = Get-ClaudeSummary $file.FullName $slug $id $taskName
             $sessions.Add([pscustomobject]$summary)
         }
-    }
-    return @($sessions | Sort-Object { $_.lastActivity } -Descending | Select-Object -First 5)
+    return @($sessions | Sort-Object { $_.lastActivity } -Descending)
 }
 
 function Resolve-Chat([string]$Key) {
@@ -758,10 +773,16 @@ function Get-DashboardState {
     $candidatePaths.Add($scriptRoot)
     foreach ($extra in $Repos) { if ($extra) { $candidatePaths.Add($extra) } }
     $seen = @{}
+    $seenCandidates = @{}
     $repoStates = New-Object System.Collections.Generic.List[object]
     foreach ($candidate in $candidatePaths) {
         if (-not (Test-Path -LiteralPath $candidate -PathType Container)) { continue }
-        $state = Get-RepoState $candidate
+        try { $candidatePath = [IO.Path]::GetFullPath($candidate).TrimEnd('\', '/'); $candidateKey = $candidatePath.ToLowerInvariant() } catch { continue }
+        if ($seenCandidates.ContainsKey($candidateKey)) { continue }
+        $seenCandidates[$candidateKey] = $true
+        # Optional test instrumentation counts collector calls without depending on timing.
+        if ($env:TRINITY_DASHBOARD_TEST_COLLECT_LOG) { [IO.File]::AppendAllText($env:TRINITY_DASHBOARD_TEST_COLLECT_LOG, $candidateKey + "`r`n") }
+        $state = Get-RepoState $candidatePath
         if (-not $state) { continue }
         $key = $state.path.ToLowerInvariant()
         if ($seen.ContainsKey($key)) { continue }
@@ -845,7 +866,9 @@ try {
         try {
             $response.Headers['X-Content-Type-Options'] = 'nosniff'
             $hostName = [string]$context.Request.Headers['Host']
-            if ($hostName -notin @("localhost:$Port", "127.0.0.1:$Port")) {
+            $remoteAddress = $context.Request.RemoteEndPoint.Address
+            if ($remoteAddress.IsIPv4MappedToIPv6) { $remoteAddress = $remoteAddress.MapToIPv4() }
+            if (-not [System.Net.IPAddress]::IsLoopback($remoteAddress) -or $hostName -ne "localhost:$Port") {
                 $response.StatusCode = 403
             }
             elseif ($context.Request.HttpMethod -ne 'GET') {
