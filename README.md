@@ -37,6 +37,7 @@ This repo is the toolkit itself. Install it into any project with `trinity init 
 | `.claude/settings.json` | Session-start hook that shows `trinity status`. |
 | `scripts/agent-task.ps1` | Creates a worktree + branch per parallel task and registers it on the agent board. |
 | `.claude/agents/` | Claude subagents that drive Codex and Antigravity (`codex-worker`, `codex-reviewer`, `antigravity-worker`). |
+| `.claude/skills/army/` | `/army` skill: splits a job into chunks and fans it out to the cheapest Claude model that can do each, or to Codex and Antigravity through trinity. Installed by `init`. |
 | `tests/` | End-to-end self-test of the trinity CLI against throwaway repos with a fake Codex (`tests\run-tests.cmd`). |
 
 ## Use it in another project

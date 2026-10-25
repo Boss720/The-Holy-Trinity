@@ -40,7 +40,7 @@ Global protocol also applies: `~/.codex/AGENTS.md` = `~/.gemini/AGENTS.md` (para
 - `trinity done <task> "<summary>"` : Antigravity/Claude agents mark their task finished. Codex: never run this; the runner commits your work and marks the task itself.
 - `trinity merge <task>` : review of the branch (Codex, else the fallback reviewer below), blocks on P0/P1 findings, merge into `main`, run the Test command, remove worktree and branch.
   Findings that only concern "Shared files" (Project commands below) on a branch that left them untouched are deferred, not blocking: the orchestrator wires them after the merge (`.codex-out\deferred-<task>.txt`).
-- `trinity init <path>` : install or update this toolkit in another git repo. Toolkit files are refreshed; that repo's docs (AGENTS.md, PLAN.md, ...) are kept unless `-Force`.
+- `trinity init <path>` : install or update this toolkit in another git repo (scripts, `.claude/agents/` subagents, `/army` skill). Toolkit files are refreshed; that repo's docs (AGENTS.md, PLAN.md, ...) are kept unless `-Force`.
 - `trinity review [--base <b> | --commit <sha>]` / `trinity ask "<question>"` : read-only review or question. Reviewer order: Codex, then Claude Code headless (if `claude auth status` is logged in), then Antigravity in plan mode; the output starts with `reviewer: <agent>`.
 - No ChatGPT plan: everything above works with Claude + Antigravity. `TRINITY_DISABLE=codex` (comma list) turns an agent off; `TRINITY_REVIEWER=codex|claude|antigravity|none` picks the reviewer (`none`: tests alone gate merges).
 - `trinity track <task> <note...>` : Claude puts its own chunk on the board (status `working: <note>`); finish with `trinity done <task> "<summary>"`.

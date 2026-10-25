@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- `/army` skill packaged in `.claude/skills/army/`; `trinity init` installs and refreshes it in every trinity repo.
+
 ## v0.2.0 - 2026-10-25
 
 ### Added

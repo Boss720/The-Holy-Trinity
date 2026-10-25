@@ -707,7 +707,8 @@ switch ($Command) {
         $toolkit = @('trinity.cmd', 'scripts\trinity.ps1', 'scripts\agent-task.ps1', 'scripts\lib\board.ps1',
             'scripts\codex.cmd', 'scripts\codex-review.cmd', 'scripts\codex-ask.cmd', '.githooks\pre-commit',
             'scripts\dashboard.ps1', 'scripts\dashboard.html',
-            '.claude\agents\codex-worker.md', '.claude\agents\codex-reviewer.md', '.claude\agents\antigravity-worker.md')
+            '.claude\agents\codex-worker.md', '.claude\agents\codex-reviewer.md', '.claude\agents\antigravity-worker.md',
+            '.claude\skills\army\SKILL.md')
         foreach ($rel in $toolkit) {
             if (-not (Test-Path (Join-Path $kit $rel))) { Write-Host "  missing  $rel (not in this toolkit checkout; skipped)"; continue }
             & $copy $rel; Write-Host "  updated  $rel"

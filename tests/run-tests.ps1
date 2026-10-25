@@ -408,6 +408,20 @@ Run-Case 'no Codex or Claude: Antigravity reviews, then tests alone gate' {
     Assert-True ($merge.ExitCode -eq 0 -and $merge.Output -match 'Tests alone gate') "unreviewed merge should pass on tests: $($merge.Output)"
 }
 
+Run-Case 'init installs the toolkit with subagents and the army skill' {
+    param($f)
+    foreach ($rel in @('.claude', '.agent', 'CLAUDE.md', 'GEMINI.md')) { Copy-Item -LiteralPath (Join-Path $script:repoSource $rel) -Destination $f.Repo -Recurse -Force }
+    $target = Join-Path $f.Root 'init target'
+    New-Item -ItemType Directory -Path $target -Force | Out-Null
+    & git -C $target init -b main 2>&1 | Out-Null
+    $init = Invoke-Trinity $f @('init', $target)
+    Assert-True ($init.ExitCode -eq 0) "init failed: $($init.Output)"
+    foreach ($rel in @('.claude\skills\army\SKILL.md', '.claude\agents\codex-worker.md', 'scripts\dashboard.ps1')) {
+        $dst = Join-Path $target $rel
+        Assert-True ((Test-Path -LiteralPath $dst) -and ([IO.File]::ReadAllText($dst) -eq [IO.File]::ReadAllText((Join-Path $script:repoSource $rel)))) "init did not install $rel"
+    }
+}
+
 Run-Case 'review and ask use Codex when it is available' {
     param($f)
     foreach ($reviewArgs in @(@('review'), @('review', '--base', 'main'), @('review', '--commit', 'HEAD'))) {
