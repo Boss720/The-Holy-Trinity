@@ -659,6 +659,74 @@ Run-Case 'dashboard skips stale registry repo paths' {
     finally { $env:TRINITY_HOME = $oldHome }
 }
 
+Run-Case 'dashboard deduplicates repo candidates before collection' {
+    param($f)
+    $oldHome = $env:TRINITY_HOME; $oldCodexHome = $env:CODEX_HOME; $oldAgyHome = $env:TRINITY_AGY_HOME; $oldClaudeHome = $env:CLAUDE_CONFIG_DIR; $oldDisable = $env:TRINITY_DISABLE; $oldCollectLog = $env:TRINITY_DASHBOARD_TEST_COLLECT_LOG
+    try {
+        $env:TRINITY_HOME = Join-Path $f.Root 'isolated profile\.trinity'
+        $env:CODEX_HOME = Join-Path $f.Root 'codex-home'; $env:TRINITY_AGY_HOME = Join-Path $f.Root 'agy-home'; $env:CLAUDE_CONFIG_DIR = Join-Path $f.Root 'claude-home'; $env:TRINITY_DISABLE = 'codex'
+        $collectLog = Join-Path $f.Root 'repo-collect.log'; $env:TRINITY_DASHBOARD_TEST_COLLECT_LOG = $collectLog
+        New-Item -ItemType Directory -Path $env:TRINITY_HOME -Force | Out-Null
+        $registryPath = [IO.Path]::GetFullPath($f.Repo).ToUpperInvariant().TrimEnd('\') + '\' + "`r`n" + [IO.Path]::GetFullPath($f.Repo) + "`r`n"
+        [IO.File]::WriteAllText((Join-Path $env:TRINITY_HOME 'repos.txt'), $registryPath, [Text.UTF8Encoding]::new($false))
+        $dashboard = Join-Path $f.Repo 'scripts\dashboard.ps1'; $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        $json = & $powershell -NoProfile -ExecutionPolicy Bypass -File $dashboard -Once -Repos $f.Repo
+        Assert-True ($LASTEXITCODE -eq 0) "dashboard exited $LASTEXITCODE"
+        $state = ($json -join "`n") | ConvertFrom-Json
+        $repos = @($state.repos)
+        Assert-True ($repos.Count -eq 1) "expected one repo state, found $($repos.Count)"
+        Assert-True ($repos[0].path -ieq ([IO.Path]::GetFullPath($f.Repo))) "unexpected repo state path: $($repos[0].path)"
+        $collects = @([IO.File]::ReadAllLines($collectLog) | Where-Object { $_ -eq [IO.Path]::GetFullPath($f.Repo).ToLowerInvariant() })
+        Assert-True ($collects.Count -eq 1) "repo was collected $($collects.Count) times"
+    }
+    finally { $env:TRINITY_HOME = $oldHome; $env:CODEX_HOME = $oldCodexHome; $env:TRINITY_AGY_HOME = $oldAgyHome; $env:CLAUDE_CONFIG_DIR = $oldClaudeHome; $env:TRINITY_DISABLE = $oldDisable; $env:TRINITY_DASHBOARD_TEST_COLLECT_LOG = $oldCollectLog }
+}
+
+Run-Case 'dashboard caches Claude summaries and rejects non-loopback clients' {
+    param($f)
+    $oldHome = $env:TRINITY_HOME; $oldCodexHome = $env:CODEX_HOME; $oldAgyHome = $env:TRINITY_AGY_HOME; $oldClaudeHome = $env:CLAUDE_CONFIG_DIR; $oldDisable = $env:TRINITY_DISABLE; $oldSummaryLog = $env:TRINITY_DASHBOARD_TEST_CLAUDE_SUMMARY_LOG
+    $process = $null
+    try {
+        $env:TRINITY_HOME = Join-Path $f.Root 'isolated profile\.trinity'; $env:CODEX_HOME = Join-Path $f.Root 'codex-home'; $env:TRINITY_AGY_HOME = Join-Path $f.Root 'agy-home'; $env:CLAUDE_CONFIG_DIR = Join-Path $f.Root 'claude-home'; $env:TRINITY_DISABLE = 'codex'
+        $summaryLog = Join-Path $f.Root 'claude-summary.log'; $env:TRINITY_DASHBOARD_TEST_CLAUDE_SUMMARY_LOG = $summaryLog
+        $slug = [regex]::Replace([IO.Path]::GetFullPath($f.Repo), '[^A-Za-z0-9]', '-')
+        $project = Join-Path $env:CLAUDE_CONFIG_DIR "projects\$slug"; New-Item -ItemType Directory -Path $project -Force | Out-Null
+        $stampNow = [datetime]::UtcNow
+        for ($i = 1; $i -le 7; $i++) {
+            $id = "session-$i"; $stamp = $stampNow.AddMinutes(-8 + $i).ToString('o')
+            $line = (@{ type='custom-title'; customTitle="Title $i"; timestamp=$stamp } | ConvertTo-Json -Compress) + "`r`n"
+            $path = Join-Path $project "$id.jsonl"; [IO.File]::WriteAllText($path, $line, [Text.UTF8Encoding]::new($false)); [IO.File]::SetLastWriteTime($path, (Get-Date).AddMinutes(-8 + $i))
+        }
+        $tcp = New-Object System.Net.Sockets.TcpListener([Net.IPAddress]::Loopback, 0); $tcp.Start(); $port = $tcp.LocalEndpoint.Port; $tcp.Stop()
+        $dashboard = Join-Path $f.Repo 'scripts\dashboard.ps1'
+        $process = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -WindowStyle Hidden -PassThru -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"{0}"' -f $dashboard),'-Port',[string]$port,'-Repos',('"{0}"' -f $f.Repo))
+        $deadline = (Get-Date).AddSeconds(15); $response = $null
+        while (-not $response -and (Get-Date) -lt $deadline -and -not $process.HasExited) { try { $response = Invoke-WebRequest -Uri "http://localhost:$port/api/state" -UseBasicParsing -TimeoutSec 60 } catch { Start-Sleep -Milliseconds 100 } }
+        if (-not $response) { Skip-Case 'HttpListener is unsupported or blocked in this environment' }
+        $state = $response.Content | ConvertFrom-Json; $repoState = @($state.repos | Where-Object path -eq ([IO.Path]::GetFullPath($f.Repo)))[0]; $sessions = @($repoState.claudeSessions)
+        Assert-True ($sessions.Count -eq 5) "expected 5 Claude sessions, found $($sessions.Count)"
+        Assert-True ((@($sessions | ForEach-Object id) -join ',') -eq 'session-7,session-6,session-5,session-4,session-3') "Claude sessions were not the 5 newest: $(@($sessions | ForEach-Object id) -join ',')"
+        Assert-True (@([IO.File]::ReadAllLines($summaryLog)).Count -eq 5) 'dashboard summarized files outside the newest 5'
+        $changedPath = Join-Path $project 'session-7.jsonl'
+        $changedStamp = [datetime]::UtcNow.ToString('o'); $changedLine = (@{ type='custom-title'; customTitle='Updated title'; timestamp=$changedStamp } | ConvertTo-Json -Compress) + "`r`n"
+        [IO.File]::AppendAllText($changedPath, $changedLine, [Text.UTF8Encoding]::new($false))
+        $updatedResponse = Invoke-WebRequest -Uri "http://localhost:$port/api/state" -UseBasicParsing -TimeoutSec 60
+        $updatedState = $updatedResponse.Content | ConvertFrom-Json; $updatedRepo = @($updatedState.repos | Where-Object path -eq ([IO.Path]::GetFullPath($f.Repo)))[0]
+        Assert-True ((@($updatedRepo.claudeSessions | Where-Object id -eq 'session-7')[0]).title -eq 'Updated title') 'changed Claude summary was not invalidated from cache'
+        $addresses = @([Net.Dns]::GetHostAddresses([Net.Dns]::GetHostName()) | Where-Object { $_.AddressFamily -eq [Net.Sockets.AddressFamily]::InterNetwork -and -not [Net.IPAddress]::IsLoopback($_) })
+        if (-not $addresses.Count) { Skip-Case 'No non-loopback IPv4 address is available' }
+        $client = New-Object Net.Sockets.TcpClient
+        try {
+            $client.Connect($addresses[0], $port); $stream = $client.GetStream(); $bytes = [Text.Encoding]::ASCII.GetBytes("GET /api/state HTTP/1.1`r`nHost: localhost:$port`r`nConnection: close`r`n`r`n"); $stream.Write($bytes, 0, $bytes.Length); $statusLine = (New-Object IO.StreamReader($stream)).ReadLine()
+        }
+        finally { $client.Close() }
+        Assert-True ($statusLine -match '^HTTP/1\.[01] 403 ') "non-loopback request returned: $statusLine"
+        $localhost = Invoke-WebRequest -Uri "http://localhost:$port/api/state" -UseBasicParsing -TimeoutSec 60
+        Assert-True ($localhost.StatusCode -eq 200) 'localhost request stopped returning 200'
+    }
+    finally { if ($process) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }; $env:TRINITY_HOME = $oldHome; $env:CODEX_HOME = $oldCodexHome; $env:TRINITY_AGY_HOME = $oldAgyHome; $env:CLAUDE_CONFIG_DIR = $oldClaudeHome; $env:TRINITY_DISABLE = $oldDisable; $env:TRINITY_DASHBOARD_TEST_CLAUDE_SUMMARY_LOG = $oldSummaryLog }
+}
+
 Run-Case 'dashboard HTTP routes return state JSON and 404' {
     param($f)
     $tcp = New-Object System.Net.Sockets.TcpListener([Net.IPAddress]::Loopback, 0)
