@@ -13,6 +13,9 @@
 - `trinity track` validates task names; a task name still on the board cannot be dispatched again, while a merged or cancelled name is reused without leaving a stale board section.
 - `GEMINI.md`: headless Antigravity tasks put findings in their final message, not `HANDOFF.md`.
 - Dashboard: dark-mode muted text contrast; 44px touch targets on phones.
+- Dashboard page polls with one request in flight (next poll after the reply, backoff on errors, paused while the tab is hidden) and shows "connecting" instead of zero counts before the first reply; the chat drawer skips a live tick while a fetch is pending.
+- Dashboard server answers loopback clients only (http.sys listened on every interface); the dead `127.0.0.1` Host entry is gone.
+- Dashboard server deduplicates registry paths, reads only the 5 newest Claude sessions and caches their summaries by size and write time: warm `/api/state` 3.9 s -> 1.1 s on three repos.
 - Removed two empty junk files (`Read`, `[-Force]'`).
 - Antigravity commit subjects and results come from the agent's final message. `agy -p` joins every turn's text into its answer, so a run that paused for background tests was committed as "Running tests to verify...". The runner now reads the final turn from the session transcript.
 - `trinity.sh`: Git Bash entry point, installed by `init`. `trinity.cmd` started from Git Bash failed on any argument with spaces when the repo path had a space (`'D:\...\Holy' is not recognized`), because Windows runs a .cmd through `cmd /c`, which strips the outer quotes. It converts only drive paths (`/c/...`), so an argument such as `/army ...` is no longer rewritten into a Git install path.

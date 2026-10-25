@@ -4,8 +4,8 @@ Update before you stop. Newest entry on top.
 
 ## Status
 - Completed: Modules 0-4 (dashboard detail + chats; works without Codex), dashboard detail v3 (Antigravity parity)
-- In flight: dashboard Top 1-2 fixes: `dash-perf` (Codex: repo dedupe, Claude summary cache, loopback-only) and `dash-poll` (Antigravity: single-flight polling, connecting state)
-- Next command: `trinity merge dash-perf -Yes`, `trinity merge dash-poll -Yes`, then pick more from `docs/recommendations.md`
+- In flight: none. Dashboard Top 1-2 fixes merged (`dash-poll` b1d4749, `dash-perf` b564f19); warm `/api/state` 3.9 s -> 1.1 s. Several open browser tabs still queue on the single-threaded listener (about 6 s each with 5 Firefox tabs): next fix is the cached snapshot, `docs/recommendations.md` Server [P1]
+- Next command: pick from `docs/recommendations.md` (snapshot cache next) or start GUI build order step 1 in `docs/recommendations-gui.md`
 - Blockers: none (two PLAN boxes need the user: notification seen on screen, Claude headless reviewer logged in)
 
 ## From Claude
