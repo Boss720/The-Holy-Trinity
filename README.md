@@ -31,7 +31,8 @@ This repo is the toolkit itself. Install it into any project with `trinity init 
 | `scripts/codex-review.cmd` | Codex code review, forced read-only. |
 | `scripts/codex-ask.cmd` | One-shot read-only Codex question. |
 | `trinity.cmd`, `scripts/trinity.ps1` | One command for status, dispatch, merge, review, ask. |
-| `scripts/lib/board.ps1` | Shared board/worktree helpers. |
+| `scripts/lib/board.ps1` | Shared board/worktree helpers, repo registry for the dashboard. |
+| `scripts/dashboard.ps1`, `scripts/dashboard.html` | `trinity dashboard`: localhost state server and the page. Spec in `docs/dashboard.md`. |
 | `.githooks/pre-commit` | Encoding and secret checks (enabled by `trinity setup`). |
 | `.claude/settings.json` | Session-start hook that shows `trinity status`. |
 | `scripts/agent-task.ps1` | Creates a worktree + branch per parallel task and registers it on the agent board. |
@@ -69,6 +70,12 @@ See who is doing what (Claude also sees this automatically at session start):
 ```bat
 trinity status
 ```
+
+Watch all three agents live, across every repo that uses trinity (one lane each for Claude, Codex, Antigravity; click a card for its result and log):
+```bat
+trinity dashboard
+```
+It opens `http://localhost:7777/` (localhost only, read-only). `trinity dashboard -Stop` stops it, `-Json` prints the state once. Claude shows its own chunks there with `trinity track <task> <note>`.
 
 When a task shows `done`, review, merge, test, and clean up in one step:
 ```bat

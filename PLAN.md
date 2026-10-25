@@ -24,3 +24,11 @@ Per-module checklist. Owner = claude | codex | antigravity.
 - [x] Self-test covers Antigravity, cancel, forged done (12 cases) - codex + claude (task selftest-agy)
 - [x] Only the runner can finish a headless task (done refused, live runner pid = pending) - claude
 - [ ] Windows notification seen on screen (code runs without error; not visually confirmed) - user
+
+## Module 3: Dashboard (see `docs/dashboard.md`)
+- [x] Spec + JSON contract (`docs/dashboard.md`) - claude
+- [x] Repo registry, `trinity track`, `trinity dashboard` (-Json/-Stop/-Port), init/setup register - claude
+- [x] Army skill routes chunks to Codex and Antigravity through trinity - claude
+- [ ] Collector + localhost server `scripts/dashboard.ps1`, self-test cases - codex (task dash-server)
+- [ ] Page `scripts/dashboard.html` + sample JSON - antigravity (task dash-ui)
+- [ ] Live check: dashboard shows real tasks in all three lanes, screenshot - claude
