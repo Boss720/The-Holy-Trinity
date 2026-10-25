@@ -21,5 +21,6 @@ Per-module checklist. Owner = claude | codex | antigravity.
 - [x] End-to-end self-test with fake Codex (`tests/`, 7 cases) - codex (task selftest)
 - [x] Antigravity headless via `agy -p` (IDE `chat` never started an agent); live run in MetaStrip merged - claude + antigravity
 - [x] `trinity cancel` stops the runner tree; verified live - claude
-- [ ] Self-test covers Antigravity + cancel (fake agy) - codex (task selftest-agy)
+- [x] Self-test covers Antigravity, cancel, forged done (12 cases) - codex + claude (task selftest-agy)
+- [x] Only the runner can finish a headless task (done refused, live runner pid = pending) - claude
 - [ ] Windows notification seen on screen (code runs without error; not visually confirmed) - user
