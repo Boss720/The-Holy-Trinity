@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.2.0 - 2026-10-25
 
 ### Added
 - Dashboard detail v3 for every agent: context in use, steps, thinking steps, per-tool call counts, last tool, files touched, background tasks (tool bars and file list in the task drawer). Antigravity tasks without a meta file or CLI log are found by their task file in the agy transcripts, so older runs show model, tokens, tools, duration and chat too.
@@ -27,6 +27,7 @@
 - Runner writes `.codex-out\meta-<task>.json` (model, session, tokens, duration) for Codex and Antigravity runs.
 
 ### Fixed (dashboard)
+- Antigravity background tasks are counted by distinct task id, not by every `manage_task` status call.
 - Codex subagent chats: matched by `parent_thread_id`, child id from the file name (its `session_id` is the parent's), next-day folders scanned, list refreshed while the task runs. Rollout day-folder lookup used `yyyy\MM\dd`, which formats as `2026M10d25`.
 - Claude session card no longer blanks model and context when one big tool result fills the read window.
 - Chat drawer keeps the reader's scroll position and ignores stale responses; subagent running state uses the collector's `active` flag.
