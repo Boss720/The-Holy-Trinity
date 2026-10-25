@@ -21,6 +21,12 @@ $script:ClaudeModelCache = @{}
 $script:ClaudeSummaryCache = @{}
 $script:AvailabilityCache = $null
 $script:AvailabilityCachedAt = [datetime]::MinValue
+$script:CollectDurations = New-Object System.Collections.Generic.List[int]
+$script:ServerFacts = [pscustomobject]@{
+    startedAt = (Get-Date).ToString("yyyy-MM-dd'T'HH:mm:ssK")
+    scriptHash = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash.Substring(0, 12).ToLowerInvariant()
+}
+$script:BlockedRemoteCount = 0
 $script:JsonLinesDroppedLong = $false
 $script:CodexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE '.codex' }
 $script:AgyHome = if ($env:TRINITY_AGY_HOME) { $env:TRINITY_AGY_HOME } else { Join-Path (Join-Path $env:USERPROFILE '.gemini') 'antigravity-cli' }
@@ -762,6 +768,7 @@ function Get-Availability($Defaults) {
 }
 
 function Get-DashboardState {
+    $stopwatch = [Diagnostics.Stopwatch]::StartNew()
     $candidatePaths = New-Object System.Collections.Generic.List[string]
     $trinityHome = if ($env:TRINITY_HOME) { $env:TRINITY_HOME } else { Join-Path $env:USERPROFILE '.trinity' }
     $registry = Join-Path $trinityHome 'repos.txt'
@@ -805,11 +812,63 @@ function Get-DashboardState {
         }
     }
     $agents.claude.models = @(@($agents.claude.models) + @($repoStates | ForEach-Object { $_.claudeSessions } | Where-Object { $_.active -and $_.model } | ForEach-Object { $_.model }) | Select-Object -Unique)
+    $availability = Get-Availability $defaults
+    $stopwatch.Stop()
+    $collectMs = [int][Math]::Round($stopwatch.Elapsed.TotalMilliseconds)
+    $script:CollectDurations.Add($collectMs)
+    while ($script:CollectDurations.Count -gt 10) { $script:CollectDurations.RemoveAt(0) }
+    $avgCollectMs = [int][Math]::Round(($script:CollectDurations | Measure-Object -Average).Average)
+    $scriptHashOnDisk = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash.Substring(0, 12).ToLowerInvariant()
+    $server = [pscustomobject]@{
+        startedAt = $script:ServerFacts.startedAt
+        scriptHash = $script:ServerFacts.scriptHash
+        scriptHashOnDisk = $scriptHashOnDisk
+        listenerScope = 'loopback'
+        blockedRemoteCount = [int]$script:BlockedRemoteCount
+        collectMs = $collectMs
+        avgCollectMs = $avgCollectMs
+    }
+    $health = New-Object System.Collections.Generic.List[object]
+    $serverStatus = if ($collectMs -lt 1000) { 'ok' } elseif ($collectMs -lt 3000) { 'warn' } else { 'fail' }
+    $health.Add([pscustomobject]@{ id='dashboard-server'; label='Dashboard server'; status=$serverStatus; detail="Snapshot collected in ${collectMs} ms" })
+    $health.Add([pscustomobject]@{ id='listener-loopback'; label='Listener'; status='ok'; detail="loopback only, $($server.blockedRemoteCount) blocked" })
+    $hashStatus = if ($server.scriptHash -eq $server.scriptHashOnDisk) { 'ok' } else { 'warn' }
+    $health.Add([pscustomobject]@{ id='server-outdated'; label='Server code'; status=$hashStatus; detail=$(if ($hashStatus -eq 'ok') { 'Running script matches disk' } else { 'Running script differs from disk' }) })
+    $health.Add([pscustomobject]@{ id='board-readable'; label='Agent boards'; status='ok'; detail='All repository boards parsed' })
+    foreach ($repo in $repoStates) {
+        $repoId = ([string]$repo.name).ToLowerInvariant() -replace '[^a-z0-9]+', '-'
+        $repoId = $repoId.Trim('-')
+        $hooksPath = Invoke-GitRead $repo.path @('config', '--get', 'core.hooksPath')
+        $hooksOk = ([string]$hooksPath).TrimEnd('\', '/') -match '(^|[\\/])\.githooks$'
+        $health.Add([pscustomobject]@{ id="hooks-enabled-$repoId"; label="Hooks: $($repo.name)"; status=$(if ($hooksOk) { 'ok' } else { 'warn' }); detail=$(if ($hooksOk) { 'core.hooksPath is .githooks' } else { 'core.hooksPath is not .githooks' }) })
+    }
+    foreach ($agent in @('claude', 'codex', 'antigravity')) {
+        $agentAvailability = $availability.$agent
+        $health.Add([pscustomobject]@{ id="agent-$agent"; label="Agent: $agent"; status=$(if ($agentAvailability.available) { 'ok' } else { 'warn' }); detail=[string]$agentAvailability.detail })
+    }
+    $attention = New-Object System.Collections.Generic.List[object]
+    foreach ($repo in $repoStates) {
+        foreach ($task in $repo.tasks) {
+            $reason = $null
+            if ($task.state -eq 'failed') { $reason = 'failed' }
+            elseif ($task.state -eq 'done') { $reason = 'done-unmerged' }
+            elseif ($task.state -eq 'running' -and -not $task.runnerAlive) { $reason = 'runner-dead' }
+            if ($reason) {
+                $detail = if ($task.status) { [string]$task.status } else { [string]$task.result }
+                $since = ''
+                if ($task.updated) { try { $since = ([datetime]::Parse($task.updated)).ToString("yyyy-MM-dd'T'HH:mm:ssK") } catch { } }
+                $attention.Add([pscustomobject]@{ repo=$repo.name; repoPath=$repo.path; task=$task.task; agent=$task.agent; reason=$reason; detail=$detail; since=$since })
+            }
+        }
+    }
     return [pscustomobject]@{
         generated = (Get-Date -Format "yyyy-MM-dd'T'HH:mm:ss")
-        availability = Get-Availability $defaults
+        availability = $availability
         agents = [pscustomobject]$agents
         repos = @($repoStates | Sort-Object name)
+        attention = @($attention | Sort-Object { $_.since } -Descending)
+        health = @($health.ToArray())
+        server = $server
     }
 }
 
@@ -853,7 +912,7 @@ $listener = $null
 $collectorRunspace = $null
 $collectorPowerShell = $null
 $collectorAsync = $null
-$sharedState = [hashtable]::Synchronized(@{ bytes = $null; builtAt = [datetime]::MinValue; lastRequestAt = [datetime]::MinValue; stop = $false; error = $null; errorAt = [datetime]::MinValue; errorSeq = 0 })
+$sharedState = [hashtable]::Synchronized(@{ bytes = $null; builtAt = [datetime]::MinValue; lastRequestAt = [datetime]::MinValue; stop = $false; error = $null; errorAt = [datetime]::MinValue; errorSeq = 0; serverFacts = $script:ServerFacts; blockedRemoteCount = 0 })
 $loggedErrorSeq = 0
 try {
     $listener = New-Object System.Net.HttpListener
@@ -879,6 +938,8 @@ try {
                 $due = (-not $hasBytes) -or ($demanded -and ($now - $shared.builtAt).TotalSeconds -ge $refreshSeconds)
                 if ($due) {
                     try {
+                        $script:ServerFacts = $shared.serverFacts
+                        $script:BlockedRemoteCount = [int]$shared.blockedRemoteCount
                         $json = Convert-StateToJson (Get-DashboardState)
                         $bytes = [Text.Encoding]::UTF8.GetBytes($json)
                         $shared.bytes = $bytes
@@ -906,6 +967,8 @@ try {
             $remoteAddress = $context.Request.RemoteEndPoint.Address
             if ($remoteAddress.IsIPv4MappedToIPv6) { $remoteAddress = $remoteAddress.MapToIPv4() }
             if (-not [System.Net.IPAddress]::IsLoopback($remoteAddress) -or $hostName -ne "localhost:$Port") {
+                $sharedState.blockedRemoteCount = [int]$sharedState.blockedRemoteCount + 1
+                $sharedState.lastRequestAt = [datetime]::UtcNow
                 $response.StatusCode = 403
             }
             elseif ($context.Request.HttpMethod -ne 'GET') {

@@ -626,6 +626,26 @@ Run-Case 'dashboard reports completed Codex task and agent totals' {
     Assert-True ($null -ne $state.agents.claude -and $null -ne $state.agents.codex -and $null -ne $state.agents.antigravity) 'an agent count key is missing'
 }
 
+Run-Case 'dashboard once adds health server and attention state' {
+    param($f)
+    $boardPath = Join-Path $f.Repo '.git\agent-board.md'
+    $section = @('', '## attention-failed', '- agent: codex', '- branch: -', '- worktree: -', '- scope: tests/*', '- status: failed command 2026-10-25 10:01', '', '## attention-done', '- agent: antigravity', '- branch: -', '- worktree: -', '- scope: tests/*', '- status: done 2026-10-25 10:02', '', '## attention-merged', '- agent: claude', '- branch: -', '- worktree: -', '- scope: tests/*', '- status: merged 2026-10-25 10:03') -join "`r`n"
+    [IO.File]::AppendAllText($boardPath, $section + "`r`n", [Text.UTF8Encoding]::new($false))
+    $dashboard = Join-Path $f.Repo 'scripts\dashboard.ps1'; $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $json = & $powershell -NoProfile -ExecutionPolicy Bypass -File $dashboard -Once -Repos $f.Repo
+    Assert-True ($LASTEXITCODE -eq 0) "dashboard exited $LASTEXITCODE"
+    $state = ($json -join "`n") | ConvertFrom-Json
+    Assert-True ($null -ne $state.server -and $state.server.listenerScope -eq 'loopback' -and $state.server.scriptHash -match '^[0-9a-f]{12}$' -and $state.server.scriptHashOnDisk -match '^[0-9a-f]{12}$' -and $state.server.collectMs -ge 0 -and $state.server.avgCollectMs -ge 0) 'server state has invalid shape'
+    Assert-True (@($state.attention).Count -eq 2) "unexpected attention items: $(@($state.attention | ForEach-Object { $_.task + ':' + $_.reason }) -join ', ')"
+    Assert-True (@($state.health).Count -ge 7) 'health rows are missing'
+    $failed = @($state.attention | Where-Object task -eq 'attention-failed' | Select-Object -First 1)
+    $done = @($state.attention | Where-Object task -eq 'attention-done' | Select-Object -First 1)
+    Assert-True ($failed.Count -eq 1 -and $failed[0].reason -eq 'failed' -and $failed[0].repoPath -eq [IO.Path]::GetFullPath($f.Repo) -and $failed[0].agent -eq 'codex' -and $failed[0].since -match '^2026-10-25T10:01:00') 'failed attention item is invalid'
+    Assert-True ($done.Count -eq 1 -and $done[0].reason -eq 'done-unmerged') 'done attention item is invalid'
+    foreach ($item in @($state.attention)) { Assert-True ($item.detail -and $item.since -match '^\d{4}-\d\d-\d\dT') "attention item missing detail or ISO time: $($item.task)" }
+    foreach ($row in @($state.health)) { Assert-True ($row.id -match '^[a-z0-9-]+$' -and $row.label -and $row.status -in @('ok','warn','fail') -and $row.detail) "invalid health row: $($row | ConvertTo-Json -Compress)" }
+}
+
 Run-Case 'dashboard accepts tracked Claude task without branch' {
     param($f)
     $boardPath = Join-Path $f.Repo '.git\agent-board.md'
@@ -927,11 +947,17 @@ Run-Case 'dashboard chat HTTP validates ids and guards hosts' {
             $status=0; try { Invoke-WebRequest -Uri "http://localhost:$port/api/chat?id=$([uri]::EscapeDataString($pair[0]))" -UseBasicParsing -TimeoutSec 2 | Out-Null } catch { if ($_.Exception.Response) { $status=[int]$_.Exception.Response.StatusCode } }
             Assert-True ($status -eq [int]$pair[1]) "chat id $($pair[0]) returned $status"
         }
-        # Raw request: http.sys answers 400 for a Host outside the listener prefix before the guard (403) sees it; both block.
+        # A trailing-dot localhost host is routed by HTTP.sys but rejected by the app's exact Host check.
         $client=New-Object Net.Sockets.TcpClient('127.0.0.1', $port); $hostLine=''
-        try { $stream=$client.GetStream(); $bytes=[Text.Encoding]::ASCII.GetBytes("GET /api/state HTTP/1.1`r`nHost: evil.example:$port`r`nConnection: close`r`n`r`n"); $stream.Write($bytes,0,$bytes.Length); $hostLine=(New-Object IO.StreamReader($stream)).ReadLine() }
+        try { $stream=$client.GetStream(); $bytes=[Text.Encoding]::ASCII.GetBytes("GET /api/state HTTP/1.1`r`nHost: localhost.:$port`r`nConnection: close`r`n`r`n"); $stream.Write($bytes,0,$bytes.Length); $hostLine=(New-Object IO.StreamReader($stream)).ReadLine() }
         finally { $client.Close() }
-        Assert-True ($hostLine -match '^HTTP/1\.[01] (400|403) ') "invalid Host header returned: $hostLine"
+        Assert-True ($hostLine -match '^HTTP/1\.[01] 403 ') "invalid Host header did not reach the server guard: $hostLine"
+        $blockedState=$null; $blockedDeadline=(Get-Date).AddSeconds(8)
+        while ((Get-Date) -lt $blockedDeadline) {
+            try { $blockedResponse=Invoke-WebRequest -Uri "http://localhost:$port/api/state" -UseBasicParsing -TimeoutSec 2; $blockedState=$blockedResponse.Content | ConvertFrom-Json; if ($blockedState.server.blockedRemoteCount -ge 1) { break } } catch { }
+            Start-Sleep -Milliseconds 150
+        }
+        Assert-True ($blockedState -and $blockedState.server.blockedRemoteCount -ge 1) 'blockedRemoteCount did not increment in /api/state after bad Host request'
     }
     finally { if ($process) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }; $env:CODEX_HOME=$oldCodexHome; $env:TRINITY_AGY_HOME=$oldAgyHome; $env:CLAUDE_CONFIG_DIR=$oldClaudeHome; $env:TRINITY_DISABLE=$oldDisable }
 }
