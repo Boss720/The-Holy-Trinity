@@ -490,6 +490,10 @@ switch ($Command) {
             'scripts\codex.cmd', 'scripts\codex-review.cmd', 'scripts\codex-ask.cmd', '.githooks\pre-commit',
             '.claude\agents\codex-worker.md', '.claude\agents\codex-reviewer.md', '.claude\agents\antigravity-worker.md')
         foreach ($rel in $toolkit) { & $copy $rel; Write-Host "  updated  $rel" }
+        foreach ($rel in @('.claude\agents\antigravity-ui.md')) {
+            $old = Join-Path $target $rel
+            if (Test-Path $old) { Remove-Item $old; Write-Host "  removed  $rel (retired toolkit file)" }
+        }
 
         # Rule and memory docs belong to the project once written: created when missing, replaced only with -Force.
         $agentsText = [IO.File]::ReadAllText((Join-Path $kit 'AGENTS.md'))
