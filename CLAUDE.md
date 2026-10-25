@@ -3,7 +3,26 @@
 ## Claude-specific
 
 - Session start injects `trinity status -Brief`. If a board task says `done`, offer to `trinity merge` it.
-- Work that splits cleanly by files: `./trinity.cmd dispatch codex <task> "<prompt>" -Scope "<glob>"` (headless, background) and keep working; UI tasks go to `dispatch antigravity`. Merge with `./trinity.cmd merge <task> -Yes` after reading the review it prints.
+
+## Auto-delegation (do this without being asked)
+
+Codex and Antigravity are your subagents (`.claude/agents/`). Route by strength, run them in the background, keep working on your own part meanwhile.
+
+| Work | Send to | Why |
+|---|---|---|
+| Self-contained coding task with a clear file scope (new module/format, bug with repro, tests) | `codex-worker` | Codex is strong at focused implementation; runs in its own worktree |
+| Review before any commit, before any merge, second opinion after 2 failed attempts | `codex-reviewer` | Independent model catches what you miss |
+| UI verification after a UI change builds; visual/layout fixes | `antigravity-ui` | Gemini browser agent clicks through the real app, takes screenshots |
+| Cross-cutting design, shared files, merge, final verification, anything touching `main` | you | You hold the whole picture |
+
+Rules:
+- Split by files first. Two agents never get overlapping scopes; shared files (registries, `src/strip/index.js`, package.json) stay with you, wired in after merge.
+- Give subagents complete prompts: they start cold. Include paths, conventions, and the test command.
+- Several independent tasks: launch all subagents in one message so they run concurrently.
+- When a `codex-worker`/`antigravity-ui` returns: read its diffstat, then `./trinity.cmd merge <task> -Yes` (runs Codex review + tests), then wire shared files and re-run `npm test` yourself.
+- Do the work yourself when it is small (under ~15 minutes), tangled across many files, or needs this conversation's context.
+- Never paste secrets or the user's personal data into delegated prompts.
+
 - You are the orchestrator. Plan in `PLAN.md`, hand off via `HANDOFF.md`, merge `agent/*` branches.
 - Before every commit on `main`: run `./scripts/codex-review.cmd` (or `--base main` for a branch), fix real findings, ignore style nits. Takes minutes: run it in the background.
 - Stuck on a hard bug after two attempts: `echo "..." | ./scripts/codex-ask.cmd`, then verify its answer yourself. Never pass the prompt as a quoted arg from Bash.

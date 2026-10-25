@@ -7,6 +7,8 @@ param(
     [switch]$Yes,
     [switch]$Force,
     [switch]$Brief,
+    [string]$PromptFile,
+    [int]$Timeout = 1800,
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest
 )
 
@@ -25,6 +27,14 @@ function Show-Usage {
     Write-Host '  dispatch <agent> <task> <prompt...>   worktree + task file + start the agent'
     Write-Host '                                          trinity dispatch codex login-form -Scope "src/auth/*" Build the login form'
     Write-Host '                                          (agent: codex | antigravity | claude)'
+    Write-Host '  run <agent> <task> <prompt...>        dispatch, then wait and print result + commits'
+    Write-Host '                                          trinity run codex login-form -Timeout 900 Build the login form'
+    Write-Host '  wait <task> [-Timeout 1800]           block until done; exit 0 done, 1 failed, 2 timeout, 3 other'
+    Write-Host '                                          trinity wait login-form -Timeout 600'
+    Write-Host '  done <task> [summary...]              agent marks its own task done on the board'
+    Write-Host '                                          trinity done login-form added the login form'
+    Write-Host '  (dispatch/run) -PromptFile <file>     read the prompt from a file instead of <prompt...>'
+    Write-Host '                                          trinity dispatch codex login-form -PromptFile prompt.txt'
     Write-Host '  merge <task> [-Yes] [-Force]          review, merge --no-ff, run tests, clean up'
     Write-Host '                                          trinity merge login-form'
     Write-Host '  ui                                    open the main checkout in Antigravity'
@@ -78,6 +88,101 @@ function Show-Status {
     }
 }
 
+# Poll the board until the task leaves started/running/waiting, then print status, result and commits.
+# Returns 0 done, 1 failed, 2 timeout (still pending), 3 anything else (e.g. merged).
+function Wait-Task([string]$task, [int]$timeoutSec) {
+    $entry = Get-BoardEntry $paths $task
+    if (-not $entry) { Fail "no board entry for $task" }
+    $start = Get-Date
+    $lastNote = $start
+    while ($true) {
+        $entry = Get-BoardEntry $paths $task
+        $status = $entry.status
+        if ($status -notmatch '^(started|running|waiting)') { break }
+        if (((Get-Date) - $start).TotalSeconds -ge $timeoutSec) { break }
+        if (((Get-Date) - $lastNote).TotalSeconds -ge 60) {
+            Write-Host "waiting on $($task): $status"
+            $lastNote = Get-Date
+        }
+        Start-Sleep -Seconds 5
+    }
+    $pending = $status -match '^(started|running|waiting)'
+    if ($pending) { Write-Host "timeout after $($timeoutSec)s, still: $status" }
+    Write-Host "status: $status"
+    $result = Join-Path $paths.Out "result-$task.md"
+    if (Test-Path $result) {
+        Write-Host '--- result ---'
+        Write-Host ([IO.File]::ReadAllText($result))
+    }
+    $branch = $entry.branch
+    if ($branch -and (Get-Git @('-C', $paths.Main, 'rev-parse', '--verify', '--quiet', "refs/heads/$branch"))) {
+        Write-Host '--- commits ---'
+        Get-Git @('-C', $paths.Main, 'log', '--oneline', "main..$branch") | ForEach-Object { Write-Host $_ }
+        Write-Host '--- diffstat ---'
+        Get-Git @('-C', $paths.Main, 'diff', '--stat', "main...$branch") | ForEach-Object { Write-Host $_ }
+    }
+    if ($pending) { return 2 }
+    if ($status -match '^done') { return 0 }
+    if ($status -match '^failed') { return 1 }
+    3
+}
+
+# Create worktree + task file for one agent and start it (codex/antigravity) or park it (claude).
+function Start-Dispatch([string]$agent, [string]$task, [string]$prompt) {
+    $wt = New-AgentWorktree $paths $agent $task $Scope $Base
+
+    $taskFile = Join-Path $paths.Out "task-$task.md"
+    $resultPath = Join-Path $paths.Out "result-$task.md"
+    $body = @(
+        "# Task: $task",
+        '',
+        "- agent: $agent",
+        "- task: $task",
+        "- branch: $($wt.Branch)",
+        "- worktree: $($wt.Path)",
+        "- scope: $Scope",
+        '',
+        '## Request',
+        '',
+        $prompt,
+        '',
+        '## Rules',
+        '',
+        '- Read AGENTS.md first.',
+        '- Edit only files within the scope.',
+        $(if ($agent -eq 'codex') { '- Do not run git commit; your sandbox cannot write .git. The runner commits your changes when you finish, using your final summary as the message.' }
+          else { '- Commit your work on this branch with clear messages (no Co-Authored-By trailers).',
+             "- When finished: write your summary to $resultPath, then run in your worktree: trinity done $task <one-line summary>" }),
+        '- Do not push.',
+        '- Do not edit HANDOFF.md or PLAN.md.',
+        '- Finish with a short summary of what you did and anything left.'
+    ) -join "`r`n"
+    [IO.File]::WriteAllText($taskFile, $body + "`r`n", $script:Utf8)
+
+    Write-Host "Worktree: $($wt.Path)"
+    Write-Host "Branch:   $($wt.Branch)"
+    Write-Host "Task:     $taskFile"
+    switch ($agent) {
+        'codex' {
+            Set-BoardStatus $paths $task 'running'
+            Start-Process powershell.exe -WindowStyle Hidden -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '_run-codex', $task
+            Write-Host "Codex started in background."
+            Write-Host "Log:    $(Join-Path $paths.Out "log-$task.txt")"
+            Write-Host "Result: $(Join-Path $paths.Out "result-$task.md")"
+            Write-Host 'Check progress with: trinity status'
+        }
+        'antigravity' {
+            Set-BoardStatus $paths $task 'running (antigravity)'
+            Start-Process -FilePath 'cmd.exe' -WorkingDirectory $wt.Path -ArgumentList '/c', 'antigravity-ide', 'chat', '-m', 'agent', '-a', "`"$taskFile`"", '"Read the attached task file and do it."' -WindowStyle Hidden
+            Write-Host 'Antigravity started. Check progress with: trinity status'
+        }
+        'claude' {
+            Set-BoardStatus $paths $task 'waiting for claude session'
+            Write-Host "Open a new Claude Code session on $($wt.Path) and say: do the task in $taskFile"
+        }
+    }
+}
+
 switch ($Command) {
     'status' { Show-Status }
 
@@ -101,60 +206,51 @@ switch ($Command) {
     }
 
     'dispatch' {
-        if (@($Rest).Count -lt 3) { Fail 'usage: trinity dispatch <codex|antigravity|claude> <task> <prompt...>' }
-        $agent = $Rest[0]
-        $task = $Rest[1]
-        $prompt = ($Rest[2..($Rest.Count - 1)]) -join ' '
-        $wt = New-AgentWorktree $paths $agent $task $Scope $Base
-
-        $taskFile = Join-Path $paths.Out "task-$task.md"
-        $body = @(
-            "# Task: $task",
-            '',
-            "- agent: $agent",
-            "- task: $task",
-            "- branch: $($wt.Branch)",
-            "- worktree: $($wt.Path)",
-            "- scope: $Scope",
-            '',
-            '## Request',
-            '',
-            $prompt,
-            '',
-            '## Rules',
-            '',
-            '- Read AGENTS.md first.',
-            '- Edit only files within the scope.',
-            $(if ($agent -eq 'codex') { '- Do not run git commit; your sandbox cannot write .git. The runner commits your changes when you finish, using your final summary as the message.' }
-              else { '- Commit your work on this branch with clear messages (no Co-Authored-By trailers).' }),
-            '- Do not push.',
-            '- Do not edit HANDOFF.md or PLAN.md.',
-            '- Finish with a short summary of what you did and anything left.'
-        ) -join "`r`n"
-        [IO.File]::WriteAllText($taskFile, $body + "`r`n", $script:Utf8)
-
-        Write-Host "Worktree: $($wt.Path)"
-        Write-Host "Branch:   $($wt.Branch)"
-        Write-Host "Task:     $taskFile"
-        switch ($agent) {
-            'codex' {
-                Set-BoardStatus $paths $task 'running'
-                Start-Process powershell.exe -WindowStyle Hidden -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '_run-codex', $task
-                Write-Host "Codex started in background."
-                Write-Host "Log:    $(Join-Path $paths.Out "log-$task.txt")"
-                Write-Host "Result: $(Join-Path $paths.Out "result-$task.md")"
-                Write-Host 'Check progress with: trinity status'
-            }
-            'antigravity' {
-                Set-BoardStatus $paths $task 'running (antigravity)'
-                Start-Process -FilePath 'cmd.exe' -WorkingDirectory $wt.Path -ArgumentList '/c', 'antigravity-ide', 'chat', '-m', 'agent', '-a', "`"$taskFile`"", '"Read the attached task file and do it."' -WindowStyle Hidden
-                Write-Host 'Antigravity started. Check progress with: trinity status'
-            }
-            'claude' {
-                Set-BoardStatus $paths $task 'waiting for claude session'
-                Write-Host "Open a new Claude Code session on $($wt.Path) and say: do the task in $taskFile"
-            }
+        if ($PromptFile) {
+            if (@($Rest).Count -lt 2) { Fail 'usage: trinity dispatch <codex|antigravity|claude> <task> -PromptFile <file>' }
+            if (-not (Test-Path $PromptFile)) { Fail "prompt file not found: $PromptFile" }
+            $prompt = [IO.File]::ReadAllText($PromptFile)
         }
+        else {
+            if (@($Rest).Count -lt 3) { Fail 'usage: trinity dispatch <codex|antigravity|claude> <task> <prompt...> (or -PromptFile <file>)' }
+            $prompt = ($Rest[2..($Rest.Count - 1)]) -join ' '
+        }
+        Start-Dispatch $Rest[0] $Rest[1] $prompt
+    }
+
+    'run' {
+        if ($PromptFile) {
+            if (@($Rest).Count -lt 2) { Fail 'usage: trinity run <codex|antigravity|claude> <task> -PromptFile <file>' }
+            if (-not (Test-Path $PromptFile)) { Fail "prompt file not found: $PromptFile" }
+            $prompt = [IO.File]::ReadAllText($PromptFile)
+        }
+        else {
+            if (@($Rest).Count -lt 3) { Fail 'usage: trinity run <codex|antigravity|claude> <task> <prompt...> (or -PromptFile <file>)' }
+            $prompt = ($Rest[2..($Rest.Count - 1)]) -join ' '
+        }
+        Start-Dispatch $Rest[0] $Rest[1] $prompt
+        if ($Rest[0] -eq 'claude') {
+            Write-Host 'claude tasks need a Claude Code session; not waiting.'
+            exit 0
+        }
+        exit (Wait-Task $Rest[1] $Timeout)
+    }
+
+    'wait' {
+        $task = $Rest[0]
+        if (-not $task) { Fail 'usage: trinity wait <task> [-Timeout 1800]' }
+        exit (Wait-Task $task $Timeout)
+    }
+
+    'done' {
+        $task = $Rest[0]
+        if (-not $task) { Fail 'usage: trinity done <task> [summary...]' }
+        if (-not (Get-BoardEntry $paths $task)) { Fail "no board entry for $task" }
+        $summary = ''
+        if (@($Rest).Count -gt 1) { $summary = (($Rest[1..($Rest.Count - 1)]) -join ' ') -replace '[\r\n]+', ' ' }
+        $status = if ($summary.Trim()) { "done: $($summary.Trim())" } else { 'done' }
+        Set-BoardStatus $paths $task $status
+        Write-Host "status: $status"
     }
 
     '_run-codex' {
