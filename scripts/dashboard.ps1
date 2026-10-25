@@ -978,7 +978,6 @@ try {
             if ($remoteAddress.IsIPv4MappedToIPv6) { $remoteAddress = $remoteAddress.MapToIPv4() }
             if (-not [System.Net.IPAddress]::IsLoopback($remoteAddress) -or $hostName -ne "localhost:$Port") {
                 $sharedState.blockedRemoteCount = [int]$sharedState.blockedRemoteCount + 1
-                $sharedState.lastRequestAt = [datetime]::UtcNow
                 $response.StatusCode = 403
             }
             elseif ($context.Request.HttpMethod -ne 'GET') {
