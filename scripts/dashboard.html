@@ -281,6 +281,12 @@
       border: 1px solid currentColor;
     }
 
+    .indicator-pill.connecting {
+      background-color: var(--badge-other-bg);
+      color: var(--badge-other-text);
+      border: 1px solid var(--badge-other-border);
+    }
+
     .indicator-pill.offline {
       background-color: var(--status-offline-bg);
       color: var(--status-offline);
@@ -373,6 +379,7 @@
       display: inline-block;
       flex-shrink: 0;
       cursor: help;
+      background-color: var(--text-muted);
     }
 
     .avail-dot.available {
@@ -1788,9 +1795,9 @@
           </div>
         </div>
         <div class="status-group">
-          <div id="live-indicator" class="indicator-pill live">
+          <div id="live-indicator" class="indicator-pill connecting">
             <span class="indicator-dot"></span>
-            <span id="live-text">LIVE</span>
+            <span id="live-text">CONNECTING</span>
           </div>
           <div id="refresh-time" class="refresh-time">Connecting...</div>
         </div>
@@ -1802,19 +1809,13 @@
         <div class="agent-stat-card claude" id="card-agent-claude">
           <div class="agent-card-top">
             <div class="agent-label-wrap">
-              <span class="avail-dot available" id="avail-dot-claude" title="Checking availability..."></span>
+              <span class="avail-dot" id="avail-dot-claude" title="Connecting..."></span>
               <span class="agent-label">Claude</span>
             </div>
             <div id="avail-text-claude"></div>
           </div>
           <div class="agent-metrics" id="metrics-claude">
-            <span class="metric-pill running"><span id="claude-running">0</span> run</span>
-            <span>·</span>
-            <span class="metric-pill"><span id="claude-done">0</span> done</span>
-            <span>·</span>
-            <span class="metric-pill"><span id="claude-failed">0</span> fail</span>
-            <span>·</span>
-            <span class="metric-pill"><span id="claude-total">0</span> tot</span>
+            <span class="metric-pill" style="color: var(--text-muted);">Loading...</span>
           </div>
           <div class="agent-model-info" id="model-claude">Default: -</div>
           <div class="agent-running-models" id="running-models-claude"></div>
@@ -1824,19 +1825,13 @@
         <div class="agent-stat-card codex" id="card-agent-codex">
           <div class="agent-card-top">
             <div class="agent-label-wrap">
-              <span class="avail-dot available" id="avail-dot-codex" title="Checking availability..."></span>
+              <span class="avail-dot" id="avail-dot-codex" title="Connecting..."></span>
               <span class="agent-label">Codex</span>
             </div>
             <div id="avail-text-codex"></div>
           </div>
           <div class="agent-metrics" id="metrics-codex">
-            <span class="metric-pill running"><span id="codex-running">0</span> run</span>
-            <span>·</span>
-            <span class="metric-pill"><span id="codex-done">0</span> done</span>
-            <span>·</span>
-            <span class="metric-pill"><span id="codex-failed">0</span> fail</span>
-            <span>·</span>
-            <span class="metric-pill"><span id="codex-total">0</span> tot</span>
+            <span class="metric-pill" style="color: var(--text-muted);">Loading...</span>
           </div>
           <div class="agent-model-info" id="model-codex">Default: -</div>
           <div class="agent-running-models" id="running-models-codex"></div>
@@ -1846,19 +1841,13 @@
         <div class="agent-stat-card antigravity" id="card-agent-antigravity">
           <div class="agent-card-top">
             <div class="agent-label-wrap">
-              <span class="avail-dot available" id="avail-dot-antigravity" title="Checking availability..."></span>
+              <span class="avail-dot" id="avail-dot-antigravity" title="Connecting..."></span>
               <span class="agent-label">Antigravity</span>
             </div>
             <div id="avail-text-antigravity"></div>
           </div>
           <div class="agent-metrics" id="metrics-antigravity">
-            <span class="metric-pill running"><span id="antigravity-running">0</span> run</span>
-            <span>·</span>
-            <span class="metric-pill"><span id="antigravity-done">0</span> done</span>
-            <span>·</span>
-            <span class="metric-pill"><span id="antigravity-failed">0</span> fail</span>
-            <span>·</span>
-            <span class="metric-pill"><span id="antigravity-total">0</span> tot</span>
+            <span class="metric-pill" style="color: var(--text-muted);">Loading...</span>
           </div>
           <div class="agent-model-info" id="model-antigravity">Default: -</div>
           <div class="agent-running-models" id="running-models-antigravity"></div>
@@ -1868,7 +1857,7 @@
 
     <!-- Offline Alert Banner -->
     <div id="offline-alert" class="offline-alert-bar">
-      <span><strong>SERVER OFFLINE:</strong> Unable to connect to state API. Retrying every 3s. Preserving last known snapshot.</span>
+      <span><strong>SERVER OFFLINE:</strong> Unable to connect to state API. Retrying... Preserving last known snapshot.</span>
       <span id="offline-alert-time" style="font-family: ui-monospace, monospace;"></span>
     </div>
 
@@ -1899,11 +1888,11 @@
           <div class="lane-title-wrap">
             <span class="lane-title">Claude</span>
           </div>
-          <span class="lane-task-count" id="count-claude">0 tasks</span>
+          <span class="lane-task-count" id="count-claude">-</span>
         </div>
         <div class="lane-body" id="body-claude">
           <!-- Unavailable banner & tasks rendered here -->
-          <div class="lane-empty">No tasks</div>
+          <div class="lane-empty">Loading...</div>
         </div>
       </section>
 
@@ -1913,11 +1902,11 @@
           <div class="lane-title-wrap">
             <span class="lane-title">Codex</span>
           </div>
-          <span class="lane-task-count" id="count-codex">0 tasks</span>
+          <span class="lane-task-count" id="count-codex">-</span>
         </div>
         <div class="lane-body" id="body-codex">
           <!-- Unavailable banner & tasks rendered here -->
-          <div class="lane-empty">No tasks</div>
+          <div class="lane-empty">Loading...</div>
         </div>
       </section>
 
@@ -1927,11 +1916,11 @@
           <div class="lane-title-wrap">
             <span class="lane-title">Antigravity</span>
           </div>
-          <span class="lane-task-count" id="count-antigravity">0 tasks</span>
+          <span class="lane-task-count" id="count-antigravity">-</span>
         </div>
         <div class="lane-body" id="body-antigravity">
           <!-- Unavailable banner & tasks rendered here -->
-          <div class="lane-empty">No tasks</div>
+          <div class="lane-empty">Loading...</div>
         </div>
       </section>
     </main>
@@ -1941,11 +1930,12 @@
       <div class="repos-header">
         <div class="repos-title">
           <span>Tracked Repositories</span>
-          <span class="lane-task-count" id="repo-count-badge">0</span>
+          <span class="lane-task-count" id="repo-count-badge">-</span>
         </div>
       </div>
       <div class="repos-grid" id="repos-container">
         <!-- Rendered dynamically -->
+        <div class="lane-empty">Loading...</div>
       </div>
     </section>
   </div>
@@ -2222,10 +2212,49 @@
           const avail = availability[name] || { available: true, detail: '', model: '', effort: '' };
 
           // Counts
-          const runEl = document.getElementById(name + '-running');
-          const doneEl = document.getElementById(name + '-done');
-          const failEl = document.getElementById(name + '-failed');
-          const totEl = document.getElementById(name + '-total');
+          let runEl = document.getElementById(name + '-running');
+          let doneEl = document.getElementById(name + '-done');
+          let failEl = document.getElementById(name + '-failed');
+          let totEl = document.getElementById(name + '-total');
+
+          if (!runEl) {
+            const metricsContainer = document.getElementById('metrics-' + name);
+            if (metricsContainer) {
+              while (metricsContainer.firstChild) metricsContainer.removeChild(metricsContainer.firstChild);
+
+              const runPill = el('span', 'metric-pill running');
+              runEl = el('span', '', '0');
+              runEl.id = name + '-running';
+              runPill.appendChild(runEl);
+              runPill.appendChild(document.createTextNode(' run'));
+
+              const donePill = el('span', 'metric-pill');
+              doneEl = el('span', '', '0');
+              doneEl.id = name + '-done';
+              donePill.appendChild(doneEl);
+              donePill.appendChild(document.createTextNode(' done'));
+
+              const failPill = el('span', 'metric-pill');
+              failEl = el('span', '', '0');
+              failEl.id = name + '-failed';
+              failPill.appendChild(failEl);
+              failPill.appendChild(document.createTextNode(' fail'));
+
+              const totPill = el('span', 'metric-pill');
+              totEl = el('span', '', '0');
+              totEl.id = name + '-total';
+              totPill.appendChild(totEl);
+              totPill.appendChild(document.createTextNode(' tot'));
+
+              metricsContainer.appendChild(runPill);
+              metricsContainer.appendChild(document.createTextNode(' \u00B7 '));
+              metricsContainer.appendChild(donePill);
+              metricsContainer.appendChild(document.createTextNode(' \u00B7 '));
+              metricsContainer.appendChild(failPill);
+              metricsContainer.appendChild(document.createTextNode(' \u00B7 '));
+              metricsContainer.appendChild(totPill);
+            }
+          }
 
           if (runEl) runEl.textContent = String(stats.running || 0);
           if (doneEl) doneEl.textContent = String(stats.done || 0);
@@ -3166,11 +3195,13 @@
         stopChatPolling();
       }
 
+      let chatFetchInFlight = false;
+
       function syncChatPolling() {
         stopChatPolling();
         if (activeChatKey && chatLiveToggle.checked) {
           chatPollTimer = setInterval(function () {
-            if (activeChatKey) {
+            if (activeChatKey && !chatFetchInFlight && !document.hidden) {
               fetchChatData(activeChatKey, true);
             }
           }, 3000);
@@ -3187,6 +3218,8 @@
       // Fetch or read chat data
       async function fetchChatData(chatKey, isBackgroundPoll) {
         if (!chatKey) return;
+        if (isBackgroundPoll && chatFetchInFlight) return;
+        chatFetchInFlight = true;
         const requestSeq = ++chatRequestSeq;
 
         try {
@@ -3217,6 +3250,8 @@
           if (requestSeq !== chatRequestSeq || chatKey !== activeChatKey) return;
           chatErrorInline.classList.add('active');
           chatErrorInline.textContent = 'Error loading chat: ' + err.message;
+        } finally {
+          chatFetchInFlight = false;
         }
       }
 
@@ -3377,8 +3412,38 @@
       // Polling & Initialization
       // ==========================================
 
+      // State polling state
+      let statePollInFlight = false;
+      let statePollTimer = null;
+      let statePollErrorDelay = 3000;
+
+      function scheduleNextStatePoll(delayMs) {
+        if (statePollTimer) {
+          clearTimeout(statePollTimer);
+          statePollTimer = null;
+        }
+        if (document.hidden) {
+          return;
+        }
+        statePollTimer = setTimeout(function () {
+          statePollTimer = null;
+          pollState();
+        }, delayMs);
+      }
+
       // Fetch state from server or sample file
       async function pollState() {
+        if (document.hidden || statePollInFlight) {
+          return;
+        }
+        if (statePollTimer) {
+          clearTimeout(statePollTimer);
+          statePollTimer = null;
+        }
+        statePollInFlight = true;
+        const startTime = Date.now();
+        let nextDelayMs = 3000;
+
         try {
           const response = await fetch(stateUrl + (stateUrl.includes('?') ? '&' : '?') + '_t=' + Date.now(), {
             cache: 'no-store'
@@ -3400,6 +3465,13 @@
           refreshTime.textContent = 'Updated ' + timeStr;
 
           renderDashboard(data);
+
+          // Success: reset error backoff to 3s
+          statePollErrorDelay = 3000;
+          // Delay: 3s after a successful poll. If the reply itself took longer than 3s,
+          // wait at least as long as it took (cap 30s) before the next poll.
+          const duration = Date.now() - startTime;
+          nextDelayMs = Math.min(30000, Math.max(3000, duration));
         } catch (err) {
           // Fetch failed: show offline alert, keep last state
           liveIndicator.className = 'indicator-pill offline';
@@ -3412,8 +3484,33 @@
           if (lastStateData) {
             renderDashboard(lastStateData);
           }
+
+          // Error: double the delay each time up to 30s
+          statePollErrorDelay = Math.min(30000, statePollErrorDelay * 2);
+          nextDelayMs = statePollErrorDelay;
+        } finally {
+          statePollInFlight = false;
+          scheduleNextStatePoll(nextDelayMs);
         }
       }
+
+      // Tab visibility listener
+      document.addEventListener('visibilitychange', function () {
+        if (document.hidden) {
+          if (statePollTimer) {
+            clearTimeout(statePollTimer);
+            statePollTimer = null;
+          }
+        } else {
+          if (!statePollInFlight) {
+            if (statePollTimer) {
+              clearTimeout(statePollTimer);
+              statePollTimer = null;
+            }
+            pollState();
+          }
+        }
+      });
 
       // Filter events
       repoFilterSelect.addEventListener('change', function () {
@@ -3435,7 +3532,6 @@
       // Initialization
       loadSavedPreferences();
       pollState();
-      setInterval(pollState, 3000);
       setInterval(tickLiveDurations, 1000);
     })();
   </script>
