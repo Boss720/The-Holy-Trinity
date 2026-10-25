@@ -13,6 +13,7 @@ $script:TranscriptCache = @{}
 $script:TranscriptSummaryCache = @{}
 $script:CodexRolloutCache = @{}
 $script:CodexSubChatCache = @{}
+$script:ClaudeModelCache = @{}
 $script:AvailabilityCache = $null
 $script:AvailabilityCachedAt = [datetime]::MinValue
 $script:JsonLinesDroppedLong = $false
@@ -118,7 +119,7 @@ function Get-CodexRollout([string]$SessionId, [string]$Started) {
     if ($script:CodexRolloutCache.ContainsKey($SessionId) -and $script:CodexRolloutCache[$SessionId]) { return $script:CodexRolloutCache[$SessionId] }
     $sessions = Join-Path $script:CodexHome 'sessions'
     $folders = New-Object System.Collections.Generic.List[string]
-    try { $date = [datetime]::Parse($Started); for ($i = -1; $i -le 1; $i++) { $folders.Add((Join-Path $sessions $date.AddDays($i).ToString('yyyy\MM\dd'))) } } catch { }
+    try { $date = [datetime]::Parse($Started); for ($i = -1; $i -le 1; $i++) { $folders.Add((Join-Path $sessions $date.AddDays($i).ToString('yyyy\\MM\\dd'))) } } catch { }
     foreach ($folder in $folders) {
         if (Test-Path -LiteralPath $folder -PathType Container) {
             $file = Get-ChildItem -LiteralPath $folder -Filter "rollout-*-$SessionId.jsonl" -File -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -177,13 +178,25 @@ function Get-CodexData([string]$OutDir, [string]$Task, $Meta, [bool]$Running) {
     if (-not $lastActivity -and $rollout) { try { $lastActivity = (Get-Item -LiteralPath $rollout).LastWriteTime.ToString("yyyy-MM-dd'T'HH:mm:ss") } catch { } }
     $chat = if ($rollout) { "codex:$sessionId" } else { '' }
     $subs = New-Object System.Collections.Generic.List[object]
-    if ($sessionId -and $rollout -and $script:CodexSubChatCache.ContainsKey($sessionId)) { foreach ($sub in $script:CodexSubChatCache[$sessionId]) { $subs.Add($sub) } }
+    # A running task can still spawn subagents, so only a finished task's list is served from the cache.
+    if ($sessionId -and $rollout -and -not $Running -and $script:CodexSubChatCache.ContainsKey($sessionId)) { foreach ($sub in $script:CodexSubChatCache[$sessionId]) { $subs.Add($sub) } }
     elseif ($sessionId -and $rollout) {
-        $folder = Split-Path $rollout -Parent
-        foreach ($file in (Get-ChildItem -LiteralPath $folder -Filter "rollout-*.jsonl" -File -ErrorAction SilentlyContinue)) {
-            if ($file.FullName -eq $rollout) { continue }
-            $first = Read-JsonLinesBounded $file.FullName 65536
-            foreach ($item in $first) { if ((Get-JsonValue $item 'type') -eq 'session_meta' -and (Get-JsonValue (Get-JsonValue $item 'payload') 'parent_thread_id') -eq $sessionId) { $subs.Add([pscustomobject]@{ chat = 'codex:' + (Get-JsonValue (Get-JsonValue $item 'payload') 'session_id' ''); title = 'subagent'; model = '' }); break } }
+        # Children land in the parent's day folder or a later one (a run can cross midnight).
+        $folder = Split-Path $rollout -Parent; $folders = @($folder)
+        try { $day = [datetime]::ParseExact(($folder.Substring($folder.Length - 10) -replace '[\\/]', '-'), 'yyyy-MM-dd', $null); $root = Split-Path (Split-Path (Split-Path $folder -Parent) -Parent) -Parent; $folders += @(1, 2 | ForEach-Object { Join-Path $root $day.AddDays($_).ToString('yyyy\\MM\\dd') }) } catch { }
+        $pattern = '"parent_thread_id"\s*:\s*"' + [regex]::Escape($sessionId) + '"'
+        foreach ($dir in $folders) {
+            if (-not (Test-Path -LiteralPath $dir -PathType Container)) { continue }
+            foreach ($file in (Get-ChildItem -LiteralPath $dir -Filter "rollout-*.jsonl" -File -ErrorAction SilentlyContinue)) {
+                if ($file.FullName -eq $rollout -or $file.BaseName -notmatch '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$') { continue }
+                $childId = $Matches[1]
+                # session_meta is the first line; in a child rollout payload.session_id is the PARENT's id, the file name holds the child's own.
+                $head = Get-TextLines $file.FullName 8
+                if ($head -notmatch $pattern) { continue }
+                $title = 'subagent'; if ($head -match '"subagent"\s*:\s*(?:\{\s*"[^"]+"\s*:\s*)?"([^"]+)"') { $title = $Matches[1] }
+                $subModel = ''; if ($head -match '"model"\s*:\s*"([^"]+)"') { $subModel = $Matches[1] }
+                $subs.Add([pscustomobject]@{ chat = "codex:$childId"; title = $title; model = $subModel })
+            }
         }
         $script:CodexSubChatCache[$sessionId] = @($subs.ToArray())
     }
@@ -195,6 +208,8 @@ function Get-AgyData([string]$OutDir, [string]$Task, $Meta, [bool]$Running) {
     $model = ''; $session = ''
     if ($text -match 'label="([^"]+)"') { $model = $Matches[1] }
     if ($text -match 'cascade_id:\s*([0-9a-f-]{36})') { $session = $Matches[1] }
+    # The runner records the session in meta too; it covers a missing or rotated log.
+    if (-not $session) { $metaSession = [string](Get-JsonValue $Meta 'sessionId' ''); if ($metaSession -match '^[0-9a-f-]{36}$') { $session = $metaSession } }
     $transcript = if ($session) { Join-Path $script:AgyHome ("brain\{0}\.system_generated\logs\transcript.jsonl" -f $session) } else { '' }
     $cacheKey = if ($transcript) { [IO.Path]::GetFullPath($transcript).ToLowerInvariant() } else { '' }
     $records = if ($transcript) { Read-JsonLinesIncremental $transcript } else { @() }
@@ -239,6 +254,10 @@ function Get-ClaudeSummary([string]$Path, [string]$Slug, [string]$SessionId, [st
             if ($msgId -and -not $seenMessage.ContainsKey($msgId)) { $seenMessage[$msgId] = $true; $usage = Get-JsonValue $message 'usage'; $context = [long](Get-JsonValue $usage 'input_tokens' 0) + [long](Get-JsonValue $usage 'cache_creation_input_tokens' 0) + [long](Get-JsonValue $usage 'cache_read_input_tokens' 0) }
         }
     }
+    # One big tool result can fill the whole tail window; keep the last model and context seen instead of blanking them.
+    $modelKey = $Path.ToLowerInvariant()
+    if ($model) { $script:ClaudeModelCache[$modelKey] = @{ model = $model; effort = $effort; context = $context } }
+    elseif ($script:ClaudeModelCache.ContainsKey($modelKey)) { $known = $script:ClaudeModelCache[$modelKey]; $model = $known.model; if (-not $effort) { $effort = $known.effort }; if (-not $context) { $context = $known.context } }
     $title = (($title -split "`r?`n", 2)[0]).Trim()
     if ($title.Length -gt 100) { $title = $title.Substring(0, 100) }
     if (-not $last) { try { $last = (Get-Item -LiteralPath $Path).LastWriteTime.ToString("yyyy-MM-dd'T'HH:mm:ss") } catch { } }

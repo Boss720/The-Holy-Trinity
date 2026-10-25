@@ -414,6 +414,8 @@ Run-Case 'review and ask use Codex when it is available' {
         $review = Invoke-Trinity $f $reviewArgs
         Assert-True ($review.ExitCode -eq 0 -and $review.Output -match 'reviewer: codex' -and $review.Output -match 'No findings') "codex $($reviewArgs -join ' ') failed: $($review.Output)"
     }
+    $bare = Invoke-Trinity $f @('review', '--commit')
+    Assert-True ($bare.ExitCode -ne 0 -and $bare.Output -match 'needs a value' -and $bare.Output -notmatch 'reviewer:') "bare --commit did not fail with usage: $($bare.Output)"
     $ask = Invoke-Trinity $f @('ask', 'hello')
     Assert-True ($ask.ExitCode -eq 0 -and $ask.Output -match 'asking: codex') "codex ask failed: $($ask.Output)"
 }
@@ -536,6 +538,10 @@ Run-Case 'dashboard collects Codex Antigravity and Claude details and chats' {
         $agyLogs = Join-Path $f.Repo '.codex-out'
         New-Item -ItemType Directory -Path $codexSessions,$agyLogs -Force | Out-Null
         & $copyFixture 'codex-rollout.jsonl' (Join-Path $codexSessions "rollout-fixture-$codexId.jsonl")
+        # Real Codex child rollouts carry the parent's id in session_id; the child's own id is only in the file name and payload.id.
+        $codexChildId = '22222222-3333-4444-8555-666666666666'; $codexNextDay = Join-Path $env:CODEX_HOME 'sessions\2026\10\26'
+        New-Item -ItemType Directory -Path $codexNextDay -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $codexNextDay "rollout-fixture-$codexChildId.jsonl"), "{`"timestamp`":`"2026-10-26T00:00:01Z`",`"type`":`"session_meta`",`"payload`":{`"session_id`":`"$codexId`",`"id`":`"$codexChildId`",`"parent_thread_id`":`"$codexId`",`"source`":{`"subagent`":{`"other`":`"guardian`"}}}}`r`n", [Text.UTF8Encoding]::new($false))
         New-Item -ItemType Directory -Path (Join-Path $env:TRINITY_AGY_HOME "brain\$agyId\.system_generated\logs") -Force | Out-Null
         & $copyFixture 'agy-transcript.jsonl' (Join-Path $env:TRINITY_AGY_HOME "brain\$agyId\.system_generated\logs\transcript.jsonl")
         [IO.File]::WriteAllText((Join-Path $agyLogs 'log-codex-fixture.txt'), "model: gpt-log-fixture`r`nreasoning effort: low`r`nsession id: $codexId`r`n", [Text.UTF8Encoding]::new($false))
@@ -562,6 +568,8 @@ Run-Case 'dashboard collects Codex Antigravity and Claude details and chats' {
         Assert-True ($codex.model -eq 'gpt-meta-fixture' -and $codex.effort -eq 'high' -and $codex.sessionId -eq $codexId) 'Codex log/meta fields were not collected'
         Assert-True ($codex.tokens.total -eq 134 -and $codex.contextWindow -eq 200000 -and $codex.toolCalls -eq 1 -and $codex.rateLimits.Count -eq 1) ("Codex rollout metrics were not collected: tokens=$($codex.tokens.total), context=$($codex.contextWindow), tools=$($codex.toolCalls), limits=$($codex.rateLimits.Count)")
         Assert-True ($codex.chat -eq "codex:$codexId") 'Codex chat key is missing'
+        $codexSubs = @($codex.subChats)
+        Assert-True ($codexSubs.Count -eq 1 -and $codexSubs[0].chat -eq "codex:$codexChildId" -and $codexSubs[0].title -eq 'guardian') ("Codex subagent chat was not collected: " + (($codexSubs | ForEach-Object { "$($_.chat)/$($_.title)" }) -join ', '))
         $agy = $tasks | Where-Object task -eq 'agy-fixture' | Select-Object -First 1
         Assert-True ($agy.model -eq 'Gemini Fixture (High)' -and $agy.tokens.input -eq 50 -and $agy.tokens.cached -eq 5 -and $agy.tokens.output -eq 15 -and $agy.toolCalls -eq 1) 'Antigravity transcript metrics were not collected'
         $repoState = $state.repos | Where-Object path -eq ([IO.Path]::GetFullPath($f.Repo)) | Select-Object -First 1

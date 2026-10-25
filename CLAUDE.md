@@ -16,6 +16,8 @@ Codex and Antigravity are your subagents (`.claude/agents/`). Route by strength,
 | Visual check of the running app (click-through, screenshots) | you | Launch it and use computer use; headless agents cannot see a GUI |
 | Cross-cutting design, shared files, merge, final verification, anything touching `main` | you | You hold the whole picture |
 
+No ChatGPT plan: if the session-start `agents:` line says `codex unavailable`, send Codex-type work to `antigravity-worker` (dispatch reroutes anyway) and keep using `codex-reviewer` / `scripts/codex-review.cmd`: they fall back to Claude Code headless or Antigravity and print `reviewer: <agent>`.
+
 Rules:
 - Split by files first. Two agents never get overlapping scopes; shared files (the "Shared files" line in AGENTS.md: registries, package.json) stay with you, wired in after merge.
 - Give subagents complete prompts: they start cold. Include paths, conventions, and the test command.

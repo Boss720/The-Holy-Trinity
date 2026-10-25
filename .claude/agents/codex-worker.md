@@ -19,6 +19,7 @@ Repo root: the current project's git root (`git rev-parse --show-toplevel`). Pat
    ```bash
    cd "$(git rev-parse --show-toplevel)" && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/trinity.ps1 dispatch codex <task> -Scope "<scope>" -PromptFile ".codex-out/prompt-<task>.md"
    ```
+   If Codex is unavailable (no ChatGPT plan, logged out, or `TRINITY_DISABLE=codex`), dispatch prints a notice and reroutes the task to Antigravity: the branch is then `agent/antigravity/<task>` and the log `.codex-out\agy-<task>.log`. Report the branch it printed.
 4. Wait, in chunks under the 10-minute tool limit, until the exit code is not 2:
    ```bash
    cd "$(git rev-parse --show-toplevel)" && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/trinity.ps1 wait <task> -Timeout 540
@@ -30,7 +31,7 @@ Repo root: the current project's git root (`git rev-parse --show-toplevel`). Pat
 
 ```
 task: <task>
-branch: agent/codex/<task>
+branch: agent/codex/<task> (or agent/antigravity/<task> if rerouted)
 status: <final status line>
 summary: <Codex result, max 15 lines>
 commits: <git log lines>

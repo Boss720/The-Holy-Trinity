@@ -677,6 +677,7 @@
       align-items: flex-start;
       justify-content: space-between;
       gap: 8px;
+      flex-wrap: wrap;
     }
 
     .session-title-group {
@@ -685,6 +686,7 @@
       gap: 6px;
       flex-wrap: wrap;
       min-width: 0;
+      flex: 1 1 140px;
     }
 
     .session-title {
@@ -1878,6 +1880,7 @@
 
       // Chat drawer state
       let activeChatKey = null;
+      let chatRequestSeq = 0;
       let activeChatMeta = null;
       let chatPollTimer = null;
       let hideChatTools = false;
@@ -2529,7 +2532,8 @@
             const subRow = el('div', 'subagent-item');
             const info = el('div', 'subagent-info');
 
-            const isSubRunning = sub.active || !sub.finished;
+            // The collector sets active (unfinished and written in the last 2 minutes); an abandoned subagent never finishes.
+            const isSubRunning = (typeof sub.active === 'boolean') ? sub.active : !sub.finished;
             const badgeClass = isSubRunning ? 'state-badge state-running' : 'state-badge state-done';
             info.appendChild(el('span', badgeClass, isSubRunning ? 'RUNNING' : 'FINISHED'));
 
@@ -2882,6 +2886,7 @@
       // Fetch or read chat data
       async function fetchChatData(chatKey, isBackgroundPoll) {
         if (!chatKey) return;
+        const requestSeq = ++chatRequestSeq;
 
         try {
           let chatData = null;
@@ -2902,10 +2907,13 @@
             chatData = await res.json();
           }
 
+          // A slower response for an older request (or a closed/switched drawer) must not overwrite the current chat.
+          if (requestSeq !== chatRequestSeq || chatKey !== activeChatKey) return;
           chatErrorInline.classList.remove('active');
           chatErrorInline.textContent = '';
           renderChatMessages(chatData);
         } catch (err) {
+          if (requestSeq !== chatRequestSeq || chatKey !== activeChatKey) return;
           chatErrorInline.classList.add('active');
           chatErrorInline.textContent = 'Error loading chat: ' + err.message;
         }
@@ -2922,6 +2930,7 @@
 
         // Check scroll position before re-rendering
         const isNearBottom = (chatMessagesContainer.scrollHeight - chatMessagesContainer.scrollTop - chatMessagesContainer.clientHeight) < 60;
+        const previousScrollTop = chatMessagesContainer.scrollTop;
 
         // Clear container safely
         while (chatMessagesContainer.firstChild) {
@@ -3004,6 +3013,8 @@
           chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
           chatJumpLatestBtn.classList.remove('visible');
         } else {
+          // Rebuilding the list resets scrollTop; keep the reader where they were.
+          chatMessagesContainer.scrollTop = previousScrollTop;
           chatJumpLatestBtn.classList.add('visible');
         }
       }

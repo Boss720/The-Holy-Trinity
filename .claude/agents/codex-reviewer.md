@@ -26,9 +26,10 @@ Use a Bash timeout of 600000; reviews take a few minutes.
 
 ## Return (final answer only)
 
-From the output, extract the part after the last line that is exactly `codex`. Return:
+The output starts with `reviewer: <agent>`. Without Codex (no ChatGPT plan, or `TRINITY_DISABLE=codex`) the wrappers fall back to Claude Code or Antigravity; that is expected, not an error. For `reviewer: codex`, extract the part after the last line that is exactly `codex`; for any other reviewer, take everything after the `reviewer:` line. Return:
 
 ```
+reviewer: codex | claude | antigravity
 verdict: clean | findings
 - [P1] path:line - one-line problem
 - [P2] ...

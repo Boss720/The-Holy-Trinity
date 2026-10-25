@@ -356,6 +356,11 @@ switch ($Command) {
         # PowerShell binds "--base x" to -Base, so a bound Base means a branch review.
         $reviewArgs = @($Rest | Where-Object { $_ })
         $mode = 'uncommitted'; $ref = ''
+        # A target flag without its value must not silently fall back to reviewing uncommitted changes.
+        foreach ($flag in @('--commit', '--base')) {
+            $i = [array]::IndexOf($reviewArgs, $flag)
+            if ($i -ge 0 -and ($i + 1 -ge $reviewArgs.Count -or $reviewArgs[$i + 1] -like '-*')) { Fail "usage: trinity review [--base <branch> | --commit <sha>] ($flag needs a value)" }
+        }
         $i = [array]::IndexOf($reviewArgs, '--commit')
         if ($i -ge 0 -and $i + 1 -lt $reviewArgs.Count) { $mode = 'commit'; $ref = $reviewArgs[$i + 1] }
         elseif ($PSBoundParameters.ContainsKey('Base')) { $mode = 'base'; $ref = $Base }

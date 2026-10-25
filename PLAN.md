@@ -33,3 +33,11 @@ Per-module checklist. Owner = claude | codex | antigravity.
 - [x] Page `scripts/dashboard.html` + sample JSON - antigravity (task dash-ui)
 - [x] Runner strips agy background notices from results (they became a commit subject) - claude
 - [x] Live check: lanes, expand, filter, offline banner, 375px, repo card; `trinity dashboard` start/reuse/stop - claude
+
+## Module 4: Dashboard detail + no-Codex mode
+- [x] Spec v2 (`docs/dashboard.md`): models, tokens, chats, availability - claude
+- [x] Collector: per-task detail, Claude sessions/subagents, `/api/chat` - codex (task dash-collector; host-guard test, subagent ids, date format fixed by claude)
+- [x] Page: detail rows, availability, sessions, chat drawer - antigravity (task dash-ui2; scroll, stale responses, active flag fixed by claude)
+- [x] No-Codex: availability, dispatch reroute, reviewer fallback, run metadata, tests - claude
+- [x] Live check: real models/tokens/tool calls, Claude session + subagent chat drawer - claude
+- [ ] Claude Code headless reviewer exercised logged in (CLI here is not logged in standalone; covered by fake) - user

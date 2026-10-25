@@ -14,7 +14,7 @@ This repo is the toolkit itself. Install it into any project with `trinity init 
 
 - Windows 10/11, git
 - [Claude Code desktop](https://claude.com/claude-code)
-- Codex desktop app (the scripts use the `codex.exe` it ships with; set `CODEX_EXE` to override)
+- Codex desktop app (the scripts use the `codex.exe` it ships with; set `CODEX_EXE` to override). Optional: without a ChatGPT plan, Codex tasks go to Antigravity and reviews to Claude Code (if `claude auth status` is logged in) or Antigravity; `trinity status` shows which agents are available. `TRINITY_DISABLE=codex` forces this mode.
 - Antigravity CLI (`agy`, used headless for dispatched tasks; set `AGY_EXE` to override) and optionally Antigravity IDE (`antigravity-ide`, for `trinity ui`)
 
 ## Repo layout

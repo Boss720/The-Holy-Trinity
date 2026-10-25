@@ -21,7 +21,15 @@
 - `init` and `setup` register the repo for the dashboard.
 - `TRINITY_HOME` overrides `%USERPROFILE%\.trinity` (registry, dashboard pid); the self-test isolates itself with it.
 
+- Dashboard v2 (`docs/dashboard.md`): per task model, effort, tokens, context window, tool calls, rate limits, duration, last activity; agent availability; Claude Code sessions with their subagents; chat drawer for Codex, Antigravity, Claude sessions and Claude/Codex subagents (`GET /api/chat`, redacted, host-guarded).
+- No-Codex mode: availability check (`codex login status`, `claude auth status`, agy on PATH); `dispatch codex` reroutes to Antigravity (and the reverse); `review`/`ask`/`merge` fall back to Claude Code headless, then Antigravity plan mode, then tests alone. `TRINITY_DISABLE`, `TRINITY_REVIEWER`.
+- Runner writes `.codex-out\meta-<task>.json` (model, session, tokens, duration) for Codex and Antigravity runs.
+
 ### Fixed (dashboard)
+- Codex subagent chats: matched by `parent_thread_id`, child id from the file name (its `session_id` is the parent's), next-day folders scanned, list refreshed while the task runs. Rollout day-folder lookup used `yyyy\MM\dd`, which formats as `2026M10d25`.
+- Claude session card no longer blanks model and context when one big tool result fills the read window.
+- Chat drawer keeps the reader's scroll position and ignores stale responses; subagent running state uses the collector's `active` flag.
+- `trinity review --commit` / `--base` without a value fails with usage instead of reviewing uncommitted changes.
 - Antigravity runs: the runner strips `agy -p` background `<SYSTEM_MESSAGE>` notices from the result before using it as the commit message, and reads results as UTF-8.
 
 ### Changed
