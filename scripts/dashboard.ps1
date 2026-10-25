@@ -13,6 +13,8 @@ $script:TranscriptCache = @{}
 $script:TranscriptSummaryCache = @{}
 $script:CodexRolloutCache = @{}
 $script:CodexSubChatCache = @{}
+$script:AgyTaskCache = @{}
+$script:AgyModelCache = @{}
 $script:ClaudeModelCache = @{}
 $script:AvailabilityCache = $null
 $script:AvailabilityCachedAt = [datetime]::MinValue
@@ -31,7 +33,7 @@ function Get-JsonValue($Object, [string]$Name, $Default = $null) {
 
 function Convert-ToIso($Value) {
     if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) { return '' }
-    try { return ([datetime]::Parse([string]$Value).ToLocalTime()).ToString("yyyy-MM-dd'T'HH:mm:ss") } catch { return '' }
+    try { $stamp = [datetime]::Parse([string]$Value); if ($stamp.Kind -ne [DateTimeKind]::Unspecified) { $stamp = $stamp.ToLocalTime() }; return $stamp.ToString("yyyy-MM-dd'T'HH:mm:ss") } catch { return '' }
 }
 
 function Convert-UnixToIso($Value) {
@@ -58,7 +60,7 @@ function Read-JsonLinesIncremental([string]$Path) {
             if (-not $text.EndsWith("`n")) { $cache.pending = $lines[$lines.Count - 1]; if ($lines.Count -gt 1) { $lines = $lines[0..($lines.Count - 2)] } else { $lines = @() } }
             $records = New-Object System.Collections.Generic.List[object]
             foreach ($line in $lines) {
-                $line = $line.TrimEnd("`r")
+                $line = $line.TrimEnd("`r").TrimStart([char]0xFEFF)
                 if (-not $line -or $line.Length -gt 1048576) { continue }
                 try { $records.Add($script:JsonSerializer.DeserializeObject($line)) } catch { }
             }
@@ -142,7 +144,62 @@ function Get-CodexRollout([string]$SessionId, [string]$Started) {
     $path = if ($file) { $file.FullName } else { '' }; $script:CodexRolloutCache[$SessionId] = $path; return $path
 }
 
-function Get-CodexData([string]$OutDir, [string]$Task, $Meta, [bool]$Running) {
+function Get-RelativeTouchedPath([string]$Path, [string]$Worktree) {
+    if (-not $Path) { return '' }
+    $pathText = $Path.Replace('\', '/')
+    if ($Worktree -and $Worktree -ne '-') {
+        try {
+            $root = [IO.Path]::GetFullPath($Worktree).TrimEnd('\', '/').Replace('\', '/')
+            if ($pathText.StartsWith($root + '/', [StringComparison]::OrdinalIgnoreCase)) { return $pathText.Substring($root.Length + 1) }
+        } catch { }
+    }
+    return $pathText
+}
+
+function Get-AgyTaskSession([string]$OutDir, [string]$Task) {
+    $taskPath = [IO.Path]::GetFullPath((Join-Path $OutDir ("task-{0}.md" -f $Task))).Replace('\', '/').ToLowerInvariant()
+    $cached = $script:AgyTaskCache[$taskPath]
+    if ($cached -and $cached.until -gt (Get-Date)) { return $cached }
+    $found = @{ session=''; model=''; until=(Get-Date).AddSeconds(60) }
+    $brain = Join-Path $script:AgyHome 'brain'
+    if (Test-Path -LiteralPath $brain -PathType Container) {
+        foreach ($folder in (Get-ChildItem -LiteralPath $brain -Directory -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 200)) {
+            if ($folder.Name -notmatch '^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$') { continue }
+            $file = Join-Path $folder.FullName '.system_generated\logs\transcript.jsonl'
+            $head = Get-HeadText $file 16384
+            foreach ($line in ($head -split "`n")) {
+                if ($line -notmatch '"type"\s*:\s*"USER_INPUT"') { continue }
+                try { $record = $script:JsonSerializer.DeserializeObject($line.TrimEnd("`r").TrimStart([char]0xFEFF)); $content = [string](Get-JsonValue $record 'content' '') } catch { continue }
+                try { $content = [Uri]::UnescapeDataString($content) } catch { break }
+                if ($content -notmatch '(?i)Read the task file\s+[`"'']?(?:file:///)?(.+?task-[^\s`"'']+\.md)') { break }
+                $mentioned = $Matches[1].Replace('\', '/').ToLowerInvariant()
+                if ($mentioned -eq $taskPath) {
+                    $found.session = $folder.Name
+                    if ($content -match '(?i)setting `Model Selection` from .+? to (.+?)\.(?:\s|$)') { $found.model = $Matches[1].Trim() }
+                }
+                break
+            }
+            if ($found.session) { break }
+        }
+    }
+    $script:AgyTaskCache[$taskPath] = $found
+    return $found
+}
+
+function Get-AgyModelBySession([string]$Session) {
+    if ($script:AgyModelCache.ContainsKey($Session)) { return $script:AgyModelCache[$Session] }
+    $model = ''; $logDir = Join-Path $script:AgyHome 'log'
+    if (Test-Path -LiteralPath $logDir -PathType Container) {
+        foreach ($file in (Get-ChildItem -LiteralPath $logDir -Filter 'cli-*.log' -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 50)) {
+            $head = Get-HeadText $file.FullName 262144
+            if ($head -match [regex]::Escape($Session) -and $head -match 'label="([^"]+)"') { $model = $Matches[1]; break }
+        }
+    }
+    $script:AgyModelCache[$Session] = $model
+    return $model
+}
+
+function Get-CodexData([string]$OutDir, [string]$Task, $Meta, [bool]$Running, [string]$Worktree) {
     $logPath = Join-Path $OutDir ("log-{0}.txt" -f $Task)
     $head = Get-HeadText $logPath 8192
     $model = ''; $effort = ''; $sessionId = ''
@@ -154,17 +211,30 @@ function Get-CodexData([string]$OutDir, [string]$Task, $Meta, [bool]$Running) {
     $rollout = Get-CodexRollout $sessionId $started
     $cacheKey = if ($rollout) { [IO.Path]::GetFullPath($rollout).ToLowerInvariant() } else { '' }
     $records = if ($rollout) { Read-JsonLinesIncremental $rollout } else { @() }
-    $summary = if ($cacheKey -and $script:TranscriptSummaryCache.ContainsKey($cacheKey)) { $script:TranscriptSummaryCache[$cacheKey] } else { @{ tokens=$null; context=$null; limits=@(); toolCalls=0; lastActivity='' } }
+    $summary = if ($cacheKey -and $script:TranscriptSummaryCache.ContainsKey($cacheKey)) { $script:TranscriptSummaryCache[$cacheKey] } else { @{ tokens=$null; context=$null; limits=@(); toolCalls=0; lastActivity=''; contextUsed=0L; steps=0; thinkingSteps=0; toolCounts=@{}; lastTool=''; filesTouched=@() } }
     $tokens = $summary.tokens; $context = $summary.context; $limits = @($summary.limits); $toolCalls = [int]$summary.toolCalls; $lastActivity = [string]$summary.lastActivity
+    $contextUsed = [long]$summary.contextUsed; $steps = [int]$summary.steps; $thinkingSteps = [int]$summary.thinkingSteps; $toolCounts = $summary.toolCounts; $lastTool = [string]$summary.lastTool; $filesTouched = New-Object System.Collections.Generic.List[string]; foreach ($path in $summary.filesTouched) { $filesTouched.Add($path) }
     foreach ($record in $records) {
         $stamp = Convert-ToIso (Get-JsonValue $record 'timestamp' '')
         if ($stamp) { $lastActivity = $stamp }
         $type = [string](Get-JsonValue $record 'type' '')
         $payload = Get-JsonValue $record 'payload'
         $payloadType = [string](Get-JsonValue $payload 'type' '')
-        if ($type -eq 'response_item' -and $payloadType -in @('custom_tool_call', 'function_call')) { $toolCalls++ }
+        if ($type -eq 'response_item' -and $payloadType -eq 'reasoning') { $thinkingSteps++ }
+        if ($type -eq 'response_item' -and $payloadType -in @('custom_tool_call', 'function_call')) {
+            $toolCalls++; $name = [string](Get-JsonValue $payload 'name' ''); $lastTool = $name
+            if ($name) { if (-not $toolCounts.ContainsKey($name)) { $toolCounts[$name] = 0 }; $toolCounts[$name]++ }
+            if ($name -eq 'apply_patch') {
+                $inputText = [string](Get-JsonValue $payload 'input' (Get-JsonValue $payload 'arguments' ''))
+                foreach ($match in [regex]::Matches($inputText, '(?m)^\*\*\* (?:Add|Update|Delete) File: (.+?)\s*$')) {
+                    $path = Get-RelativeTouchedPath $match.Groups[1].Value.Trim() $Worktree
+                    if ($path -and $filesTouched.Count -lt 20 -and -not $filesTouched.Contains($path)) { $filesTouched.Add($path) }
+                }
+            }
+        }
         if ($type -eq 'event_msg' -and $payloadType -eq 'token_count') {
             $info = Get-JsonValue $payload 'info'; $usage = Get-JsonValue $info 'total_token_usage'
+            if ($info) { $steps++; $contextUsed = [long](Get-JsonValue (Get-JsonValue $info 'last_token_usage') 'input_tokens' 0) }
             if ($usage) { $tokens = [ordered]@{ input = [long](Get-JsonValue $usage 'input_tokens' 0); cached = [long](Get-JsonValue $usage 'cached_input_tokens' 0); output = [long](Get-JsonValue $usage 'output_tokens' 0); reasoning = [long](Get-JsonValue $usage 'reasoning_output_tokens' 0); total = [long](Get-JsonValue $usage 'total_tokens' 0) } }
             $context = Get-JsonValue $info 'model_context_window' $context
             $rate = Get-JsonValue $payload 'rate_limits'
@@ -172,7 +242,7 @@ function Get-CodexData([string]$OutDir, [string]$Task, $Meta, [bool]$Running) {
             foreach ($name in @('primary', 'secondary')) { $lim = Get-JsonValue $rate $name; if ($lim) { $limits += [pscustomobject]@{ name = $name; usedPercent = Get-JsonValue $lim 'used_percent' 0; windowMinutes = Get-JsonValue $lim 'window_minutes' 0; resetsAt = Convert-UnixToIso (Get-JsonValue $lim 'resets_at' 0) } } }
         }
     }
-    if ($cacheKey) { $script:TranscriptSummaryCache[$cacheKey] = @{ tokens=$tokens; context=$context; limits=@($limits); toolCalls=$toolCalls; lastActivity=$lastActivity } }
+    if ($cacheKey) { $script:TranscriptSummaryCache[$cacheKey] = @{ tokens=$tokens; context=$context; limits=@($limits); toolCalls=$toolCalls; lastActivity=$lastActivity; contextUsed=$contextUsed; steps=$steps; thinkingSteps=$thinkingSteps; toolCounts=$toolCounts; lastTool=$lastTool; filesTouched=@($filesTouched.ToArray()) } }
     if ($Meta) { $model = [string](Get-JsonValue $Meta 'model' $model); $effort = [string](Get-JsonValue $Meta 'effort' $effort); $sessionId = [string](Get-JsonValue $Meta 'sessionId' $sessionId) }
     if (-not $Running -and (Get-JsonValue $Meta 'tokens')) { $tokens = Get-JsonValue $Meta 'tokens' }
     if (-not $lastActivity -and $rollout) { try { $lastActivity = (Get-Item -LiteralPath $rollout).LastWriteTime.ToString("yyyy-MM-dd'T'HH:mm:ss") } catch { } }
@@ -200,34 +270,51 @@ function Get-CodexData([string]$OutDir, [string]$Task, $Meta, [bool]$Running) {
         }
         $script:CodexSubChatCache[$sessionId] = @($subs.ToArray())
     }
-    return @{ model = $model; effort = $effort; sessionId = $sessionId; tokens = $tokens; contextWindow = $context; toolCalls = $toolCalls; rateLimits = @($limits); lastActivity = $lastActivity; chat = $chat; subChats = @($subs.ToArray()); rollout = $rollout; records = $records }
+    $breakdown = @($toolCounts.GetEnumerator() | Sort-Object @{ Expression = { $_.Value }; Descending = $true }, @{ Expression = { $_.Key } } | Select-Object -First 8 | ForEach-Object { [pscustomobject]@{ name=$_.Key; count=$_.Value } })
+    return @{ model = $model; effort = $effort; sessionId = $sessionId; tokens = $tokens; contextWindow = $context; toolCalls = $toolCalls; rateLimits = @($limits); lastActivity = $lastActivity; chat = $chat; subChats = @($subs.ToArray()); rollout = $rollout; records = $records; contextUsed=$contextUsed; steps=$steps; thinkingSteps=$thinkingSteps; toolBreakdown=$breakdown; lastTool=$lastTool; filesTouched=@($filesTouched.ToArray()); backgroundTasks=$subs.Count }
 }
 
-function Get-AgyData([string]$OutDir, [string]$Task, $Meta, [bool]$Running) {
+function Get-AgyData([string]$OutDir, [string]$Task, $Meta, [bool]$Running, [string]$Worktree) {
     $log = Join-Path $OutDir ("agy-{0}.log" -f $Task); $text = Get-TextLines $log 100
     $model = ''; $session = ''
     if ($text -match 'label="([^"]+)"') { $model = $Matches[1] }
     if ($text -match 'cascade_id:\s*([0-9a-f-]{36})') { $session = $Matches[1] }
     # The runner records the session in meta too; it covers a missing or rotated log.
     if (-not $session) { $metaSession = [string](Get-JsonValue $Meta 'sessionId' ''); if ($metaSession -match '^[0-9a-f-]{36}$') { $session = $metaSession } }
+    if (-not $session) { $found = Get-AgyTaskSession $OutDir $Task; $session = $found.session; if (-not $model) { $model = $found.model } }
+    if ($session -and -not $model) { $model = Get-AgyModelBySession $session }
     $transcript = if ($session) { Join-Path $script:AgyHome ("brain\{0}\.system_generated\logs\transcript.jsonl" -f $session) } else { '' }
     $cacheKey = if ($transcript) { [IO.Path]::GetFullPath($transcript).ToLowerInvariant() } else { '' }
     $records = if ($transcript) { Read-JsonLinesIncremental $transcript } else { @() }
-    $summary = if ($cacheKey -and $script:TranscriptSummaryCache.ContainsKey($cacheKey)) { $script:TranscriptSummaryCache[$cacheKey] } else { @{ tokens=[ordered]@{ input=0L; cached=0L; output=0L; reasoning=0L; total=0L }; toolCalls=0; last='' } }
+    $summary = if ($cacheKey -and $script:TranscriptSummaryCache.ContainsKey($cacheKey)) { $script:TranscriptSummaryCache[$cacheKey] } else { @{ tokens=[ordered]@{ input=0L; cached=0L; output=0L; reasoning=0L; total=0L }; toolCalls=0; last=''; first=''; contextUsed=0L; steps=0; thinkingSteps=0; toolCounts=@{}; lastTool=''; filesTouched=@(); backgroundTasks=0 } }
     $tokens = $summary.tokens; $toolCalls = [int]$summary.toolCalls; $last = [string]$summary.last
+    $first = [string]$summary.first; $contextUsed = [long]$summary.contextUsed; $steps = [int]$summary.steps; $thinkingSteps = [int]$summary.thinkingSteps; $toolCounts = $summary.toolCounts; $lastTool = [string]$summary.lastTool; $backgroundTasks = [int]$summary.backgroundTasks; $filesTouched = New-Object System.Collections.Generic.List[string]; foreach ($path in $summary.filesTouched) { $filesTouched.Add($path) }
     foreach ($r in $records) {
-        $last = Convert-ToIso (Get-JsonValue $r 'created_at' $last)
+        $stamp = Convert-ToIso (Get-JsonValue $r 'created_at' ''); if ($stamp) { if (-not $first) { $first = $stamp }; $last = $stamp }
         if ((Get-JsonValue $r 'type') -eq 'PLANNER_RESPONSE') {
+            $steps++; $contextUsed = [long](Get-JsonValue $r 'input_tokens' 0) + [long](Get-JsonValue $r 'cache_read_tokens' 0)
+            if ([string](Get-JsonValue $r 'thinking' '')) { $thinkingSteps++ }
             $tokens.input += [long](Get-JsonValue $r 'input_tokens' 0); $tokens.cached += [long](Get-JsonValue $r 'cache_read_tokens' 0); $tokens.output += [long](Get-JsonValue $r 'output_tokens' 0)
-            $toolCalls += @((Get-JsonValue $r 'tool_calls' @())).Count
+            foreach ($call in @(Get-JsonValue $r 'tool_calls' @())) {
+                $toolCalls++; $name = [string](Get-JsonValue $call 'name' ''); $lastTool = $name
+                if ($name) { if (-not $toolCounts.ContainsKey($name)) { $toolCounts[$name] = 0 }; $toolCounts[$name]++ }
+                if ($name -eq 'manage_task') { $backgroundTasks++ }
+                if ($name -in @('write_file', 'write_to_file', 'edit_file', 'replace_file_content', 'multi_replace_file_content')) {
+                    $args = Get-JsonValue $call 'args'; if ($args -is [string]) { try { $args = $script:JsonSerializer.DeserializeObject($args) } catch { $args = $null } }
+                    $path = [string](Get-JsonValue $args 'Path' (Get-JsonValue $args 'TargetFile' ''))
+                    $path = Get-RelativeTouchedPath $path $Worktree
+                    if ($path -and $filesTouched.Count -lt 20 -and -not $filesTouched.Contains($path)) { $filesTouched.Add($path) }
+                }
+            }
         }
     }
     $tokens.total = $tokens.input + $tokens.output
-    if ($cacheKey) { $script:TranscriptSummaryCache[$cacheKey] = @{ tokens=$tokens; toolCalls=$toolCalls; last=$last } }
+    if ($cacheKey) { $script:TranscriptSummaryCache[$cacheKey] = @{ tokens=$tokens; toolCalls=$toolCalls; last=$last; first=$first; contextUsed=$contextUsed; steps=$steps; thinkingSteps=$thinkingSteps; toolCounts=$toolCounts; lastTool=$lastTool; filesTouched=@($filesTouched.ToArray()); backgroundTasks=$backgroundTasks } }
     if (-not $last -and $transcript -and (Test-Path -LiteralPath $transcript)) { try { $last = (Get-Item -LiteralPath $transcript).LastWriteTime.ToString("yyyy-MM-dd'T'HH:mm:ss") } catch { } }
     if ($Meta) { $model = [string](Get-JsonValue $Meta 'model' $model); if (-not $Running -and (Get-JsonValue $Meta 'tokens')) { $tokens = Get-JsonValue $Meta 'tokens' } }
     $agyHasTokens = ($transcript -and (Test-Path -LiteralPath $transcript)) -or (Get-JsonValue $Meta 'tokens')
-    return @{ model = $model; effort = [string](Get-JsonValue $Meta 'effort' ''); sessionId = [string](Get-JsonValue $Meta 'sessionId' $session); tokens = $(if ($agyHasTokens) { $tokens } else { $null }); contextWindow = $null; toolCalls = $toolCalls; rateLimits = @(); lastActivity = $last; chat = $(if ($transcript -and (Test-Path -LiteralPath $transcript)) { 'agy:' + $session } else { '' }); subChats = @(); rollout = $transcript; records = $records }
+    $breakdown = @($toolCounts.GetEnumerator() | Sort-Object @{ Expression = { $_.Value }; Descending = $true }, @{ Expression = { $_.Key } } | Select-Object -First 8 | ForEach-Object { [pscustomobject]@{ name=$_.Key; count=$_.Value } })
+    return @{ model = $model; effort = [string](Get-JsonValue $Meta 'effort' ''); sessionId = [string](Get-JsonValue $Meta 'sessionId' $session); tokens = $(if ($agyHasTokens) { $tokens } else { $null }); contextWindow = $null; toolCalls = $toolCalls; rateLimits = @(); lastActivity = $last; chat = $(if ($transcript -and (Test-Path -LiteralPath $transcript)) { 'agy:' + $session } else { '' }); subChats = @(); rollout = $transcript; records = $records; started=$first; finished=$(if ($Running) { '' } else { $last }); contextUsed=$contextUsed; steps=$steps; thinkingSteps=$thinkingSteps; toolBreakdown=$breakdown; lastTool=$lastTool; filesTouched=@($filesTouched.ToArray()); backgroundTasks=$backgroundTasks }
 }
 
 function Get-ClaudeProjectSlug([string]$Path) { return [regex]::Replace([IO.Path]::GetFullPath($Path), '[^A-Za-z0-9]', '-') }
@@ -482,9 +569,9 @@ function Get-RepoTasks([string]$Main, [string]$Common) {
         $meta = $null
         $metaPath = Join-Path $outDir ("meta-{0}.json" -f $item.task)
         if (Test-Path -LiteralPath $metaPath -PathType Leaf) { try { $meta = $script:JsonSerializer.DeserializeObject([IO.File]::ReadAllText($metaPath)) } catch { } }
-        $detail = @{ model=''; effort=''; sessionId=''; started=''; finished=''; durationSec=$null; lastActivity=''; tokens=$null; contextWindow=$null; toolCalls=0; rateLimits=@(); chat=''; subChats=@() }
-        if ($item.agent -eq 'codex') { $detail = Get-CodexData $outDir $item.task $meta ($state -eq 'running') }
-        elseif ($item.agent -eq 'antigravity') { $detail = Get-AgyData $outDir $item.task $meta ($state -eq 'running') }
+        $detail = @{ model=''; effort=''; sessionId=''; started=''; finished=''; durationSec=$null; lastActivity=''; tokens=$null; contextWindow=$null; toolCalls=0; rateLimits=@(); chat=''; subChats=@(); contextUsed=0L; steps=0; thinkingSteps=0; toolBreakdown=@(); lastTool=''; filesTouched=@(); backgroundTasks=0 }
+        if ($item.agent -eq 'codex') { $detail = Get-CodexData $outDir $item.task $meta ($state -eq 'running') $item.worktree }
+        elseif ($item.agent -eq 'antigravity') { $detail = Get-AgyData $outDir $item.task $meta ($state -eq 'running') $item.worktree }
         else {
             $detail.sessionId = [string]$item.session
             if ($item.session -match '^[0-9a-fA-F-]{36}$') {
@@ -535,6 +622,13 @@ function Get-RepoTasks([string]$Main, [string]$Common) {
             tokens = $detail.tokens
             contextWindow = $detail.contextWindow
             toolCalls = [int]$detail.toolCalls
+            contextUsed = [long]$detail.contextUsed
+            steps = [int]$detail.steps
+            thinkingSteps = [int]$detail.thinkingSteps
+            toolBreakdown = @($detail.toolBreakdown)
+            lastTool = [string]$detail.lastTool
+            filesTouched = @($detail.filesTouched)
+            backgroundTasks = [int]$detail.backgroundTasks
             rateLimits = @($detail.rateLimits)
             chat = [string]$detail.chat
             subChats = @($detail.subChats)
