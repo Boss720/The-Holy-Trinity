@@ -5,6 +5,8 @@ $repoSource = Split-Path $PSScriptRoot -Parent
 $passed = 0
 $failed = 0
 $fixtures = New-Object System.Collections.Generic.List[string]
+# Keep the user's real repo registry and dashboard pid out of the tests.
+$env:TRINITY_HOME = Join-Path $env:TEMP ("trinity-selftest-home-" + [Guid]::NewGuid().ToString('N'))
 
 function Assert-True([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
@@ -265,6 +267,9 @@ Run-Case 'Antigravity task commits, returns result, and merges' {
     Assert-True ((Invoke-Git $f.Repo @('show', 'agent/antigravity/task-agy-ok:agy-output.txt')) -eq 'fake agy output') 'task commit lacks agy-output.txt'
     $result = Get-Content -Raw (Join-Path $f.Repo '.codex-out\result-task-agy-ok.md')
     Assert-True ($result -match 'Fake Antigravity completed successfully\.') "unexpected result: $result"
+    Assert-True ($result -notmatch 'SYSTEM_MESSAGE') "agy notices were not stripped: $result"
+    $subject = Invoke-Git $f.Repo @('log', '-1', '--format=%s', 'agent/antigravity/task-agy-ok')
+    Assert-True ($subject -eq 'task-agy-ok: Fake Antigravity completed successfully.') "unexpected commit subject: $subject"
     $merge = Invoke-Trinity $f @('merge', 'task-agy-ok', '-Yes')
     Assert-True ($merge.ExitCode -eq 0) "merge failed ($($merge.ExitCode)): $($merge.Output)"
     Assert-True ((Invoke-Git $f.Repo @('show', 'main:agy-output.txt')) -eq 'fake agy output') 'main lacks agy-output.txt after merge'
@@ -369,10 +374,10 @@ Run-Case 'dashboard accepts tracked Claude task without branch' {
 
 Run-Case 'dashboard skips stale registry repo paths' {
     param($f)
-    $oldUserProfile = $env:USERPROFILE
+    $oldHome = $env:TRINITY_HOME
     try {
-        $env:USERPROFILE = Join-Path $f.Root 'isolated profile'
-        $trinityDir = Join-Path $env:USERPROFILE '.trinity'
+        $env:TRINITY_HOME = Join-Path $f.Root 'isolated profile\.trinity'
+        $trinityDir = $env:TRINITY_HOME
         New-Item -ItemType Directory -Path $trinityDir -Force | Out-Null
         [IO.File]::WriteAllText((Join-Path $trinityDir 'repos.txt'), (Join-Path $f.Root 'missing repo') + "`r`n", [System.Text.UTF8Encoding]::new($false))
         $dashboard = Join-Path $f.Repo 'scripts\dashboard.ps1'
@@ -383,7 +388,7 @@ Run-Case 'dashboard skips stale registry repo paths' {
         Assert-True (@($state.repos).Count -eq 1) "unexpected repos: $(@($state.repos).path -join ', ')"
         Assert-True ($state.repos[0].path -eq [IO.Path]::GetFullPath($f.Repo)) 'current fixture repo was not included'
     }
-    finally { $env:USERPROFILE = $oldUserProfile }
+    finally { $env:TRINITY_HOME = $oldHome }
 }
 
 Run-Case 'dashboard HTTP routes return state JSON and 404' {

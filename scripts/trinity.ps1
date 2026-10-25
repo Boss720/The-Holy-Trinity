@@ -327,9 +327,15 @@ switch ($Command) {
         $rc = $LASTEXITCODE
         if ((Get-BoardEntry $paths $task).status -match '^cancelled') { exit 0 }
 
+        # agy -p echoes its internal background-task notices to stdout; keep only the agent's own summary.
+        if ($entry.agent -eq 'antigravity' -and (Test-Path $result)) {
+            $text = [IO.File]::ReadAllText($result) -replace '(?s)The following is a <SYSTEM_MESSAGE>.*?</SYSTEM_MESSAGE>\s*', ''
+            [IO.File]::WriteAllText($result, $text, $script:Utf8)
+        }
+
         # Codex's sandbox keeps .git read-only, so the runner commits for every headless agent; the final summary is the message.
         if ($rc -eq 0 -and (Get-Git @('-C', $entry.worktree, 'status', '--porcelain'))) {
-            $summary = @(Get-Content $result -ErrorAction SilentlyContinue | Where-Object { $_.Trim() })
+            $summary = @(if (Test-Path $result) { [IO.File]::ReadAllLines($result) | Where-Object { $_.Trim() } })
             $subject = "$($task): " + $(if ($summary) { ($summary[0] -replace '\[([^\]]*)\]\([^)]*\)', '$1' -replace '[\[\]`*]', '') } else { 'Codex changes' })
             if ($subject.Length -gt 72) { $subject = $subject.Substring(0, 69) + '...' }
             $msgFile = Join-Path $paths.Out "commitmsg-$task.txt"
@@ -593,7 +599,7 @@ switch ($Command) {
         $script = Join-Path $PSScriptRoot 'dashboard.ps1'
         if (-not (Test-Path $script)) { Fail 'scripts\dashboard.ps1 is missing' }
         if ($Json) { & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script -Once; exit $LASTEXITCODE }
-        $pidFile = Join-Path $env:USERPROFILE '.trinity\dashboard.pid'
+        $pidFile = Join-Path (Get-TrinityHome) 'dashboard.pid'
         $running = $null
         if (Test-Path $pidFile) {
             $saved = [IO.File]::ReadAllText($pidFile).Trim() -split ' '

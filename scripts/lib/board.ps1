@@ -94,9 +94,15 @@ function New-AgentWorktree($Paths, [string]$Agent, [string]$Task, [string]$Scope
     [pscustomobject]@{ Branch = $branch; Path = $wtPath }
 }
 
+# Per-user trinity state (repo registry, dashboard pid). TRINITY_HOME overrides it; the self-test uses that.
+function Get-TrinityHome {
+    if ($env:TRINITY_HOME) { return $env:TRINITY_HOME }
+    Join-Path $env:USERPROFILE '.trinity'
+}
+
 # Every repo that uses trinity, one root per line; the dashboard reads it.
 function Register-Repo([string]$Root) {
-    $dir = Join-Path $env:USERPROFILE '.trinity'
+    $dir = Get-TrinityHome
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
     $file = Join-Path $dir 'repos.txt'
     $have = @(if (Test-Path $file) { [IO.File]::ReadAllLines($file) })

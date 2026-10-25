@@ -17,7 +17,8 @@ function Invoke-GitRead([string]$Directory, [string[]]$Arguments) {
 
 function Get-TextLines([string]$Path, [int]$Limit, [switch]$Tail) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return '' }
-    $lines = @(Get-Content -LiteralPath $Path -ErrorAction SilentlyContinue)
+    # Agent output is UTF-8; Get-Content in PS 5.1 would read it as ANSI.
+    $lines = @(try { [IO.File]::ReadAllLines($Path) } catch { })
     if ($Tail -and $lines.Count -gt $Limit) { $lines = $lines[($lines.Count - $Limit)..($lines.Count - 1)] }
     elseif (-not $Tail -and $lines.Count -gt $Limit) { $lines = $lines[0..($Limit - 1)] }
     return ($lines -join "`n")
@@ -100,6 +101,9 @@ function Get-RepoState([string]$Path) {
     $common = Invoke-GitRead $root @('rev-parse', '--path-format=absolute', '--git-common-dir')
     if (-not $common) { return $null }
     $common = [IO.Path]::GetFullPath($common)
+    # A registered path may be a worktree; board, .codex-out and PLAN live with the main checkout.
+    $main = Split-Path $common -Parent
+    if (Test-Path -LiteralPath (Join-Path $main '.git')) { $root = $main }
     $branch = Invoke-GitRead $root @('branch', '--show-current')
     if (-not $branch) { $branch = '' }
     $status = Invoke-GitRead $root @('status', '--porcelain')
@@ -144,7 +148,8 @@ function Get-RepoState([string]$Path) {
 
 function Get-DashboardState {
     $candidatePaths = New-Object System.Collections.Generic.List[string]
-    $registry = Join-Path (Join-Path $env:USERPROFILE '.trinity') 'repos.txt'
+    $trinityHome = if ($env:TRINITY_HOME) { $env:TRINITY_HOME } else { Join-Path $env:USERPROFILE '.trinity' }
+    $registry = Join-Path $trinityHome 'repos.txt'
     if (Test-Path -LiteralPath $registry -PathType Leaf) {
         foreach ($line in [IO.File]::ReadAllLines($registry)) {
             $value = $line.Trim()
@@ -183,8 +188,10 @@ function Get-DashboardState {
     }
 }
 
+# ASCII-only JSON (non-ASCII as \uXXXX) survives any console code page when -Once output is captured.
 function Convert-StateToJson($State) {
-    return ($State | ConvertTo-Json -Depth 6 -Compress)
+    $json = $State | ConvertTo-Json -Depth 6 -Compress
+    return [regex]::Replace($json, '[^\x00-\x7F]', { param($m) '\u{0:x4}' -f [int][char]$m.Value })
 }
 
 if ($Once) {
@@ -222,12 +229,14 @@ try {
                 $response.ContentLength64 = $bytes.Length
                 $response.OutputStream.Write($bytes, 0, $bytes.Length)
             }
-            elseif ($context.Request.Url.AbsolutePath -eq '/') {
-                $htmlPath = Join-Path $PSScriptRoot 'dashboard.html'
+            elseif ($context.Request.Url.AbsolutePath -in @('/', '/dashboard-sample.json')) {
+                # The page's ?sample=1 preview fetches the sample file next to it.
+                $isSample = $context.Request.Url.AbsolutePath -ne '/'
+                $htmlPath = Join-Path $PSScriptRoot $(if ($isSample) { 'dashboard-sample.json' } else { 'dashboard.html' })
                 if (Test-Path -LiteralPath $htmlPath -PathType Leaf) {
                     $bytes = [IO.File]::ReadAllBytes($htmlPath)
                     $response.StatusCode = 200
-                    $response.ContentType = 'text/html; charset=utf-8'
+                    $response.ContentType = $(if ($isSample) { 'application/json; charset=utf-8' } else { 'text/html; charset=utf-8' })
                     $response.ContentLength64 = $bytes.Length
                     $response.OutputStream.Write($bytes, 0, $bytes.Length)
                 }
