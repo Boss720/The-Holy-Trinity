@@ -296,9 +296,9 @@ function Get-AgyData([string]$OutDir, [string]$Task, $Meta, [bool]$Running, [str
     $transcript = if ($session) { Join-Path $script:AgyHome ("brain\{0}\.system_generated\logs\transcript.jsonl" -f $session) } else { '' }
     $cacheKey = if ($transcript) { [IO.Path]::GetFullPath($transcript).ToLowerInvariant() } else { '' }
     $records = if ($transcript) { Read-JsonLinesIncremental $transcript } else { @() }
-    $summary = if ($cacheKey -and $script:TranscriptSummaryCache.ContainsKey($cacheKey)) { $script:TranscriptSummaryCache[$cacheKey] } else { @{ tokens=[ordered]@{ input=0L; cached=0L; output=0L; reasoning=0L; total=0L }; toolCalls=0; last=''; first=''; contextUsed=0L; steps=0; thinkingSteps=0; toolCounts=@{}; lastTool=''; filesTouched=@(); backgroundTasks=0 } }
+    $summary = if ($cacheKey -and $script:TranscriptSummaryCache.ContainsKey($cacheKey)) { $script:TranscriptSummaryCache[$cacheKey] } else { @{ tokens=[ordered]@{ input=0L; cached=0L; output=0L; reasoning=0L; total=0L }; toolCalls=0; last=''; first=''; contextUsed=0L; steps=0; thinkingSteps=0; toolCounts=@{}; lastTool=''; filesTouched=@(); backgroundTasks=0; backgroundIds=@{} } }
     $tokens = $summary.tokens; $toolCalls = [int]$summary.toolCalls; $last = [string]$summary.last
-    $first = [string]$summary.first; $contextUsed = [long]$summary.contextUsed; $steps = [int]$summary.steps; $thinkingSteps = [int]$summary.thinkingSteps; $toolCounts = $summary.toolCounts; $lastTool = [string]$summary.lastTool; $backgroundTasks = [int]$summary.backgroundTasks; $filesTouched = New-Object System.Collections.Generic.List[string]; foreach ($path in $summary.filesTouched) { $filesTouched.Add($path) }
+    $first = [string]$summary.first; $contextUsed = [long]$summary.contextUsed; $steps = [int]$summary.steps; $thinkingSteps = [int]$summary.thinkingSteps; $toolCounts = $summary.toolCounts; $lastTool = [string]$summary.lastTool; $backgroundIds = $summary.backgroundIds; if ($null -eq $backgroundIds) { $backgroundIds = @{} }; $filesTouched = New-Object System.Collections.Generic.List[string]; foreach ($path in $summary.filesTouched) { $filesTouched.Add($path) }
     foreach ($r in $records) {
         $stamp = Convert-ToIso (Get-JsonValue $r 'created_at' ''); if ($stamp) { if (-not $first) { $first = $stamp }; $last = $stamp }
         if ((Get-JsonValue $r 'type') -eq 'PLANNER_RESPONSE') {
@@ -308,7 +308,8 @@ function Get-AgyData([string]$OutDir, [string]$Task, $Meta, [bool]$Running, [str
             foreach ($call in @(Get-JsonValue $r 'tool_calls' @())) {
                 $toolCalls++; $name = [string](Get-JsonValue $call 'name' ''); $lastTool = $name
                 if ($name) { if (-not $toolCounts.ContainsKey($name)) { $toolCounts[$name] = 0 }; $toolCounts[$name]++ }
-                if ($name -eq 'manage_task') { $backgroundTasks++ }
+                # manage_task is also called to poll or kill a task, so count distinct task ids.
+                if ($name -eq 'manage_task') { $taskArgs = Get-JsonValue $call 'args'; if ($taskArgs -is [string]) { try { $taskArgs = $script:JsonSerializer.DeserializeObject($taskArgs) } catch { $taskArgs = $null } }; $taskId = [string](Get-JsonValue $taskArgs 'TaskId' ''); if ($taskId.StartsWith('"')) { try { $taskId = [string]$script:JsonSerializer.DeserializeObject($taskId) } catch { } }; if (-not $taskId) { $taskId = 'call-' + $toolCalls }; $backgroundIds[$taskId] = $true }
                 if ($name -in @('write_file', 'write_to_file', 'edit_file', 'replace_file_content', 'multi_replace_file_content')) {
                     $callArgs = Get-JsonValue $call 'args'; if ($callArgs -is [string]) { try { $callArgs = $script:JsonSerializer.DeserializeObject($callArgs) } catch { $callArgs = $null } }
                     $path = [string](Get-JsonValue $callArgs 'Path' (Get-JsonValue $callArgs 'TargetFile' ''))
@@ -321,12 +322,12 @@ function Get-AgyData([string]$OutDir, [string]$Task, $Meta, [bool]$Running, [str
         }
     }
     $tokens.total = $tokens.input + $tokens.output
-    if ($cacheKey) { $script:TranscriptSummaryCache[$cacheKey] = @{ tokens=$tokens; toolCalls=$toolCalls; last=$last; first=$first; contextUsed=$contextUsed; steps=$steps; thinkingSteps=$thinkingSteps; toolCounts=$toolCounts; lastTool=$lastTool; filesTouched=@($filesTouched.ToArray()); backgroundTasks=$backgroundTasks } }
+    if ($cacheKey) { $script:TranscriptSummaryCache[$cacheKey] = @{ tokens=$tokens; toolCalls=$toolCalls; last=$last; first=$first; contextUsed=$contextUsed; steps=$steps; thinkingSteps=$thinkingSteps; toolCounts=$toolCounts; lastTool=$lastTool; filesTouched=@($filesTouched.ToArray()); backgroundIds=$backgroundIds } }
     if (-not $last -and $transcript -and (Test-Path -LiteralPath $transcript)) { try { $last = (Get-Item -LiteralPath $transcript).LastWriteTime.ToString("yyyy-MM-dd'T'HH:mm:ss") } catch { } }
     if ($Meta) { $model = [string](Get-JsonValue $Meta 'model' $model); if (-not $Running -and (Get-JsonValue $Meta 'tokens')) { $tokens = Get-JsonValue $Meta 'tokens' } }
     $agyHasTokens = ($transcript -and (Test-Path -LiteralPath $transcript)) -or (Get-JsonValue $Meta 'tokens')
     $breakdown = @($toolCounts.GetEnumerator() | Sort-Object @{ Expression = { $_.Value }; Descending = $true }, @{ Expression = { $_.Key } } | Select-Object -First 8 | ForEach-Object { [pscustomobject]@{ name=$_.Key; count=$_.Value } })
-    return @{ model = $model; effort = [string](Get-JsonValue $Meta 'effort' ''); sessionId = [string](Get-JsonValue $Meta 'sessionId' $session); tokens = $(if ($agyHasTokens) { $tokens } else { $null }); contextWindow = $null; toolCalls = $toolCalls; rateLimits = @(); lastActivity = $last; chat = $(if ($transcript -and (Test-Path -LiteralPath $transcript)) { 'agy:' + $session } else { '' }); subChats = @(); rollout = $transcript; records = $records; started=$first; finished=$(if ($Running) { '' } else { $last }); contextUsed=$contextUsed; steps=$steps; thinkingSteps=$thinkingSteps; toolBreakdown=$breakdown; lastTool=$lastTool; filesTouched=@($filesTouched.ToArray()); backgroundTasks=$backgroundTasks }
+    return @{ model = $model; effort = [string](Get-JsonValue $Meta 'effort' ''); sessionId = [string](Get-JsonValue $Meta 'sessionId' $session); tokens = $(if ($agyHasTokens) { $tokens } else { $null }); contextWindow = $null; toolCalls = $toolCalls; rateLimits = @(); lastActivity = $last; chat = $(if ($transcript -and (Test-Path -LiteralPath $transcript)) { 'agy:' + $session } else { '' }); subChats = @(); rollout = $transcript; records = $records; started=$first; finished=$(if ($Running) { '' } else { $last }); contextUsed=$contextUsed; steps=$steps; thinkingSteps=$thinkingSteps; toolBreakdown=$breakdown; lastTool=$lastTool; filesTouched=@($filesTouched.ToArray()); backgroundTasks=$backgroundIds.Count }
 }
 
 function Get-ClaudeProjectSlug([string]$Path) { return [regex]::Replace([IO.Path]::GetFullPath($Path), '[^A-Za-z0-9]', '-') }
