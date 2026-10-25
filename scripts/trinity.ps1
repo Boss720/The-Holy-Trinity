@@ -740,9 +740,33 @@ switch ($Command) {
             else { [IO.File]::WriteAllText($dst, $docs[$rel], $script:Utf8) }
             Write-Host "  wrote    $rel"
         }
+        # A kept settings.json still gets the SessionStart hook: the old cwd-relative command is swapped in place,
+        # a missing hook is merged in (original saved to .codex-out\settings.json.bak, since JSON is rewritten).
         $settings = Join-Path $target '.claude\settings.json'
-        if (-not (Select-String -Path $settings -Pattern 'trinity.ps1 status' -Quiet)) {
-            Write-Host '  NOTE     .claude\settings.json has no trinity SessionStart hook; copy it from the toolkit' -ForegroundColor Yellow
+        $kitHook = (ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $kit '.claude\settings.json')))).hooks.SessionStart[0]
+        $hookCmd = $kitHook.hooks[0].command
+        $raw = [IO.File]::ReadAllText($settings)
+        $oldCmd = 'powershell -NoProfile -ExecutionPolicy Bypass -File scripts/trinity.ps1 status -Brief'
+        if ($raw.Contains($oldCmd)) {
+            $raw = $raw.Replace($oldCmd, $hookCmd.Replace('\', '\\').Replace('"', '\"'))
+            [IO.File]::WriteAllText($settings, $raw, $script:Utf8)
+            Write-Host '  updated  .claude\settings.json (SessionStart hook now works from any folder)'
+        }
+        elseif (-not $raw.Contains('trinity.ps1')) {
+            try { $settingsObj = ConvertFrom-Json $raw } catch { $settingsObj = $null }
+            if ($null -eq $settingsObj) {
+                Write-Host '  NOTE     .claude\settings.json is not valid JSON; add the SessionStart hook from the toolkit by hand' -ForegroundColor Yellow
+            }
+            else {
+                $outDir = Join-Path $target '.codex-out'
+                if (-not (Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir | Out-Null }
+                [IO.File]::WriteAllText((Join-Path $outDir 'settings.json.bak'), $raw, $script:Utf8)
+                if (-not $settingsObj.PSObject.Properties['hooks']) { $settingsObj | Add-Member -NotePropertyName hooks -NotePropertyValue ([pscustomobject]@{}) }
+                if (-not $settingsObj.hooks.PSObject.Properties['SessionStart']) { $settingsObj.hooks | Add-Member -NotePropertyName SessionStart -NotePropertyValue @() }
+                $settingsObj.hooks.SessionStart = @($settingsObj.hooks.SessionStart) + $kitHook
+                [IO.File]::WriteAllText($settings, ($settingsObj | ConvertTo-Json -Depth 32), $script:Utf8)
+                Write-Host '  merged   .claude\settings.json (added trinity SessionStart hook; original in .codex-out\settings.json.bak)'
+            }
         }
 
         # Line-based config files: append only the lines that are missing.
@@ -784,6 +808,7 @@ switch ($Command) {
         # Claude's own work on the board, so the dashboard shows the orchestrator next to its workers.
         $task = $Rest[0]
         if (-not $task) { Fail 'usage: trinity track <task> <what you are doing...>   (finish with: trinity done <task> <summary>)' }
+        Assert-TaskName $task
         $note = if (@($Rest).Count -gt 1) { (($Rest[1..($Rest.Count - 1)]) -join ' ') -replace '[\r\n]+', ' ' } else { 'in progress' }
         $entry = Get-BoardEntry $paths $task
         if ($entry -and $entry.agent -ne 'claude') { Fail "$task belongs to $($entry.agent); pick another task name" }

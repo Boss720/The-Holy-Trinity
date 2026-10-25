@@ -422,6 +422,89 @@ Run-Case 'init installs the toolkit with subagents and the army skill' {
     }
 }
 
+Run-Case 'init merges or upgrades the SessionStart hook in a kept settings.json' {
+    param($f)
+    foreach ($rel in @('.claude', '.agent', 'CLAUDE.md', 'GEMINI.md')) { Copy-Item -LiteralPath (Join-Path $script:repoSource $rel) -Destination $f.Repo -Recurse -Force }
+    $utf8 = New-Object Text.UTF8Encoding($false)
+    $custom = Join-Path $f.Root 'custom settings'
+    $legacy = Join-Path $f.Root 'legacy settings'
+    foreach ($dir in @($custom, $legacy)) {
+        New-Item -ItemType Directory -Path (Join-Path $dir '.claude') -Force | Out-Null
+        & git -C $dir init -b main 2>&1 | Out-Null
+    }
+    [IO.File]::WriteAllText((Join-Path $custom '.claude\settings.json'), '{ "permissions": { "allow": [ "Bash(ls)" ] } }', $utf8)
+    $oldHook = '{ "hooks": { "SessionStart": [ { "hooks": [ { "type": "command", "command": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/trinity.ps1 status -Brief" } ] } ] } }'
+    [IO.File]::WriteAllText((Join-Path $legacy '.claude\settings.json'), $oldHook, $utf8)
+    foreach ($pass in 1, 2) {
+        foreach ($dir in @($custom, $legacy)) {
+            $init = Invoke-Trinity $f @('init', $dir)
+            Assert-True ($init.ExitCode -eq 0) "init pass $pass failed: $($init.Output)"
+        }
+    }
+    $merged = [IO.File]::ReadAllText((Join-Path $custom '.claude\settings.json')) | ConvertFrom-Json
+    Assert-True (@($merged.permissions.allow) -contains 'Bash(ls)') 'merge dropped the existing permissions'
+    Assert-True (@($merged.hooks.SessionStart).Count -eq 1) "hook merged $(@($merged.hooks.SessionStart).Count) times"
+    Assert-True ($merged.hooks.SessionStart[0].hooks[0].command -match 'rev-parse --show-toplevel') 'merged hook is not the toolkit hook'
+    Assert-True (Test-Path (Join-Path $custom '.codex-out\settings.json.bak')) 'no backup of the original settings.json'
+    $upgraded = [IO.File]::ReadAllText((Join-Path $legacy '.claude\settings.json')) | ConvertFrom-Json
+    Assert-True ($upgraded.hooks.SessionStart[0].hooks[0].command -match "Join-Path \(git rev-parse --show-toplevel\) 'scripts/trinity.ps1'") "legacy hook not upgraded: $($upgraded.hooks.SessionStart[0].hooks[0].command)"
+}
+
+Run-Case 'board rejects bad and duplicate task names and frees merged names' {
+    param($f)
+    $bad = Invoke-Trinity $f @('track', 'Bad_Name', 'x')
+    Assert-True ($bad.ExitCode -ne 0 -and $bad.Output -match 'lowercase') "track accepted a bad name: $($bad.Output)"
+    Start-CodexTask $f 'dup'
+    $wait = Invoke-Trinity $f @('wait', 'dup', '-Timeout', '50')
+    Assert-True ($wait.ExitCode -eq 0) "wait exit $($wait.ExitCode): $($wait.Output)"
+    $again = Invoke-Trinity $f @('dispatch', 'codex', 'dup', '-Scope', 'tests/*', '-PromptFile', $f.Prompt)
+    Assert-True ($again.ExitCode -ne 0 -and $again.Output -match 'already on the board') "duplicate dispatch not refused: $($again.Output)"
+    $track = Invoke-Trinity $f @('track', 'dup', 'x')
+    Assert-True ($track.ExitCode -ne 0 -and $track.Output -match 'belongs to codex') "track took a codex task: $($track.Output)"
+    $merge = Invoke-Trinity $f @('merge', 'dup', '-Yes')
+    Assert-True ($merge.ExitCode -eq 0) "merge failed: $($merge.Output)"
+    Start-CodexTask $f 'dup'
+    $board = Get-Content -Raw (Join-Path $f.Repo '.git\agent-board.md')
+    Assert-True ([regex]::Matches($board, '(?m)^## dup\r?$').Count -eq 1) "board holds duplicate sections: $board"
+    Assert-True ($board -notmatch '(?m)^- status: merged') "merged section was not replaced: $board"
+    Invoke-Trinity $f @('wait', 'dup', '-Timeout', '50') | Out-Null
+}
+
+Run-Case 'agy.cmd on PATH counts as Antigravity' {
+    param($f)
+    $bin = Join-Path $f.Root 'agy bin'
+    New-Item -ItemType Directory -Path $bin -Force | Out-Null
+    Copy-Item -LiteralPath $f.FakeAgy -Destination (Join-Path $bin 'agy.cmd')
+    Copy-Item -LiteralPath (Join-Path $f.Repo 'tests\fake-agy.ps1') -Destination $bin
+    $env:AGY_EXE = $null
+    $env:LOCALAPPDATA = Join-Path $f.Root 'isolated local app data'
+    $env:PATH = $bin + ';' + $env:PATH
+    $status = Invoke-Trinity $f @('status', '-Brief')
+    Assert-True ($status.Output -match 'antigravity ok') "agy.cmd not found: $($status.Output)"
+}
+
+Run-Case 'pre-commit hook checks renamed files' {
+    param($f)
+    Copy-Item -LiteralPath (Join-Path $script:repoSource '.githooks') -Destination $f.Repo -Recurse
+    Invoke-Git $f.Repo @('config', 'core.hooksPath', '.githooks') | Out-Null
+    $utf8 = New-Object Text.UTF8Encoding($false)
+    $body = (1..30 | ForEach-Object { "line $_" }) -join "`n"
+    [IO.File]::WriteAllText((Join-Path $f.Repo 'notes.txt'), $body + "`n", $utf8)
+    Invoke-Git $f.Repo @('add', 'notes.txt') | Out-Null
+    Invoke-Git $f.Repo @('commit', '-m', 'notes') | Out-Null
+    Invoke-Git $f.Repo @('mv', 'notes.txt', 'moved.txt') | Out-Null
+    $key = 'sk-' + ('A' * 24)
+    [IO.File]::WriteAllText((Join-Path $f.Repo 'moved.txt'), $body + "`nkey=$key`n", $utf8)
+    Invoke-Git $f.Repo @('add', 'moved.txt') | Out-Null
+    $status = Invoke-Git $f.Repo @('diff', '--cached', '--name-status')
+    Assert-True ($status -match '^R') "fixture is not a rename: $status"
+    $oldPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { $out = & git -C $f.Repo commit -m 'rename with key' 2>&1 }
+    finally { $ErrorActionPreference = $oldPreference }
+    Assert-True ($LASTEXITCODE -ne 0 -and ($out -join ' ') -match 'moved.txt: possible secret') "hook let a renamed secret through: $($out -join ' ')"
+}
+
 Run-Case 'review and ask use Codex when it is available' {
     param($f)
     foreach ($reviewArgs in @(@('review'), @('review', '--base', 'main'), @('review', '--commit', 'HEAD'))) {

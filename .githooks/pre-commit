@@ -13,7 +13,11 @@ report() {
     problems=1
 }
 
-git diff --cached --name-only --diff-filter=ACM > "$list"
+# ACMRT: renames and type changes carry new content too. quotepath=off keeps non-ASCII names readable by git show.
+if ! git -c core.quotepath=off diff --cached --name-only --diff-filter=ACMRT > "$list"; then
+    echo "pre-commit: cannot list staged files"
+    exit 1
+fi
 
 while IFS= read -r f; do
     [ -n "$f" ] || continue

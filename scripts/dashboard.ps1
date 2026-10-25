@@ -810,6 +810,20 @@ if ($Once) {
     exit 0
 }
 
+# Request failures go to <trinity home>\dashboard-errors.log (route + exception only, never chat content), kept under 512 KB.
+function Write-DashboardError([string]$Route, $ErrorRecord) {
+    try {
+        $dir = if ($env:TRINITY_HOME) { $env:TRINITY_HOME } else { Join-Path $env:USERPROFILE '.trinity' }
+        if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
+        $log = Join-Path $dir 'dashboard-errors.log'
+        if ((Test-Path $log) -and (Get-Item $log).Length -gt 512KB) { Move-Item $log "$log.1" -Force }
+        $where = if ($ErrorRecord.InvocationInfo) { $ErrorRecord.InvocationInfo.PositionMessage -replace '\s+', ' ' } else { '' }
+        $line = '{0} {1} {2}: {3} {4}' -f (Get-Date -Format 's'), $Route, $ErrorRecord.Exception.GetType().Name, $ErrorRecord.Exception.Message, $where
+        [IO.File]::AppendAllText($log, ($line -replace '[\r\n]+', ' ') + "`r`n", (New-Object Text.UTF8Encoding($false)))
+    }
+    catch { }
+}
+
 $listener = $null
 try {
     $listener = New-Object System.Net.HttpListener
@@ -873,6 +887,7 @@ try {
             else { $response.StatusCode = 404 }
         }
         catch {
+            Write-DashboardError $context.Request.Url.AbsolutePath $_
             $response.StatusCode = 500
         }
         finally {

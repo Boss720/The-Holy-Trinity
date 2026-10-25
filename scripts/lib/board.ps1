@@ -43,24 +43,43 @@ function Invoke-BoardLocked($Paths, [scriptblock]$Body) {
     finally { $lock.Dispose() }
 }
 
+function Assert-TaskName([string]$Task) {
+    if ($Task -notmatch '^[a-z0-9][a-z0-9-]*$') { Fail "task name '$Task' must be lowercase letters, digits, dashes" }
+}
+
+# A merged or cancelled task frees its name: its old section is replaced, so Get-BoardEntry never sees the stale one.
 function Add-BoardEntry($Paths, [string]$Task, [string]$Agent, [string]$Branch, [string]$WtPath, [string]$Scope) {
     $stamp = Get-Date -Format 'yyyy-MM-dd HH:mm'
-    $entry = "`r`n## $Task`r`n- agent: $Agent`r`n- branch: $Branch`r`n- worktree: $WtPath`r`n- scope: $Scope`r`n- status: started $stamp`r`n"
-    Invoke-BoardLocked $Paths { [IO.File]::AppendAllText($Paths.Board, $entry, $script:Utf8) }
+    $entry = "## $Task`r`n- agent: $Agent`r`n- branch: $Branch`r`n- worktree: $WtPath`r`n- scope: $Scope`r`n- status: started $stamp`r`n"
+    Invoke-BoardLocked $Paths {
+        $kept = New-Object System.Collections.Generic.List[string]
+        $inTask = $false
+        foreach ($line in [IO.File]::ReadAllLines($Paths.Board)) {
+            if ($line -match '^## ') { $inTask = ($line -eq "## $Task") }
+            if (-not $inTask) { $kept.Add($line); continue }
+            if ($line -match '^- status: (.*)$' -and $Matches[1] -notmatch '^(merged|cancelled)') {
+                throw "task $Task is already on the board (status: $($Matches[1]))"
+            }
+        }
+        while ($kept.Count -gt 0 -and $kept[$kept.Count - 1] -eq '') { $kept.RemoveAt($kept.Count - 1) }
+        [IO.File]::WriteAllText($Paths.Board, (($kept -join "`r`n") + "`r`n`r`n" + $entry), $script:Utf8)
+    }
 }
 
 # Replace the status line of one task section.
 function Set-BoardStatus($Paths, [string]$Task, [string]$Status) {
     $stamp = Get-Date -Format 'yyyy-MM-dd HH:mm'
+    $state = @{ found = $false }   # the locked block runs in a child scope
     Invoke-BoardLocked $Paths {
         $lines = [IO.File]::ReadAllLines($Paths.Board)
         $inTask = $false
         for ($i = 0; $i -lt $lines.Length; $i++) {
             if ($lines[$i] -match '^## ') { $inTask = ($lines[$i] -eq "## $Task") }
-            elseif ($inTask -and $lines[$i] -match '^- status:') { $lines[$i] = "- status: $Status $stamp" }
+            elseif ($inTask -and $lines[$i] -match '^- status:') { $lines[$i] = "- status: $Status $stamp"; $state.found = $true }
         }
         [IO.File]::WriteAllText($Paths.Board, (($lines -join "`r`n") + "`r`n"), $script:Utf8)
     }
+    if (-not $state.found) { Write-Host "trinity: task $Task is not on the board; status '$Status' not recorded" -ForegroundColor Yellow }
 }
 
 # Set an extra "- <field>: <value>" line of one task section (replaced in place, else added before its status).
@@ -96,7 +115,9 @@ function Get-BoardEntry($Paths, [string]$Task) {
 # Create worktree + branch agent/<agent>/<task> from $Base and register it on the board.
 function New-AgentWorktree($Paths, [string]$Agent, [string]$Task, [string]$Scope, [string]$Base) {
     if ($Agent -notin @('claude', 'codex', 'antigravity')) { Fail '-Agent must be claude, codex, or antigravity' }
-    if ($Task -notmatch '^[a-z0-9][a-z0-9-]*$') { Fail 'task name must be lowercase letters, digits, dashes' }
+    Assert-TaskName $Task
+    $old = Get-BoardEntry $Paths $Task
+    if ($old -and $old.status -notmatch '^(merged|cancelled)') { Fail "task $Task is already on the board (status: $($old.status)); pick another name" }
     $branch = "agent/$Agent/$Task"
     $wtPath = Join-Path $Paths.Worktrees "$Agent-$Task"
     git -C $Paths.Main rev-parse --verify --quiet "refs/heads/$branch" | Out-Null
@@ -106,7 +127,14 @@ function New-AgentWorktree($Paths, [string]$Agent, [string]$Task, [string]$Scope
     git -C $Paths.Main worktree add -b $branch $wtPath $Base | Out-Host
     if ($LASTEXITCODE -ne 0) { Fail 'git worktree add failed' }
     try { Add-BoardEntry $Paths $Task $Agent $branch $wtPath $Scope }
-    catch { Fail "worktree created at $wtPath but board registration failed: $($_.Exception.Message)" }
+    catch {
+        # Undo the fresh worktree and branch (no commits yet) so the task name stays usable.
+        $why = $_.Exception.Message
+        git -C $Paths.Main worktree remove --force $wtPath 2>&1 | Out-Null
+        git -C $Paths.Main branch -D $branch 2>&1 | Out-Null
+        if (Test-Path $wtPath) { Fail "board registration failed ($why); remove $wtPath and branch $branch by hand" }
+        Fail "board registration failed: $why (worktree and branch removed)"
+    }
     [pscustomobject]@{ Branch = $branch; Path = $wtPath }
 }
 
@@ -130,8 +158,10 @@ function Find-AgyExe {
     if ($env:AGY_EXE) { if (Test-Path $env:AGY_EXE) { return $env:AGY_EXE } return $null }
     $exe = Join-Path $env:LOCALAPPDATA 'agy\bin\agy.exe'
     if (Test-Path $exe) { return $exe }
-    $cmd = Get-Command agy.exe -ErrorAction SilentlyContinue
-    if ($cmd) { return $cmd.Source }
+    foreach ($name in 'agy.exe', 'agy.cmd', 'agy.bat') {
+        $cmd = Get-Command $name -ErrorAction SilentlyContinue
+        if ($cmd) { return $cmd.Source }
+    }
     $null
 }
 

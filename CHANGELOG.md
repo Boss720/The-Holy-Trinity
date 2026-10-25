@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Dashboard: "Copy merge" button on finished tasks; dashboard request errors logged to `%USERPROFILE%\.trinity\dashboard-errors.log`.
+- `trinity init` merges the SessionStart hook into a kept `.claude\settings.json` (original saved to `.codex-out\settings.json.bak`) and upgrades the old hook command.
+
+### Fixed
+- SessionStart hook works when Claude starts in a subfolder (resolves the repo root with git).
+- Pre-commit hook also checks renamed and type-changed files, and fails if it cannot list staged files.
+- `agy.cmd` / `agy.bat` on PATH count as Antigravity.
+- `trinity track` validates task names; a task name still on the board cannot be dispatched again, while a merged or cancelled name is reused without leaving a stale board section.
+- `GEMINI.md`: headless Antigravity tasks put findings in their final message, not `HANDOFF.md`.
+- Dashboard: dark-mode muted text contrast; 44px touch targets on phones.
+- Removed two empty junk files (`Read`, `[-Force]'`).
+
 ## v0.3.0 - 2026-10-25
 
 ### Added
