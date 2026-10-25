@@ -710,9 +710,15 @@ Run-Case 'dashboard caches Claude summaries and rejects non-loopback clients' {
         $changedPath = Join-Path $project 'session-7.jsonl'
         $changedStamp = [datetime]::UtcNow.ToString('o'); $changedLine = (@{ type='custom-title'; customTitle='Updated title'; timestamp=$changedStamp } | ConvertTo-Json -Compress) + "`r`n"
         [IO.File]::AppendAllText($changedPath, $changedLine, [Text.UTF8Encoding]::new($false))
-        $updatedResponse = Invoke-WebRequest -Uri "http://localhost:$port/api/state" -UseBasicParsing -TimeoutSec 60
-        $updatedState = $updatedResponse.Content | ConvertFrom-Json; $updatedRepo = @($updatedState.repos | Where-Object path -eq ([IO.Path]::GetFullPath($f.Repo)))[0]
-        Assert-True ((@($updatedRepo.claudeSessions | Where-Object id -eq 'session-7')[0]).title -eq 'Updated title') 'changed Claude summary was not invalidated from cache'
+        # State is served from a shared snapshot refreshed every few seconds, so wait for the refresh to pick up the change.
+        $updatedTitle = $null; $refreshDeadline = (Get-Date).AddSeconds(20)
+        while ($updatedTitle -ne 'Updated title' -and (Get-Date) -lt $refreshDeadline) {
+            $updatedState = (Invoke-WebRequest -Uri "http://localhost:$port/api/state" -UseBasicParsing -TimeoutSec 60).Content | ConvertFrom-Json
+            $updatedRepo = @($updatedState.repos | Where-Object path -eq ([IO.Path]::GetFullPath($f.Repo)))[0]
+            $updatedTitle = (@($updatedRepo.claudeSessions | Where-Object id -eq 'session-7')[0]).title
+            if ($updatedTitle -ne 'Updated title') { Start-Sleep -Milliseconds 500 }
+        }
+        Assert-True ($updatedTitle -eq 'Updated title') 'changed Claude summary was not invalidated from cache'
         $addresses = @([Net.Dns]::GetHostAddresses([Net.Dns]::GetHostName()) | Where-Object { $_.AddressFamily -eq [Net.Sockets.AddressFamily]::InterNetwork -and -not [Net.IPAddress]::IsLoopback($_) })
         if (-not $addresses.Count) { Skip-Case 'No non-loopback IPv4 address is available' }
         $client = New-Object Net.Sockets.TcpClient

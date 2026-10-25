@@ -853,7 +853,7 @@ $listener = $null
 $collectorRunspace = $null
 $collectorPowerShell = $null
 $collectorAsync = $null
-$sharedState = [hashtable]::Synchronized(@{ bytes = $null; builtAt = [datetime]::MinValue; lastRequestAt = [datetime]::MinValue; stop = $false; error = $null; errorSeq = 0 })
+$sharedState = [hashtable]::Synchronized(@{ bytes = $null; builtAt = [datetime]::MinValue; lastRequestAt = [datetime]::MinValue; stop = $false; error = $null; errorAt = [datetime]::MinValue; errorSeq = 0 })
 $loggedErrorSeq = 0
 try {
     $listener = New-Object System.Net.HttpListener
@@ -884,7 +884,7 @@ try {
                         $shared.bytes = $bytes
                         $shared.builtAt = [datetime]::UtcNow
                     }
-                    catch { $shared.error = $_.Exception.ToString(); $shared.errorSeq = [int]$shared.errorSeq + 1 }
+                    catch { $shared.error = $_.Exception.ToString(); $shared.errorAt = [datetime]::UtcNow; $shared.errorSeq = [int]$shared.errorSeq + 1; Start-Sleep -Seconds 2 }
                 }
                 Start-Sleep -Milliseconds 100
             }
@@ -928,7 +928,7 @@ try {
                             $builtAt = $sharedState.builtAt
                             break
                         }
-                        if (-not $sharedState.bytes -and $sharedState.error) { break }
+                        if ($sharedState.errorAt -gt $requestStarted) { break }
                         Start-Sleep -Milliseconds 75
                     }
                     if (-not $bytes -and $sharedState.bytes) {
