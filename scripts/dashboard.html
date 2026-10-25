@@ -2333,7 +2333,11 @@
           nameGroup.appendChild(repoPill);
         }
 
-        if (task.status && task.status.trim().toLowerCase().startsWith('done')) {
+        // Only tasks merge can take: finished, on an agent branch, with commits ahead of main.
+        const statusText = (task.status || '').trim().toLowerCase();
+        const mergeable = statusText.startsWith('done') && typeof task.commits === 'number' && task.commits > 0 &&
+          typeof task.branch === 'string' && task.branch.indexOf('agent/') === 0;
+        if (mergeable) {
           const mergeCmd = 'trinity merge ' + task.task + ' -Yes';
           const copyBtn = el('button', 'btn-copy', 'Copy merge');
           copyBtn.type = 'button';
@@ -2350,21 +2354,29 @@
             }, 1500);
           }
 
+          // Clipboard API needs permission (denied in some embedded browsers); execCommand works from a click.
+          function legacyCopy() {
+            const area = document.createElement('textarea');
+            area.value = mergeCmd;
+            area.setAttribute('readonly', '');
+            area.style.position = 'fixed';
+            area.style.opacity = '0';
+            document.body.appendChild(area);
+            area.select();
+            let ok = false;
+            try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+            document.body.removeChild(area);
+            showFeedback(ok ? 'Copied!' : 'Copy failed');
+          }
+
           copyBtn.addEventListener('click', function (e) {
             e.stopPropagation();
-            try {
-              if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-                navigator.clipboard.writeText(mergeCmd).then(function () {
-                  showFeedback('Copied!');
-                }).catch(function () {
-                  showFeedback('Copy failed');
-                });
-              } else {
-                showFeedback('Copy failed');
-              }
-            } catch (err) {
-              showFeedback('Copy failed');
-            }
+            if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') { legacyCopy(); return; }
+            let pending;
+            try { pending = navigator.clipboard.writeText(mergeCmd); } catch (err) { legacyCopy(); return; }
+            Promise.resolve(pending).then(function () {
+              showFeedback('Copied!');
+            }).catch(legacyCopy);
           });
 
           nameGroup.appendChild(copyBtn);
