@@ -736,7 +736,7 @@ Run-Case 'dashboard serves one shared snapshot to concurrent clients' {
         $dashboard=Join-Path $f.Repo 'scripts\dashboard.ps1'; $process=Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -WindowStyle Hidden -PassThru -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"{0}"' -f $dashboard),'-Port',[string]$port,'-Repos',('"{0}"' -f $f.Repo))
         $first=$null; $deadline=(Get-Date).AddSeconds(15)
         while(-not $first -and (Get-Date)-lt $deadline -and -not $process.HasExited){try{$first=Invoke-WebRequest -Uri "http://localhost:$port/api/state" -UseBasicParsing -TimeoutSec 60}catch{Start-Sleep -Milliseconds 100}}
-        if(-not $first){Skip-Case 'HttpListener is unsupported or blocked in this environment'}
+        if(-not $first -and $process.HasExited){Skip-Case 'HttpListener is unsupported or blocked in this environment'}; Assert-True ([bool]$first) 'dashboard never answered /api/state'
         $before=@([IO.File]::ReadAllLines($env:TRINITY_DASHBOARD_TEST_COLLECT_LOG)).Count
         $bodies=@()
         # Keep the request objects alongside their asynchronous handles for response collection.
@@ -760,7 +760,7 @@ Run-Case 'dashboard collector idles without clients' {
         $dashboard=Join-Path $f.Repo 'scripts\dashboard.ps1'; $process=Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -WindowStyle Hidden -PassThru -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"{0}"' -f $dashboard),'-Port',[string]$port,'-RefreshSeconds','1','-Repos',('"{0}"' -f $f.Repo))
         $response=$null; $deadline=(Get-Date).AddSeconds(15)
         while(-not $response -and (Get-Date)-lt $deadline -and -not $process.HasExited){try{$response=Invoke-WebRequest -Uri "http://localhost:$port/api/state" -UseBasicParsing -TimeoutSec 60}catch{Start-Sleep -Milliseconds 100}}
-        if(-not $response){Skip-Case 'HttpListener is unsupported or blocked in this environment'}
+        if(-not $response -and $process.HasExited){Skip-Case 'HttpListener is unsupported or blocked in this environment'}; Assert-True ([bool]$response) 'dashboard never answered /api/state'
         Start-Sleep -Seconds 4; $settled=@([IO.File]::ReadAllLines($env:TRINITY_DASHBOARD_TEST_COLLECT_LOG)).Count; Start-Sleep -Seconds 3
         $final=@([IO.File]::ReadAllLines($env:TRINITY_DASHBOARD_TEST_COLLECT_LOG)).Count
         Assert-True ($final -eq $settled) "collector continued running without clients ($settled to $final collections)"
@@ -777,7 +777,7 @@ Run-Case 'dashboard state reply carries snapshot age' {
         $dashboard=Join-Path $f.Repo 'scripts\dashboard.ps1'; $process=Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -WindowStyle Hidden -PassThru -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"{0}"' -f $dashboard),'-Port',[string]$port,'-Repos',('"{0}"' -f $f.Repo))
         $response=$null; $deadline=(Get-Date).AddSeconds(15)
         while(-not $response -and (Get-Date)-lt $deadline -and -not $process.HasExited){try{$response=Invoke-WebRequest -Uri "http://localhost:$port/api/state" -UseBasicParsing -TimeoutSec 60}catch{Start-Sleep -Milliseconds 100}}
-        if(-not $response){Skip-Case 'HttpListener is unsupported or blocked in this environment'}
+        if(-not $response -and $process.HasExited){Skip-Case 'HttpListener is unsupported or blocked in this environment'}; Assert-True ([bool]$response) 'dashboard never answered /api/state'
         $age=$response.Headers['X-Snapshot-Age-Ms']; Assert-True ($age -match '^\d+$') "snapshot age header was missing or invalid: $age"
     }
     finally { if($process){Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue}; $env:TRINITY_HOME=$oldHome; $env:TRINITY_DASHBOARD_TEST_COLLECT_LOG=$oldCollectLog }

@@ -981,7 +981,8 @@ try {
         }
         finally {
             try { $response.Close() } catch { }
-        }        while ($loggedErrorSeq -lt $sharedState.errorSeq) {
+        }
+        while ($loggedErrorSeq -lt $sharedState.errorSeq) {
             $loggedErrorSeq++
             $record = [System.Management.Automation.ErrorRecord]::new([Exception]::new([string]$sharedState.error), 'DashboardCollector', [System.Management.Automation.ErrorCategory]::NotSpecified, $null)
             Write-DashboardError 'collector' $record
