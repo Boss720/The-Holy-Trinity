@@ -87,6 +87,8 @@ Only `agent` and `started` exist while the task runs (written when the runner st
 
 - `agy-<task>.log`: the model label from `label="Gemini 3.8 Flash (High)"`, the conversation id from `cascade_id:<uuid>`, the workspace from `workspaceDirs=[<dir> ...]`.
 - Tasks without `agy-<task>.log` (older runs): optionally search `<agy home>\log\cli-*.log` (newest first, at most 50 files, first 64 KB each) for a `workspaceDirs=[` line that contains the task's worktree path; cache the result.
+- Tasks with neither `agy-<task>.log` nor a session in meta (runs before meta existed): the conversation is the one whose transcript's first `USER_INPUT` line mentions `task-<task>.md`. Scan `<agy home>\brain\*\.system_generated\logs\transcript.jsonl`, newest first, at most 200 folders, first 16 KB each, and require the match to be the task file of this repo's `.codex-out` folder (path compare is case-insensitive, `\` and `/` equal; a URL-encoded or `file:///` form also counts). Cache task -> conversation id (also negative results, for 60 s).
+- Model of such a task: the first `USER_INPUT` says ``setting `Model Selection` from <old> to <model>.``; use `<model>`. Else `label="..."` in the first `<agy home>\log\cli-*.log` (newest first, at most 50, first 256 KB each) that contains the conversation id; cache it.
 - Default model: `label="..."` in the newest `<agy home>\log\cli-*.log` that has one.
 - Transcript: `<agy home>\brain\<conversationId>\.system_generated\logs\transcript.jsonl`, one object per line with `step_index`, `source` (`USER_EXPLICIT|MODEL|SYSTEM`), `type`, `status`, `created_at`:
   - `USER_INPUT`: `content`.
@@ -164,7 +166,14 @@ It starts up to two short processes: cache its result for 60 s in the server.
           "toolCalls": 42,
           "rateLimits": [ { "name": "primary", "usedPercent": 12.5, "windowMinutes": 300, "resetsAt": "2026-10-25T13:00:00" } ],
           "chat": "codex:01a1727b-b5bc-7432-9ce3-31c53b4e4dd2",
-          "subChats": [ { "chat": "codex:<uuid>", "title": "subagent: reviewer", "model": "gpt-6-luna" } ]
+          "subChats": [ { "chat": "codex:<uuid>", "title": "subagent: reviewer", "model": "gpt-6-luna" } ],
+          "contextUsed": 61234,
+          "steps": 40,
+          "thinkingSteps": 12,
+          "toolBreakdown": [ { "name": "read_file", "count": 18 }, { "name": "run_command", "count": 9 } ],
+          "lastTool": "run_command",
+          "filesTouched": ["scripts/dashboard.html"],
+          "backgroundTasks": 2
         }
       ],
       "claudeSessions": [
@@ -215,6 +224,15 @@ Rules:
   - `rateLimits`: Codex only, from the last `token_count`; `[]` otherwise.
   - `chat`: chat key (below) when a transcript file exists, else empty. Claude tasks with `session:` link to that session's key.
   - `subChats`: Codex sessions whose `session_meta.parent_thread_id` is this task's session id (look in the same date folder; cache).
+  - Detail v3 fields (all agents with a transcript; Claude tasks: defaults). Always present: `contextUsed` 0, `steps` 0, `thinkingSteps` 0, `toolBreakdown` `[]`, `lastTool` "", `filesTouched` `[]`, `backgroundTasks` 0 when unknown.
+    - `contextUsed`: tokens in the model's context at the last model call. Codex: `info.last_token_usage.input_tokens` of the last `token_count`. Antigravity: `input_tokens + cache_read_tokens` of the last `PLANNER_RESPONSE`.
+    - `steps`: model turns. Codex: `token_count` events with `info` non-null. Antigravity: `PLANNER_RESPONSE` records.
+    - `thinkingSteps`: Codex: `response_item` of payload type `reasoning`. Antigravity: `PLANNER_RESPONSE` with non-empty `thinking`.
+    - `toolBreakdown`: tool name -> call count, sorted by count descending then name, at most 8 entries. Codex: `payload.name` of `custom_tool_call`/`function_call`. Antigravity: `tool_calls[].name`.
+    - `lastTool`: name of the last tool call.
+    - `filesTouched`: distinct file paths the agent wrote, in first-seen order, at most 20, made relative to the task worktree when under it (forward slashes). Antigravity: `args.Path` or `args.TargetFile` (args may be an object or a JSON string) of `write_file`, `write_to_file`, `edit_file`, `replace_file_content`, `multi_replace_file_content`. Codex: paths in `apply_patch` input (`*** Add File: `, `*** Update File: `, `*** Delete File: ` lines).
+    - `backgroundTasks`: Antigravity `manage_task` calls; Codex: `subChats` count.
+    - Antigravity `started`/`finished`/`durationSec` when meta lacks them: first and last transcript `created_at` (UTC `Z` converted to local time); `finished` only when the task is not running.
 - `claudeSessions`: up to 5 newest sessions per repo, written within the last 7 days, newest first. `title` = last `custom-title`, else the first non-meta user text (one line, max 100 chars). `active` = last write within 120 s. `contextTokens` = input + cache_creation + cache_read of the last assistant message. `task` = name of the board task whose `session:` is this id, else empty. `subagents`: up to 20 newest; `model` from the meta file, else the subagent's last assistant model; `active` = not finished and last write within 120 s.
 - Tasks sorted: running first, then by `updated` descending. Repos sorted by name.
 - Strings are plain text; the UI must escape them (they come from agent output).
