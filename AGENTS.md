@@ -30,6 +30,7 @@ Global protocol also applies: `~/.codex/AGENTS.md` = `~/.gemini/AGENTS.md` (para
 
 ## trinity command (one entry point, cmd from repo root)
 
+- From Git Bash (Claude's Bash tool) run `./trinity.sh <command> ...` instead: started from there, `trinity.cmd` fails on any argument with spaces when the repo path has a space.
 - `trinity status` : branch, agent availability (`agents:` line), worktrees, board, HANDOFF status. Runs automatically when a Claude session starts here.
 - `trinity dispatch codex <task> "<prompt>" -Scope "src/x/*"` : worktree + branch, then Codex works headless in the background (workspace-write, inside its worktree only). Board shows running/done; Windows notification when finished. Log, final summary and run metadata (`meta-<task>.json`: model, session, tokens, duration) in `.codex-out\`. Without Codex the task reroutes to Antigravity (and the reverse) with a notice.
 - `trinity dispatch antigravity <task> "<prompt>" -Scope "src/ui/*"` : same as Codex, but Antigravity (Gemini, `agy -p` CLI) works headless in the worktree. Permissions are skipped, so the task rules confine it to its worktree; the runner commits.

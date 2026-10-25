@@ -28,6 +28,26 @@ if ($mode -eq 'fail') { exit 4 }
 if ($mode -eq 'slow') { Start-Sleep -Seconds 120 }
 
 [IO.File]::WriteAllText((Join-Path (Get-Location).Path 'agy-output.txt'), 'fake agy output' + "`r`n", $utf8)
+if ($mode -eq 'narrate') {
+    # Real agy -p joins the text of every turn: a pause for background tests comes before the summary.
+    # The session transcript (written unless FAKE_AGY_TRANSCRIPT=none) keeps the turns apart.
+    $turns = @('Running tests to verify the baseline...', "Fake narrated summary.`n`nSecond paragraph of the summary.")
+    if ($env:TRINITY_AGY_HOME -and $env:FAKE_AGY_TRANSCRIPT -ne 'none') {
+        $logs = Join-Path $env:TRINITY_AGY_HOME 'brain\11111111-2222-3333-4444-555555555555\.system_generated\logs'
+        New-Item -ItemType Directory -Path $logs -Force | Out-Null
+        $records = @(
+            [ordered]@{ step_index = 0; source = 'USER_EXPLICIT'; type = 'USER_INPUT'; content = 'Read the task file and do it.' }
+            [ordered]@{ step_index = 1; source = 'MODEL'; type = 'PLANNER_RESPONSE'; tool_calls = @(@{ name = 'run_command'; args = @{ CommandLine = '"tests\run-tests.cmd"' } }) }
+            [ordered]@{ step_index = 2; source = 'MODEL'; type = 'PLANNER_RESPONSE'; content = $turns[0] }
+            [ordered]@{ step_index = 3; source = 'SYSTEM'; type = 'SYSTEM_MESSAGE'; content = 'background task finished' }
+            [ordered]@{ step_index = 4; source = 'MODEL'; type = 'PLANNER_RESPONSE'; content = $turns[1] }
+        )
+        $lines = @($records | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 5 })
+        [IO.File]::WriteAllText((Join-Path $logs 'transcript.jsonl'), (($lines -join "`n") + "`n"), [System.Text.UTF8Encoding]::new($true))
+    }
+    Write-Answer (($turns -join "`n") + "`n")
+    exit 0
+}
 # Real agy -p prints background-task notices before the summary; the runner must strip them.
 Write-Answer ("The following is a <SYSTEM_MESSAGE> not actually sent by the user.`n`n<SYSTEM_MESSAGE>`n[Message] fake background task finished`n</SYSTEM_MESSAGE>`nFake Antigravity completed successfully.")
 exit 0

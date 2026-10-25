@@ -14,6 +14,8 @@
 - `GEMINI.md`: headless Antigravity tasks put findings in their final message, not `HANDOFF.md`.
 - Dashboard: dark-mode muted text contrast; 44px touch targets on phones.
 - Removed two empty junk files (`Read`, `[-Force]'`).
+- Antigravity commit subjects and results come from the agent's final message. `agy -p` joins every turn's text into its answer, so a run that paused for background tests was committed as "Running tests to verify...". The runner now reads the final turn from the session transcript.
+- `trinity.sh`: Git Bash entry point, installed by `init`. `trinity.cmd` started from Git Bash failed on any argument with spaces when the repo path had a space (`'D:\...\Holy' is not recognized`), because Windows runs a .cmd through `cmd /c`, which strips the outer quotes.
 
 ## v0.3.0 - 2026-10-25
 

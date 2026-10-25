@@ -30,6 +30,7 @@ function New-Fixture([string]$TestCommand = 'exit 0') {
     $script:fixtures.Add($root)
 
     Copy-Item -LiteralPath (Join-Path $script:repoSource 'trinity.cmd') -Destination $repo
+    Copy-Item -LiteralPath (Join-Path $script:repoSource 'trinity.sh') -Destination $repo
     Copy-Item -LiteralPath (Join-Path $script:repoSource 'scripts') -Destination $repo -Recurse
     Copy-Item -LiteralPath (Join-Path $script:repoSource '.gitattributes') -Destination $repo
     New-Item -ItemType Directory -Path (Join-Path $repo 'tests') -Force | Out-Null
@@ -120,7 +121,7 @@ function Run-Case([string]$Name, [scriptblock]$Body, [string]$TestCommand = 'exi
     $oldReview = $env:FAKE_REVIEW_OUTPUT
     # Agent selection env: every case starts with all three fakes usable and nothing disabled.
     $savedEnv = @{}
-    foreach ($envName in 'CLAUDE_EXE', 'TRINITY_DISABLE', 'TRINITY_REVIEWER', 'FAKE_CODEX_LOGGED_OUT', 'FAKE_CLAUDE_LOGGED_OUT', 'FAKE_CLAUDE_MODE') {
+    foreach ($envName in 'CLAUDE_EXE', 'TRINITY_DISABLE', 'TRINITY_REVIEWER', 'FAKE_CODEX_LOGGED_OUT', 'FAKE_CLAUDE_LOGGED_OUT', 'FAKE_CLAUDE_MODE', 'TRINITY_AGY_HOME', 'FAKE_AGY_TRANSCRIPT') {
         $savedEnv[$envName] = [Environment]::GetEnvironmentVariable($envName)
         [Environment]::SetEnvironmentVariable($envName, $null)
     }
@@ -129,6 +130,8 @@ function Run-Case([string]$Name, [scriptblock]$Body, [string]$TestCommand = 'exi
         $env:CODEX_EXE = $fixture.FakeCodex
         $env:AGY_EXE = $fixture.FakeAgy
         $env:CLAUDE_EXE = $fixture.FakeClaude
+        # Agy transcripts come from the fixture, never from the user's real ~/.gemini.
+        $env:TRINITY_AGY_HOME = Join-Path $fixture.Root 'agy-home'
         $env:FAKE_CODEX_MODE = 'ok'
         $env:FAKE_AGY_MODE = 'ok'
         $env:FAKE_REVIEW_OUTPUT = $null
@@ -286,6 +289,57 @@ Run-Case 'Antigravity task commits, returns result, and merges' {
     Assert-True ((Invoke-Git $f.Repo @('show', 'main:agy-output.txt')) -eq 'fake agy output') 'main lacks agy-output.txt after merge'
 }
 
+Run-Case 'Antigravity commit uses the final turn, not narration from earlier turns' {
+    param($f)
+    $env:FAKE_AGY_MODE = 'narrate'
+    Start-AgyTask $f 'agy-narrate'
+    $wait = Invoke-Trinity $f @('wait', 'agy-narrate', '-Timeout', '50')
+    Assert-True ($wait.ExitCode -eq 0) "wait exit $($wait.ExitCode): $($wait.Output)"
+    $subject = Invoke-Git $f.Repo @('log', '-1', '--format=%s', 'agent/antigravity/agy-narrate')
+    Assert-True ($subject -eq 'agy-narrate: Fake narrated summary.') "commit subject came from narration: $subject"
+    $result = [IO.File]::ReadAllText((Join-Path $f.Repo '.codex-out\result-agy-narrate.md'))
+    Assert-True ($result -notmatch 'Running tests' -and $result -match 'Second paragraph of the summary') "result is not the final turn: $result"
+    # Without a transcript the whole answer is kept, so nothing is lost.
+    $env:FAKE_AGY_TRANSCRIPT = 'none'
+    Remove-Item -LiteralPath (Join-Path $env:TRINITY_AGY_HOME 'brain') -Recurse -Force
+    Start-AgyTask $f 'agy-narrate-plain'
+    $wait = Invoke-Trinity $f @('wait', 'agy-narrate-plain', '-Timeout', '50')
+    Assert-True ($wait.ExitCode -eq 0) "wait exit $($wait.ExitCode): $($wait.Output)"
+    $result = [IO.File]::ReadAllText((Join-Path $f.Repo '.codex-out\result-agy-narrate-plain.md'))
+    Assert-True ($result -match 'Running tests' -and $result -match 'Second paragraph of the summary') "fallback dropped text: $result"
+}
+
+Run-Case 'trinity.sh keeps arguments with spaces from Git Bash' {
+    param($f)
+    # trinity.cmd started from Git Bash breaks here: the fixture path has a space and the note needs quotes.
+    # git.exe may be <Git>\cmd\git.exe or, under Git Bash, <Git>\mingw64\bin\git.exe: walk up to <Git>\bin\bash.exe.
+    $bash = ''
+    $git = Get-Command git -ErrorAction SilentlyContinue
+    $dir = if ($git) { Split-Path $git.Source -Parent } else { '' }
+    for ($i = 0; $i -lt 4 -and $dir -and -not $bash; $i++) {
+        if (Test-Path -LiteralPath (Join-Path $dir 'bin\bash.exe')) { $bash = Join-Path $dir 'bin\bash.exe' }
+        $dir = Split-Path $dir -Parent
+    }
+    if (-not $bash) {
+        Write-Output 'SKIP trinity.sh check: Git Bash not found'
+        return
+    }
+    $oldPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    Push-Location -LiteralPath $f.Repo
+    try {
+        $out = & $bash -c "./trinity.sh track task-sh 'note with spaces'" 2>&1
+        $ok = $LASTEXITCODE
+        & $bash -c './trinity.sh track Bad_Name x' 2>&1 | Out-Null
+        $bad = $LASTEXITCODE
+    }
+    finally { Pop-Location; $ErrorActionPreference = $oldPreference }
+    Assert-True ($ok -eq 0) "trinity.sh track failed ($ok): $($out -join ' ')"
+    $board = Get-Content -Raw (Join-Path $f.Repo '.git\agent-board.md')
+    Assert-True ($board -match '(?m)^- status: working: note with spaces') "note with spaces did not arrive intact: $board"
+    Assert-True ($bad -eq 1) "trinity.sh did not pass the exit code through: $bad"
+}
+
 Run-Case 'failed Antigravity task returns failure' {
     param($f)
     $env:FAKE_AGY_MODE = 'fail'
@@ -416,10 +470,11 @@ Run-Case 'init installs the toolkit with subagents and the army skill' {
     & git -C $target init -b main 2>&1 | Out-Null
     $init = Invoke-Trinity $f @('init', $target)
     Assert-True ($init.ExitCode -eq 0) "init failed: $($init.Output)"
-    foreach ($rel in @('.claude\skills\army\SKILL.md', '.claude\agents\codex-worker.md', 'scripts\dashboard.ps1')) {
+    foreach ($rel in @('.claude\skills\army\SKILL.md', '.claude\agents\codex-worker.md', 'scripts\dashboard.ps1', 'trinity.sh')) {
         $dst = Join-Path $target $rel
         Assert-True ((Test-Path -LiteralPath $dst) -and ([IO.File]::ReadAllText($dst) -eq [IO.File]::ReadAllText((Join-Path $script:repoSource $rel)))) "init did not install $rel"
     }
+    Assert-True (@([IO.File]::ReadAllLines((Join-Path $target '.gitattributes'))) -contains '*.sh text eol=lf') 'init did not keep trinity.sh on LF line endings'
 }
 
 Run-Case 'init merges or upgrades the SessionStart hook in a kept settings.json' {

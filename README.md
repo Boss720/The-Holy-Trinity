@@ -30,7 +30,7 @@ This repo is the toolkit itself. Install it into any project with `trinity init 
 | `scripts/codex.cmd` | Runs the Codex CLI bundled with the Codex app. |
 | `scripts/codex-review.cmd` | Codex code review, forced read-only. |
 | `scripts/codex-ask.cmd` | One-shot read-only Codex question. |
-| `trinity.cmd`, `scripts/trinity.ps1` | One command for status, dispatch, merge, review, ask. |
+| `trinity.cmd`, `trinity.sh`, `scripts/trinity.ps1` | One command for status, dispatch, merge, review, ask (`trinity.sh` is the Git Bash entry). |
 | `scripts/lib/board.ps1` | Shared board/worktree helpers, repo registry for the dashboard. |
 | `scripts/dashboard.ps1`, `scripts/dashboard.html` | `trinity dashboard`: localhost state server and the page. Spec in `docs/dashboard.md`. |
 | `.githooks/pre-commit` | Encoding and secret checks (enabled by `trinity setup`). |

@@ -164,6 +164,27 @@ function Invoke-ReadOnlyAgent([string]$agent, [string]$dir, [string]$promptFile,
     [pscustomobject]@{ ExitCode = $rc; Lines = @($text -split '\r?\n') }
 }
 
+# agy -p joins the text of every turn into "response": an agent that starts tests in the background ends a turn
+# with "Running tests..." and is resumed later. Only the last turn is its summary, so take that turn's text from
+# the session transcript; keep the whole response when the transcript is missing or does not end with it.
+function Get-AgyFinalMessage([string]$session, [string]$response) {
+    if ($session -notmatch '^[0-9a-fA-F-]{36}$') { return $response }
+    $agyHome = if ($env:TRINITY_AGY_HOME) { $env:TRINITY_AGY_HOME } else { Join-Path $env:USERPROFILE '.gemini\antigravity-cli' }
+    $transcript = Join-Path $agyHome "brain\$session\.system_generated\logs\transcript.jsonl"
+    if (-not (Test-Path -LiteralPath $transcript)) { return $response }
+    $last = ''
+    try {
+        foreach ($line in [IO.File]::ReadAllLines($transcript)) {
+            if (-not $line.Contains('"PLANNER_RESPONSE"') -or -not $line.Contains('"content"')) { continue }
+            try { $record = $line.TrimStart([char]0xFEFF) | ConvertFrom-Json } catch { continue }
+            if ($record.type -eq 'PLANNER_RESPONSE' -and "$($record.content)".Trim()) { $last = "$($record.content)".Trim() }
+        }
+    }
+    catch { return $response }
+    if ($last -and $response.TrimEnd().EndsWith($last)) { return $last + "`n" }
+    $response
+}
+
 # Review uncommitted changes ('uncommitted'), the current branch against $ref ('base'), or one commit ('commit').
 function Invoke-Review([string]$reviewer, [string]$dir, [string]$mode, [string]$ref, [string]$tag) {
     Write-Host "reviewer: $reviewer"
@@ -491,8 +512,8 @@ switch ($Command) {
             try {
                 $j = $raw | ConvertFrom-Json
                 if ($j -and $null -ne $j.response) {
-                    $text = "$($j.response)"
                     $meta.sessionId = "$($j.conversation_id)"
+                    $text = Get-AgyFinalMessage $meta.sessionId "$($j.response)"
                     if ($j.duration_seconds) { $meta.durationSec = [double]$j.duration_seconds }
                     if ($j.usage) {
                         $meta.tokens = [ordered]@{ input = [long]$j.usage.input_tokens; cached = [long]$j.usage.cache_read_tokens
@@ -704,7 +725,7 @@ switch ($Command) {
         }
 
         # Toolkit files are always refreshed, so rerunning init updates an install.
-        $toolkit = @('trinity.cmd', 'scripts\trinity.ps1', 'scripts\agent-task.ps1', 'scripts\lib\board.ps1',
+        $toolkit = @('trinity.cmd', 'trinity.sh', 'scripts\trinity.ps1', 'scripts\agent-task.ps1', 'scripts\lib\board.ps1',
             'scripts\codex.cmd', 'scripts\codex-review.cmd', 'scripts\codex-ask.cmd', '.githooks\pre-commit',
             'scripts\dashboard.ps1', 'scripts\dashboard.html',
             '.claude\agents\codex-worker.md', '.claude\agents\codex-reviewer.md', '.claude\agents\antigravity-worker.md',
@@ -772,7 +793,7 @@ switch ($Command) {
         # Line-based config files: append only the lines that are missing.
         $append = @{
             '.gitignore'     = @('.codex-out/')
-            '.gitattributes' = @('*.cmd text eol=crlf', '*.ps1 text eol=crlf', '.githooks/* text eol=lf')
+            '.gitattributes' = @('*.cmd text eol=crlf', '*.ps1 text eol=crlf', '.githooks/* text eol=lf', '*.sh text eol=lf')
         }
         foreach ($rel in $append.Keys) {
             $dst = Join-Path $target $rel
