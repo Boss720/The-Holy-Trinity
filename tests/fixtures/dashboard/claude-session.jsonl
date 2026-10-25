@@ -1,0 +1,3 @@
+{"type":"user","message":{"content":"Claude fixture prompt"},"isMeta":false,"timestamp":"2026-10-25T10:02:00Z","gitBranch":"main","cwd":"fixture"}
+{"type":"assistant","message":{"id":"m1","model":"claude-opus-fixture","content":[{"type":"thinking","thinking":"Claude thought"},{"type":"text","text":"Claude answer"}],"usage":{"input_tokens":40,"cache_creation_input_tokens":10,"cache_read_input_tokens":5,"output_tokens":8}},"effort":"high","timestamp":"2026-10-25T10:02:02Z"}
+{"type":"custom-title","customTitle":"Claude fixture title","timestamp":"2026-10-25T10:02:03Z"}

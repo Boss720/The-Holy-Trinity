@@ -521,6 +521,98 @@ Run-Case 'dashboard HTTP routes return state JSON and 404' {
     finally { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
 }
 
+Run-Case 'dashboard collects Codex Antigravity and Claude details and chats' {
+    param($f)
+    $oldCodexHome = $env:CODEX_HOME; $oldAgyHome = $env:TRINITY_AGY_HOME; $oldClaudeHome = $env:CLAUDE_CONFIG_DIR; $oldDisable = $env:TRINITY_DISABLE
+    try {
+        $env:CODEX_HOME = Join-Path $f.Root 'codex-home'
+        $env:TRINITY_AGY_HOME = Join-Path $f.Root 'agy-home'
+        $env:CLAUDE_CONFIG_DIR = Join-Path $f.Root 'claude-home'
+        $env:TRINITY_DISABLE = 'codex'
+        $codexId = '11111111-2222-4333-8444-555555555555'; $agyId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'; $claudeId = '99999999-8888-4777-8666-555555555555'; $agentId = 'agent_fixture-01'
+        # The fake API key is assembled here, not stored, so the pre-commit secret scan stays meaningful.
+        $copyFixture = { param($Name, $Destination) [IO.File]::WriteAllText($Destination, ([IO.File]::ReadAllText((Join-Path $script:repoSource "tests\fixtures\dashboard\$Name")) -replace 'FIXTURE_FAKE_KEY', ('sk-' + 'abcdefghijklmnopqrstuvwxyz')), [Text.UTF8Encoding]::new($false)) }
+        $codexSessions = Join-Path $env:CODEX_HOME 'sessions\2026\10\25'
+        $agyLogs = Join-Path $f.Repo '.codex-out'
+        New-Item -ItemType Directory -Path $codexSessions,$agyLogs -Force | Out-Null
+        & $copyFixture 'codex-rollout.jsonl' (Join-Path $codexSessions "rollout-fixture-$codexId.jsonl")
+        New-Item -ItemType Directory -Path (Join-Path $env:TRINITY_AGY_HOME "brain\$agyId\.system_generated\logs") -Force | Out-Null
+        & $copyFixture 'agy-transcript.jsonl' (Join-Path $env:TRINITY_AGY_HOME "brain\$agyId\.system_generated\logs\transcript.jsonl")
+        [IO.File]::WriteAllText((Join-Path $agyLogs 'log-codex-fixture.txt'), "model: gpt-log-fixture`r`nreasoning effort: low`r`nsession id: $codexId`r`n", [Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText((Join-Path $agyLogs 'meta-codex-fixture.json'), (@{ agent='codex'; started='2026-10-25T10:00:00'; finished='2026-10-25T10:01:00'; model='gpt-meta-fixture'; effort='high'; sessionId=$codexId } | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText((Join-Path $agyLogs 'agy-agy-fixture.log'), "label=`"Gemini Fixture (High)`"`r`ncascade_id:$agyId`r`nworkspaceDirs=[$($f.Repo)]`r`n", [Text.UTF8Encoding]::new($false))
+        $claudeSlug = [regex]::Replace([IO.Path]::GetFullPath($f.Repo), '[^A-Za-z0-9]', '-')
+        $claudeProject = Join-Path $env:CLAUDE_CONFIG_DIR "projects\$claudeSlug"
+        $claudeSessionPath = Join-Path $claudeProject "$claudeId.jsonl"
+        New-Item -ItemType Directory -Path $claudeProject -Force | Out-Null
+        & $copyFixture 'claude-session.jsonl' $claudeSessionPath
+        $subDir = Join-Path $claudeProject "$claudeId\subagents"
+        New-Item -ItemType Directory -Path $subDir -Force | Out-Null
+        & $copyFixture 'claude-subagent.jsonl' (Join-Path $subDir "agent-$agentId.jsonl")
+        [IO.File]::WriteAllText((Join-Path $subDir "agent-$agentId.meta.json"), (@{ agentType='general-purpose'; description='Fixture subagent'; model='fixture-haiku'; finished=$true } | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
+        $board = Join-Path $f.Repo '.git\agent-board.md'
+        $sections = @('', '## codex-fixture', '- agent: codex', '- branch: -', '- worktree: -', '- scope: tests/*', '- status: done 2026-10-25 10:01', '', '## agy-fixture', '- agent: antigravity', '- branch: -', '- worktree: -', '- scope: tests/*', '- status: done 2026-10-25 10:01', '', '## claude-fixture', '- agent: claude', '- branch: -', '- worktree: -', '- scope: tests/*', "- session: $claudeId", '- status: working: fixture 2026-10-25 10:02') -join "`r`n"
+        [IO.File]::WriteAllText($board, $sections + "`r`n", [Text.UTF8Encoding]::new($false))
+        $dashboard = Join-Path $f.Repo 'scripts\dashboard.ps1'; $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        $json = & $powershell -NoProfile -ExecutionPolicy Bypass -File $dashboard -Once -Repos $f.Repo
+        Assert-True ($LASTEXITCODE -eq 0) "dashboard exited $LASTEXITCODE"
+        $state = ($json -join "`n") | ConvertFrom-Json
+        $tasks = @($state.repos | ForEach-Object { $_.tasks })
+        $codex = $tasks | Where-Object task -eq 'codex-fixture' | Select-Object -First 1
+        Assert-True ($codex.model -eq 'gpt-meta-fixture' -and $codex.effort -eq 'high' -and $codex.sessionId -eq $codexId) 'Codex log/meta fields were not collected'
+        Assert-True ($codex.tokens.total -eq 134 -and $codex.contextWindow -eq 200000 -and $codex.toolCalls -eq 1 -and $codex.rateLimits.Count -eq 1) ("Codex rollout metrics were not collected: tokens=$($codex.tokens.total), context=$($codex.contextWindow), tools=$($codex.toolCalls), limits=$($codex.rateLimits.Count)")
+        Assert-True ($codex.chat -eq "codex:$codexId") 'Codex chat key is missing'
+        $agy = $tasks | Where-Object task -eq 'agy-fixture' | Select-Object -First 1
+        Assert-True ($agy.model -eq 'Gemini Fixture (High)' -and $agy.tokens.input -eq 50 -and $agy.tokens.cached -eq 5 -and $agy.tokens.output -eq 15 -and $agy.toolCalls -eq 1) 'Antigravity transcript metrics were not collected'
+        $repoState = $state.repos | Where-Object path -eq ([IO.Path]::GetFullPath($f.Repo)) | Select-Object -First 1
+        $session = $repoState.claudeSessions | Where-Object id -eq $claudeId | Select-Object -First 1
+        Assert-True ($session.title -eq 'Claude fixture title' -and $session.contextTokens -eq 55 -and $session.subagents.Count -eq 1) 'Claude session or subagent summary is missing'
+        Assert-True ($session.task -eq 'claude-fixture' -and $session.subagents[0].description -eq 'Fixture subagent') 'Claude session was not linked to its tracked task/subagent'
+        Assert-True (-not $state.availability.codex.available) 'TRINITY_DISABLE did not disable Codex availability'
+        $chatSpecs = @(@("codex:$codexId",'user'), @("agy:$agyId",'user'), @("claude:${claudeSlug}:${claudeId}",'thinking'), @("claude:${claudeSlug}:${claudeId}:$agentId",'tool'))
+        foreach ($spec in $chatSpecs) {
+            $chatJson = & $powershell -NoProfile -ExecutionPolicy Bypass -File $dashboard -Chat $spec[0] -Repos $f.Repo
+            Assert-True ($LASTEXITCODE -eq 0) "-Chat failed for $($spec[0])"
+            $chat = ($chatJson -join "`n") | ConvertFrom-Json
+            Assert-True (@($chat.messages | Where-Object role -eq $spec[1]).Count -gt 0) "chat role $($spec[1]) missing for $($spec[0])"
+            if ($spec[0] -eq "codex:$codexId") { Assert-True ($chat.title -eq 'codex-fixture' -and $chat.model -eq 'gpt-meta-fixture') 'Codex chat task title or model is missing' }
+            if ($spec[0] -eq "agy:$agyId") { Assert-True ($chat.title -eq 'agy-fixture') 'Antigravity chat task title is missing' }
+            if ($spec[0] -like 'codex:*') { Assert-True (($chat.messages | Where-Object role -eq 'result' | ForEach-Object text) -join '' -match '\[redacted\]') 'Codex tool output key was not redacted' }
+        }
+        $malformed = & $powershell -NoProfile -ExecutionPolicy Bypass -File $dashboard -Chat 'not-a-key' -Repos $f.Repo
+        Assert-True ($LASTEXITCODE -eq 2) 'malformed -Chat id did not exit 2'
+        $missing = & $powershell -NoProfile -ExecutionPolicy Bypass -File $dashboard -Chat 'codex:00000000-0000-0000-0000-000000000000' -Repos $f.Repo
+        Assert-True ($LASTEXITCODE -eq 3) 'unknown -Chat id did not exit 3'
+    }
+    finally { $env:CODEX_HOME=$oldCodexHome; $env:TRINITY_AGY_HOME=$oldAgyHome; $env:CLAUDE_CONFIG_DIR=$oldClaudeHome; $env:TRINITY_DISABLE=$oldDisable }
+}
+
+Run-Case 'dashboard chat HTTP validates ids and guards hosts' {
+    param($f)
+    $oldCodexHome = $env:CODEX_HOME; $oldAgyHome = $env:TRINITY_AGY_HOME; $oldClaudeHome = $env:CLAUDE_CONFIG_DIR; $oldDisable = $env:TRINITY_DISABLE
+    $process = $null
+    try {
+        $env:CODEX_HOME = Join-Path $f.Root 'codex-home'; $env:TRINITY_AGY_HOME = Join-Path $f.Root 'agy-home'; $env:CLAUDE_CONFIG_DIR = Join-Path $f.Root 'claude-home'; $env:TRINITY_DISABLE = 'codex'
+        $tcp = New-Object System.Net.Sockets.TcpListener([Net.IPAddress]::Loopback, 0); $tcp.Start(); $port=$tcp.LocalEndpoint.Port; $tcp.Stop()
+        $dashboard = Join-Path $f.Repo 'scripts\dashboard.ps1'
+        $process = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -WindowStyle Hidden -PassThru -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"{0}"' -f $dashboard),'-Port',[string]$port,'-Repos',('"{0}"' -f $f.Repo))
+        $deadline=(Get-Date).AddSeconds(10); $response=$null
+        while (-not $response -and (Get-Date) -lt $deadline -and -not $process.HasExited) { try { $response=Invoke-WebRequest -Uri "http://localhost:$port/api/state" -UseBasicParsing -TimeoutSec 2 } catch { Start-Sleep -Milliseconds 100 } }
+        if (-not $response) { Write-Output 'SKIP dashboard chat HTTP check: HttpListener is unsupported or blocked in this environment'; return }
+        Assert-True ($response.Headers['X-Content-Type-Options'] -eq 'nosniff') 'response omitted nosniff header'
+        foreach ($pair in @(@('bad','400'), @('codex:00000000-0000-0000-0000-000000000000','404'))) {
+            $status=0; try { Invoke-WebRequest -Uri "http://localhost:$port/api/chat?id=$([uri]::EscapeDataString($pair[0]))" -UseBasicParsing -TimeoutSec 2 | Out-Null } catch { if ($_.Exception.Response) { $status=[int]$_.Exception.Response.StatusCode } }
+            Assert-True ($status -eq [int]$pair[1]) "chat id $($pair[0]) returned $status"
+        }
+        # Raw request: http.sys answers 400 for a Host outside the listener prefix before the guard (403) sees it; both block.
+        $client=New-Object Net.Sockets.TcpClient('127.0.0.1', $port); $hostLine=''
+        try { $stream=$client.GetStream(); $bytes=[Text.Encoding]::ASCII.GetBytes("GET /api/state HTTP/1.1`r`nHost: evil.example:$port`r`nConnection: close`r`n`r`n"); $stream.Write($bytes,0,$bytes.Length); $hostLine=(New-Object IO.StreamReader($stream)).ReadLine() }
+        finally { $client.Close() }
+        Assert-True ($hostLine -match '^HTTP/1\.[01] (400|403) ') "invalid Host header returned: $hostLine"
+    }
+    finally { if ($process) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }; $env:CODEX_HOME=$oldCodexHome; $env:TRINITY_AGY_HOME=$oldAgyHome; $env:CLAUDE_CONFIG_DIR=$oldClaudeHome; $env:TRINITY_DISABLE=$oldDisable }
+}
+
 Write-Output "$passed passed, $failed failed"
 if (-not $Keep) {
     foreach ($root in @($fixtures)) {
