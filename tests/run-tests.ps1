@@ -604,9 +604,11 @@ Run-Case 'dashboard chat HTTP validates ids and guards hosts' {
             $status=0; try { Invoke-WebRequest -Uri "http://localhost:$port/api/chat?id=$([uri]::EscapeDataString($pair[0]))" -UseBasicParsing -TimeoutSec 2 | Out-Null } catch { if ($_.Exception.Response) { $status=[int]$_.Exception.Response.StatusCode } }
             Assert-True ($status -eq [int]$pair[1]) "chat id $($pair[0]) returned $status"
         }
-        $request=[Net.HttpWebRequest]::Create("http://localhost:$port/nope"); $request.Host='evil.example'; $hostStatus=0
-        try { $null=$request.GetResponse() } catch { if ($_.Exception.Response) { $hostStatus=[int]$_.Exception.Response.StatusCode; $_.Exception.Response.Close() } }
-        Assert-True ($hostStatus -eq 403) "invalid Host header returned $hostStatus"
+        # Raw request: http.sys answers 400 for a Host outside the listener prefix before the guard (403) sees it; both block.
+        $client=New-Object Net.Sockets.TcpClient('127.0.0.1', $port); $hostLine=''
+        try { $stream=$client.GetStream(); $bytes=[Text.Encoding]::ASCII.GetBytes("GET /api/state HTTP/1.1`r`nHost: evil.example:$port`r`nConnection: close`r`n`r`n"); $stream.Write($bytes,0,$bytes.Length); $hostLine=(New-Object IO.StreamReader($stream)).ReadLine() }
+        finally { $client.Close() }
+        Assert-True ($hostLine -match '^HTTP/1\.[01] (400|403) ') "invalid Host header returned: $hostLine"
     }
     finally { if ($process) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }; $env:CODEX_HOME=$oldCodexHome; $env:TRINITY_AGY_HOME=$oldAgyHome; $env:CLAUDE_CONFIG_DIR=$oldClaudeHome; $env:TRINITY_DISABLE=$oldDisable }
 }
