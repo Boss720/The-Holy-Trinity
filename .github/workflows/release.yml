@@ -39,4 +39,6 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$env:GITHUB_REF_NAME" dist\trinity-v*.zip dist\trinity-v*.zip.sha256 --title "$env:GITHUB_REF_NAME" --notes-file dist\RELEASE_NOTES.md
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          gh release create "$env:GITHUB_REF_NAME" "dist\trinity-v$version.zip" "dist\trinity-v$version.zip.sha256" --title "$env:GITHUB_REF_NAME" --notes-file dist\RELEASE_NOTES.md
