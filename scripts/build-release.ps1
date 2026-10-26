@@ -99,9 +99,10 @@ try {
     [IO.File]::WriteAllText($hashPath, "$hash  $tag.zip`n", (New-Object Text.UTF8Encoding($false)))
 
     $change = [IO.File]::ReadAllText((Join-Path $root 'CHANGELOG.md'))
-    $section = [regex]::Match($change, '(?ms)^## v' + [regex]::Escape($Version) + '\s*\r?\n(.*?)(?=^## |\z)')
+    $section = [regex]::Match($change, '(?ms)^## v' + [regex]::Escape($Version) + '(?:[ \t]+-[^\r\n]*)?\s*\r?\n(.*?)(?=^## |\z)')
     if (-not $section.Success) { $section = [regex]::Match($change, '(?ms)^## Unreleased\s*\r?\n(.*?)(?=^## |\z)') }
-    $body = if ($section.Success) { $section.Groups[1].Value.Trim() } else { "Release $Version." }
+    if (-not $section.Success) { throw "CHANGELOG.md has no '## v$Version' or '## Unreleased' section" }
+    $body = $section.Groups[1].Value.Trim()
     $notes = $body + "`r`n`r`nDownload $tag.zip, extract it, run install.cmd. See INSTALL.md.`r`n"
     [IO.File]::WriteAllText($notesPath, $notes, (New-Object Text.UTF8Encoding($false)))
 
