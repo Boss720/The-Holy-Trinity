@@ -503,13 +503,120 @@ function Get-ChatTaskInfo([string]$Agent, [string]$SessionId) {
     return @{ title=''; model=''; effort='' }
 }
 
-function Invoke-GitRead([string]$Directory, [string[]]$Arguments) {
+function Invoke-GitRead([string]$Directory, [string[]]$Arguments, [switch]$Bounded, [int]$MaxChars = 262144) {
+    if ($Bounded) {
+        # No shell; quote each array element for Windows native argument parsing.
+        $info = New-Object Diagnostics.ProcessStartInfo
+        $info.FileName = 'git'; $info.UseShellExecute = $false; $info.CreateNoWindow = $true
+        $info.RedirectStandardOutput = $true; $info.RedirectStandardError = $true
+        $info.StandardOutputEncoding = [Text.Encoding]::UTF8
+        $nativeArgs = @('-C', $Directory) + $Arguments
+        $info.Arguments = (@($nativeArgs | ForEach-Object { '"' + ([regex]::Replace(([regex]::Replace($_, '(\\*)"', '$1$1\"')), '(\\+)$', '$1$1')) + '"' }) -join ' ')
+        $process = New-Object Diagnostics.Process; $process.StartInfo = $info
+        try {
+            [void]$process.Start(); $errors = $process.StandardError.BaseStream.CopyToAsync([IO.Stream]::Null)
+            $text = New-Object Text.StringBuilder; $buffer = New-Object char[] 4096
+            $deadline = [datetime]::UtcNow.AddSeconds(4); $truncated = $false
+            while ($true) {
+                $pending = $process.StandardOutput.ReadAsync($buffer, 0, $buffer.Length)
+                $remaining = [int][Math]::Max(0, ($deadline - [datetime]::UtcNow).TotalMilliseconds)
+                if (-not $pending.Wait($remaining)) { throw 'Git read timed out' }
+                $count = $pending.Result; if ($count -eq 0) { break }
+                $take = [Math]::Min($count, $MaxChars - $text.Length)
+                if ($take -gt 0) { [void]$text.Append($buffer, 0, $take) }
+                if ($take -lt $count) { $truncated = $true; break }
+            }
+            if ($truncated -and -not $process.HasExited) { $process.Kill() }
+            if (-not $process.WaitForExit([int][Math]::Max(1, ($deadline - [datetime]::UtcNow).TotalMilliseconds))) { throw 'Git read timed out' }
+            return @{ text=$text.ToString(); code=$process.ExitCode; truncated=$truncated }
+        }
+        finally { if ($process.Id -and -not $process.HasExited) { $process.Kill(); [void]$process.WaitForExit(1000) }; $process.Dispose() }
+    }
     $oldPreference = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try { $output = & git -C $Directory @Arguments 2>$null }
     finally { $ErrorActionPreference = $oldPreference }
     if ($LASTEXITCODE -ne 0) { return $null }
     return ($output -join "`n").Trim()
+}
+
+function Read-TaskGit([string]$Repo, [string[]]$Arguments, [int]$Limit = 262144) {
+    $result = Invoke-GitRead $Repo $Arguments -Bounded -MaxChars $Limit
+    if ($result.code -ne 0 -or $result.truncated) { throw 'Git read failed or exceeded output limit' }
+    return $result.text
+}
+
+function Get-TaskDiff([string]$Repo, $Task) {
+    $range = 'main...' + $Task.branch
+    $names = Read-TaskGit $Repo @('-c','core.quotepath=false','diff','--no-ext-diff','--no-textconv','--name-status','-z','--find-renames',$range,'--')
+    $nums = Read-TaskGit $Repo @('-c','core.quotepath=false','diff','--no-ext-diff','--no-textconv','--numstat','-z','--find-renames',$range,'--')
+    $statuses=@{}; $parts=$names.Split([char]0)
+    for ($i=0; $i -lt $parts.Length-1; $i++) {
+        $status=$parts[$i]; $i++; $path=$parts[$i]
+        if ($status -match '^R') { $i++; $path=$parts[$i] }
+        $statuses[$path]=if ($status -eq 'T') { 'M' } else { $status.Substring(0,1) }
+    }
+    $files=@(); $added=0; $deleted=0; $parts=$nums.Split([char]0)
+    for ($i=0; $i -lt $parts.Length; $i++) {
+        if ($parts[$i] -match '^(\d+|-)\t(\d+|-)\t(.*)$') {
+            $binary=$Matches[1] -eq '-'; $a=0; $d=0; $path=$Matches[3]
+            if (-not $binary) { $a=[int]$Matches[1]; $d=[int]$Matches[2] }
+            if (-not $path) { $i+=2; $path=$parts[$i] }
+            $files+=@{ path=$path; status=$statuses[$path]; added=$a; deleted=$d; binary=$binary }; $added+=$a; $deleted+=$d
+        }
+    }
+    $patch = Invoke-GitRead $Repo @('diff','--no-ext-diff','--no-textconv','--no-color','--find-renames',$range,'--') -Bounded -MaxChars 204800
+    if ($patch.code -ne 0 -and -not $patch.truncated) { throw 'Git diff failed' }
+    $text=$patch.text; $truncated=$patch.truncated
+    # Limit UTF-8 bytes too, and always cut a truncated patch at a line boundary.
+    while ([Text.Encoding]::UTF8.GetByteCount($text) -gt 204800) { $text=$text.Substring(0,[Math]::Max(0,$text.Length-1024)); $truncated=$true }
+    if ($truncated) { $last=$text.LastIndexOf("`n"); if ($last -ge 0) { $text=$text.Substring(0,$last+1) } else { $text='' } }
+    return @{ task=$Task.task; branch=$Task.branch; base='main'; files=@($files); stat=@{ files=$files.Count; added=$added; deleted=$deleted }; patch=$text; truncated=$truncated }
+}
+
+function Get-TaskLog([string]$Repo, $Task, [long]$Offset) {
+    $file = 'log-' + $Task.task + '.txt'
+    if ($Task.agent -eq 'antigravity') { $file='agy-' + $Task.task + '.log' }
+    $path=Join-Path (Join-Path $Repo '.codex-out') $file
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return @{ size=0; offset=0; nextOffset=0; text=''; reset=$false; exists=$false } }
+    $stream=New-Object IO.FileStream($path,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::ReadWrite)
+    try {
+        $size=$stream.Length; $reset=$Offset -gt $size
+        if ($Offset -lt 0 -or $reset) { $Offset=[Math]::Max(0,$size-16384) }
+        [void]$stream.Seek($Offset,[IO.SeekOrigin]::Begin); $buffer=New-Object byte[] ([int][Math]::Min(65536,$size-$Offset)); $read=0
+        while ($read -lt $buffer.Length) { $n=$stream.Read($buffer,$read,$buffer.Length-$read); if ($n -eq 0) { break }; $read+=$n }
+        $text=[Text.Encoding]::UTF8.GetString($buffer,0,$read)
+        $text=[regex]::Replace($text,'[\x00-\x08\x0b-\x1f\x7f]',{ param($m) '\x{0:x2}' -f [int][char]$m.Value })
+        return @{ size=$size; offset=$Offset; nextOffset=($Offset+$read); text=$text; reset=$reset; exists=$true }
+    } finally { $stream.Dispose() }
+}
+
+function Get-TaskMergeCheck([string]$Repo, $Task) {
+    $blockers=New-Object Collections.Generic.List[object]
+    if ($Task.state -ne 'done') { $blockers.Add(@{ id='not-done'; label='Task is not done'; severity='block'; detail=[string]$Task.state }) }
+    $pidPath=Join-Path $Repo ('.codex-out\pid-' + $Task.task + '.txt'); $alive=$false
+    if (Test-Path -LiteralPath $pidPath) { $pidText=(Get-HeadText $pidPath 64).Trim(); $runnerId=0; if ([int]::TryParse($pidText,[ref]$runnerId) -and $runnerId -gt 0) { $alive=[bool](Get-Process -Id $runnerId -ErrorAction SilentlyContinue) } }
+    if ($alive) { $blockers.Add(@{ id='runner-alive'; label='Runner is alive'; severity='block'; detail='Runner process is still running' }) }
+    $counts=(Read-TaskGit $Repo @('rev-list','--left-right','--count',('main...' + $Task.branch),'--')).Trim() -split '\s+'
+    $behind=[int]$counts[0]; $ahead=[int]$counts[1]
+    if ($ahead -eq 0) { $blockers.Add(@{ id='no-commits'; label='No commits'; severity='block'; detail='Branch has no commits ahead of main' }) }
+    if ((Read-TaskGit $Repo @('status','--porcelain','--untracked-files=normal')).Trim()) { $blockers.Add(@{ id='main-dirty'; label='Main is dirty'; severity='block'; detail='Main checkout has uncommitted changes' }) }
+    $head=(Read-TaskGit $Repo @('rev-parse','--short','main')).Trim()
+    $conflicts=@(); $merge=Invoke-GitRead $Repo @('merge-tree','--write-tree','--name-only','main',('refs/heads/' + $Task.branch)) -Bounded
+    if ($merge.truncated) { throw 'Merge check exceeded output limit' }
+    if ($merge.code -eq 1) {
+        $lines=$merge.text -split "`n"; foreach ($line in ($lines | Select-Object -Skip 1)) { if (-not $line.Trim()) { break }; $conflicts+=$line.TrimEnd("`r") }
+        $blockers.Add(@{ id='conflicts'; label='Merge conflicts'; severity='block'; detail='Branch conflicts with main' })
+    } elseif ($merge.code -eq 129) { $blockers.Add(@{ id='conflicts-unchecked'; label='Conflicts unchecked'; severity='warn'; detail='Git merge-tree --write-tree is unavailable' }) } elseif ($merge.code -ne 0) { throw 'Git merge check failed' }
+    $violations=@(); $scope=[string]$Task.scope
+    if ($scope -and $scope -ne '-' -and $scope -ne 'unspecified') {
+        $globs=@($scope.Split(',') | ForEach-Object { '^' + [regex]::Escape($_.Trim().Replace('\','/')).Replace('\*','.*') + '$' })
+        $paths=Read-TaskGit $Repo @('-c','core.quotepath=false','diff','--name-only','--no-renames',('main...' + $Task.branch),'--')
+        foreach ($path in ($paths -split "`n")) { if (-not $path) { continue }; $matched=$false; foreach ($glob in $globs) { if ($path -match $glob) { $matched=$true; break } }; if (-not $matched) { $violations+=$path } }
+        if ($violations.Count) { $blockers.Add(@{ id='scope-violation'; label='Outside scope'; severity='block'; detail='Branch changes files outside task scope' }) }
+    }
+    if ($behind -gt 0) { $blockers.Add(@{ id='behind-main'; label='Behind main'; severity='warn'; detail='re-review recommended' }) }
+    return @{ task=$Task.task; branch=$Task.branch; canMerge=(@($blockers | Where-Object { $_.severity -eq 'block' }).Count -eq 0); blockers=@($blockers.ToArray()); conflicts=@($conflicts); scopeViolations=@($violations); ahead=$ahead; behind=$behind; mainHead=$head; checkedAt=(Get-Date).ToString('o') }
 }
 
 function Get-TextLines([string]$Path, [int]$Limit, [switch]$Tail) {
@@ -1195,6 +1302,29 @@ try {
                 }
                 elseif ($sharedState.error) { $response.StatusCode = 500 }
                 else { $response.StatusCode = 503; $response.Headers['Retry-After'] = '5' }
+            }
+            elseif ($context.Request.Url.AbsolutePath -in @('/api/task/diff','/api/task/log','/api/task/merge-check')) {
+                try {
+                    $taskName=[string]$context.Request.QueryString['task']; $repoRequest=[string]$context.Request.QueryString['repo']
+                    if ($taskName -cnotmatch '^[a-z0-9][a-z0-9-]*$') { Send-JsonResponse $response 400 @{ error='Invalid task name' }; continue }
+                    $snapshot=$null; if ($sharedState.bytes) { $snapshot=[Text.Encoding]::UTF8.GetString($sharedState.bytes) | ConvertFrom-Json }
+                    $repoState=@($snapshot.repos | Where-Object { [string]::Equals([string]$_.path,$repoRequest,[StringComparison]::OrdinalIgnoreCase) }) | Select-Object -First 1
+                    if (-not $repoState) { Send-JsonResponse $response 404 @{ error='Unknown repository' }; continue }
+                    $taskState=@($repoState.tasks | Where-Object { $_.task -ceq $taskName }) | Select-Object -First 1
+                    if (-not $taskState) { Send-JsonResponse $response 404 @{ error='Unknown task' }; continue }
+                    if (-not $taskState.branch -or $taskState.branch -eq '-') { Send-JsonResponse $response 409 @{ error='task has no branch' }; continue }
+                    $repoPath=[string]$repoState.path
+                    $offset=-1L; $rawOffset=[string]$context.Request.QueryString['offset']
+                    if ($rawOffset -and -not [long]::TryParse($rawOffset,[ref]$offset)) { Send-JsonResponse $response 400 @{ error='Invalid offset' }; continue }
+                    switch ($context.Request.Url.AbsolutePath) {
+                        '/api/task/diff' { $value=Get-TaskDiff $repoPath $taskState }
+                        '/api/task/log' {
+                            $value=Get-TaskLog $repoPath $taskState $offset
+                        }
+                        '/api/task/merge-check' { $value=Get-TaskMergeCheck $repoPath $taskState }
+                    }
+                    Send-JsonResponse $response 200 $value
+                } catch { Send-JsonResponse $response 500 @{ error='Could not read task data' } }
             }
             elseif ($context.Request.Url.AbsolutePath -eq '/api/chat') {
                 $key = [string]$context.Request.QueryString['id']
