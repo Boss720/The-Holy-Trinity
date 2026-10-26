@@ -1,0 +1,44 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set git identity
+        run: |
+          git config --global user.name "ci"
+          git config --global user.email "ci@example.invalid"
+      - name: Run tests
+        run: .\tests\run-tests.cmd
+      - name: Check tag version
+        shell: powershell
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") { throw "tag $env:GITHUB_REF_NAME does not match v$version" }
+      - name: Build release
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-release.ps1 -OutDir dist -Verify
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trinity-release
+          path: |
+            dist\trinity-v*.zip
+            dist\trinity-v*.zip.sha256
+            dist\RELEASE_NOTES.md
+      - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          gh release create "$env:GITHUB_REF_NAME" "dist\trinity-v$version.zip" "dist\trinity-v$version.zip.sha256" --title "$env:GITHUB_REF_NAME" --notes-file dist\RELEASE_NOTES.md
