@@ -352,6 +352,7 @@ function Start-Dispatch([string]$agent, [string]$task, [string]$prompt) {
           else { '- Commit your work on this branch with clear messages (no Co-Authored-By trailers).',
              "- When finished: write your summary to $resultPath, then run in your worktree: trinity done $task <one-line summary>" }),
         '- Do not push.',
+        '- Never edit the agent board (.git/agent-board.md) or any file under .git; the runner owns your board status.',
         '- Do not edit HANDOFF.md or PLAN.md.',
         '- Finish with a short summary of what you did and anything left.'
     ) -join "`r`n"

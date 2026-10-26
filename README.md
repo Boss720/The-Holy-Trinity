@@ -10,9 +10,21 @@ All three read the same rules file (`AGENTS.md`) and talk to each other through 
 
 This repo is the toolkit itself. Install it into any project with `trinity init <path>` (see "Use it in another project").
 
+## Install (release zip)
+
+Download `trinity-vX.Y.Z.zip` from the [Releases page](https://github.com/Boss720/The-Holy-Trinity/releases), extract it, and run:
+```bat
+install.cmd
+```
+It checks every prerequisite below and prints the exact command for anything missing. `install.cmd -InstallGit -AddToPath` also installs Git (winget) and puts `trinity` on your PATH. Then set up a project:
+```bat
+trinity init D:\code\myapp
+```
+Full steps, flags and troubleshooting: [INSTALL.md](INSTALL.md). To let Claude do the whole install, paste the prompt from [docs/claude-install-prompt.md](docs/claude-install-prompt.md) into Claude Code. `trinity doctor` re-checks everything at any time.
+
 ## Requirements
 
-- Windows 10/11, git
+- Windows 10/11, Windows PowerShell 5.1 (built in), Git for Windows 2.31+ with `user.name` and `user.email` set (`trinity doctor` checks)
 - [Claude Code desktop](https://claude.com/claude-code)
 - Codex desktop app (the scripts use the `codex.exe` it ships with; set `CODEX_EXE` to override). Optional: without a ChatGPT plan, Codex tasks go to Antigravity and reviews to Claude Code (if `claude auth status` is logged in) or Antigravity; `trinity status` shows which agents are available. `TRINITY_DISABLE=codex` forces this mode.
 - Antigravity CLI (`agy`, used headless for dispatched tasks; set `AGY_EXE` to override) and optionally Antigravity IDE (`antigravity-ide`, for `trinity ui`)
@@ -27,6 +39,9 @@ This repo is the toolkit itself. Install it into any project with `trinity init 
 | `PLAN.md` | Per-module checklist of what to build. |
 | `HANDOFF.md` | What was done, what is next, blockers. Each agent writes its own section. |
 | `CHANGELOG.md` | Release notes. |
+| `INSTALL.md`, `install.cmd`, `install.ps1` | Install from a release zip: prerequisite check, optional Git install, PATH. `docs/claude-install-prompt.md` is the same install as a prompt for Claude. |
+| `scripts/doctor.ps1` | `trinity doctor`: checks git, git identity, agents, PATH, hooks and prints the fix for each problem. |
+| `VERSION`, `scripts/build-release.ps1`, `.github/workflows/` | Release build (zip + sha256, smoke-tested from a fresh extract) and the CI that publishes it on a `vX.Y.Z` tag. |
 | `scripts/codex.cmd` | Runs the Codex CLI bundled with the Codex app. |
 | `scripts/codex-review.cmd` | Codex code review, forced read-only. |
 | `scripts/codex-ask.cmd` | One-shot read-only Codex question. |
@@ -48,7 +63,7 @@ trinity init D:\code\myapp
 
 Copies the toolkit (trinity CLI, Codex wrappers, subagent definitions, pre-commit hook) and writes `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `PLAN.md`, `HANDOFF.md` if missing. Then fill in "Project commands" in that repo's `AGENTS.md`: the `Test` line is what `trinity merge` runs, and `Shared files` lists files only Claude edits (registries, `package.json`). Commit, and open a new Claude session there so the subagents load.
 
-Rerun `init` to update an install: toolkit files are refreshed, the project's own docs are kept (`-Force` replaces them). Example install: the MetaStrip app (`D:\AI\projects\Dev\Projects\MetaStrip`).
+Rerun `init` to update an install: toolkit files are refreshed, the project's own docs are kept (`-Force` replaces them).
 
 ## Quick start (automatic mode)
 
@@ -106,7 +121,7 @@ You talk to Claude only. Claude routes work to Codex and Antigravity through thr
 
 The routing table and rules live in `CLAUDE.md`. Typical run: Claude splits a feature by files, launches several `codex-worker`s at once, keeps working itself, then runs `trinity merge <task> -Yes` per branch and wires shared files (registries, `package.json`) itself. Workers never touch shared files, so a review finding like "handler not registered" on a worker branch is expected. `merge` defers P0/P1 findings that mention a shared file when the branch left shared files untouched, writes them to `.codex-out\deferred-<task>.txt`, and Claude wires them on `main`. Every other P0/P1 still blocks.
 
-First real run (in MetaStrip, before it moved to its own repo): two Codex workers built GIF and ODF stripping in parallel; Codex review then caught two real bugs that Claude fixed on `main`.
+First real run (in a separate app repo): two Codex workers built GIF and ODF stripping in parallel; Codex review then caught two real bugs that Claude fixed on `main`.
 
 ---
 
@@ -194,7 +209,12 @@ echo "Why does the save test fail?" | ./scripts/codex-ask.cmd
 
 ### Part 5: Release
 
-Tell Claude "Cut release v0.2.0." It updates `CHANGELOG.md`, gets a Codex review, commits, tags, pushes, and creates the GitHub release.
+Tell Claude "Cut release v0.4.0." It renames the `Unreleased` heading in `CHANGELOG.md` to the version, sets `VERSION`, gets a Codex review, runs `tests\run-tests.cmd`, builds and smoke-tests the zip, commits, tags `v0.4.0` and pushes. The tag starts `.github/workflows/release.yml`, which tests again, builds `trinity-v0.4.0.zip` plus its `.sha256` with `scripts\build-release.ps1 -Verify` and attaches both to the GitHub release.
+
+To build the zip locally without publishing:
+```bat
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-release.ps1 -OutDir dist -Verify
+```
 
 ---
 

@@ -98,7 +98,7 @@ Only `agent` and `started` exist while the task runs (written when the runner st
 
 ### Claude
 
-- Project folder per checkout: `<claude home>\projects\<slug>\`, where `<slug>` is the absolute checkout path with every character outside `[A-Za-z0-9]` replaced by `-` (`D:\AI\x y` -> `D--AI-x-y`). Look in the main checkout's slug and the slug of every claude task worktree of that repo.
+- Project folder per checkout: `<claude home>\projects\<slug>\`, where `<slug>` is the absolute checkout path with every character outside `[A-Za-z0-9]` replaced by `-` (`D:\work\x y` -> `D--work-x-y`). Look in the main checkout's slug and the slug of every claude task worktree of that repo.
 - Session: `<slug>\<sessionId>.jsonl`, one object per line. Use only:
   - `type: assistant`: `message.model` (ignore `<synthetic>`), `message.id`, `message.content[]` (`text`, `tool_use { name, input }`, `thinking { thinking }`), `message.usage { input_tokens, cache_creation_input_tokens, cache_read_input_tokens, output_tokens }`, `effort`, `timestamp`. One API message can span several lines with the same `message.id`: count its usage once.
   - `type: user`: `message.content` (string, or array of `text` / `tool_result { content }`), `isMeta` (skip when true), `timestamp`.
