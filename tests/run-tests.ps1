@@ -1067,6 +1067,67 @@ Run-Case 'dashboard chat HTTP validates ids and guards hosts' {
     finally { if ($process) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }; $env:CODEX_HOME=$oldCodexHome; $env:TRINITY_AGY_HOME=$oldAgyHome; $env:CLAUDE_CONFIG_DIR=$oldClaudeHome; $env:TRINITY_DISABLE=$oldDisable }
 }
 
+Run-Case 'dashboard task read endpoints diff log and merge checks' {
+    param($f)
+    $process=$null
+    try {
+        Invoke-Git $f.Repo @('checkout','-b','agent/codex/read-task') | Out-Null
+        [IO.File]::WriteAllText((Join-Path $f.Repo 'added.txt'), "added line`n")
+        [IO.File]::WriteAllText((Join-Path $f.Repo 'README.md'), "branch line`n")
+        Invoke-Git $f.Repo @('add','-A') | Out-Null; Invoke-Git $f.Repo @('commit','-m','task changes') | Out-Null
+        Invoke-Git $f.Repo @('checkout','main') | Out-Null
+        $board=Join-Path $f.Repo '.git\agent-board.md'
+        [IO.File]::WriteAllText($board, "## read-task`r`n- agent: codex`r`n- branch: agent/codex/read-task`r`n- scope: *`r`n- status: done`r`n`r`n## branchless`r`n- agent: claude`r`n- branch: -`r`n- status: done`r`n")
+        New-Item -ItemType Directory -Path (Join-Path $f.Repo '.codex-out') -Force | Out-Null
+        $log=Join-Path $f.Repo '.codex-out\log-read-task.txt'; [IO.File]::WriteAllText($log, "first`n"+[char]27+'[31m')
+        # Exercise helpers even on hosts where HttpListener is unavailable.
+        & {
+            . (Join-Path $f.Repo 'scripts\dashboard.ps1') -LibraryOnly
+            $task=[pscustomobject]@{ task='read-task'; branch='agent/codex/read-task'; scope='*'; state='done'; agent='codex' }
+            $diff=Get-TaskDiff $f.Repo $task
+            Assert-True ($diff.stat.files -eq 2 -and $diff.stat.added -eq 2 -and $diff.stat.deleted -eq 1 -and $diff.patch.Contains('+added line')) 'diff contents or totals incorrect'
+            Assert-True (@($diff.files | Where-Object { $_.status -eq 'A' }).Count -eq 1) 'added file absent'
+            $tail=Get-TaskLog $f.Repo $task -1
+            Assert-True ($tail.text.Contains('\x1b') -and $tail.exists) 'log control was not escaped'
+            [IO.File]::AppendAllText($log,'new text')
+            $next=Get-TaskLog $f.Repo $task $tail.nextOffset
+            Assert-True ($next.text -eq 'new text' -and $next.offset -eq $tail.nextOffset) 'log offsets lost continuity'
+            $reset=Get-TaskLog $f.Repo $task 999999
+            Assert-True $reset.reset 'rotated log did not reset'
+            $check=Get-TaskMergeCheck $f.Repo $task
+            Assert-True ($check.canMerge -and $check.ahead -eq 1) 'clean done branch cannot merge'
+            $task.state='running'; [IO.File]::WriteAllText((Join-Path $f.Repo '.codex-out\pid-read-task.txt'),[string]$PID)
+            $check=Get-TaskMergeCheck $f.Repo $task
+            Assert-True (($check.blockers.id -contains 'runner-alive') -and ($check.blockers.id -contains 'not-done')) 'running task blockers absent'
+            Remove-Item -LiteralPath (Join-Path $f.Repo '.codex-out\pid-read-task.txt'); $task.state='done'
+            [IO.File]::WriteAllText((Join-Path $f.Repo 'dirty.txt'),'dirty')
+            Assert-True ((Get-TaskMergeCheck $f.Repo $task).blockers.id -contains 'main-dirty') 'dirty main blocker absent'
+            Remove-Item -LiteralPath (Join-Path $f.Repo 'dirty.txt')
+            $task.scope='scripts/*'; $check=Get-TaskMergeCheck $f.Repo $task
+            Assert-True (($check.blockers.id -contains 'scope-violation') -and ($check.scopeViolations -contains 'added.txt')) 'scope violation absent'
+            [IO.File]::WriteAllText((Join-Path $f.Repo 'README.md'), "main line`n")
+            Invoke-Git $f.Repo @('add','README.md') | Out-Null; Invoke-Git $f.Repo @('commit','-m','main conflict') | Out-Null
+            $check=Get-TaskMergeCheck $f.Repo $task
+            Assert-True (($check.blockers.id -contains 'conflicts') -and ($check.conflicts -contains 'README.md')) 'conflicted path absent'
+        }
+        $tcp=New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback,0); $tcp.Start(); $port=$tcp.LocalEndpoint.Port; $tcp.Stop()
+        $dashboard=Join-Path $f.Repo 'scripts\dashboard.ps1'
+        $process=Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -WindowStyle Hidden -PassThru -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"{0}"' -f $dashboard),'-Port',[string]$port,'-Repos',('"{0}"' -f $f.Repo))
+        $response=$null; $deadline=(Get-Date).AddSeconds(10)
+        while (-not $response -and (Get-Date) -lt $deadline -and -not $process.HasExited) { try { $response=Invoke-WebRequest "http://localhost:$port/api/state" -UseBasicParsing -TimeoutSec 2 } catch { Start-Sleep -Milliseconds 100 } }
+        if (-not $response -and $process.HasExited) { Skip-Case 'HttpListener is unsupported or blocked in this environment (task helpers passed)' }
+        Assert-True ([bool]$response) 'dashboard never answered state'
+        $query='repo='+[uri]::EscapeDataString($f.Repo)+'&task=read-task'
+        foreach ($route in 'diff','log','merge-check') {
+            $reply=Invoke-WebRequest "http://localhost:$port/api/task/$($route)?$query" -UseBasicParsing -TimeoutSec 10
+            Assert-True ($reply.StatusCode -eq 200) "task $route failed"
+        }
+        foreach ($pair in @(@('repo=unknown&task=read-task',404),@('repo=unknown&task=../bad',400),@(('repo='+[uri]::EscapeDataString($f.Repo)+'&task=branchless'),409),@(('repo='+[uri]::EscapeDataString($f.Repo)+'&task=missing'),404))) {
+            $status=0; try { Invoke-WebRequest "http://localhost:$port/api/task/diff?$($pair[0])" -UseBasicParsing -TimeoutSec 5 | Out-Null } catch { if ($_.Exception.Response) { $status=[int]$_.Exception.Response.StatusCode } }
+            Assert-True ($status -eq $pair[1]) "task validation returned $status instead of $($pair[1])"
+        }
+    } finally { if ($process) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue } }
+}
 Run-Case 'dashboard action API validates requests and runs a review job' {
     param($f)
     $process = $null
