@@ -97,8 +97,11 @@ if ($pathCommand) {
     $pathOk = [string]::Equals($resolvedCommand.TrimEnd('\'), $expectedCommand.TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)
 }
 $pathFix = @()
-if (-not $pathOk) { $pathFix = @("install.cmd -AddToPath ($root)") }
-Add-Check 'path' $(if ($pathOk) { 'ok' } else { 'warn' }) $(if ($pathOk) { 'trinity.cmd resolves to this toolkit folder' } else { 'trinity.cmd does not resolve to this toolkit folder' }) $pathFix
+if ($pathOk) { Add-Check 'path' 'ok' 'trinity.cmd resolves to this toolkit folder' }
+elseif (Test-Path -LiteralPath (Join-Path $root 'install.cmd')) {
+    Add-Check 'path' 'warn' 'trinity.cmd does not resolve to this toolkit folder' @("`"$(Join-Path $root 'install.cmd')`" -AddToPath")
+}
+else { Add-Check 'path' 'info' 'this is a project copy; run it as .\trinity.cmd from the project folder' }
 
 $repoRoot = (& git rev-parse --show-toplevel 2>$null | Out-String).Trim()
 $repoRc = $LASTEXITCODE
@@ -132,8 +135,8 @@ if ($Json) {
 }
 else {
     foreach ($check in $checks) {
-        $label = $check.status.ToUpperInvariant()
-        Write-Output (('[{0,-4}] {1,-14} {2}' -f $label, $check.name, $check.detail))
+        $label = switch ($check.status) { 'ok' { ' OK ' } default { $check.status.ToUpperInvariant() } }
+        Write-Output (('[{0}] {1,-14} {2}' -f $label, $check.name, $check.detail))
         foreach ($line in $check.fix) { Write-Output "       fix: $line" }
     }
     Write-Output "doctor: $okCount ok, $warnCount warnings, $failCount failures"
