@@ -6,6 +6,11 @@ $passed = 0
 $failed = 0
 $skipped = 0
 $fixtures = New-Object System.Collections.Generic.List[string]
+# GitHub runners hand out an 8.3 TEMP (C:\Users\RUNNER~1\...) while git and the toolkit report the long form, so the same
+# fixture path would compare unequal. Run the whole suite on the long form.
+Add-Type -Namespace TrinitySelfTest -Name Win32 -MemberDefinition '[System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)] public static extern uint GetLongPathName(string shortPath, System.Text.StringBuilder longPath, uint bufferSize);'
+$longTemp = New-Object System.Text.StringBuilder 1024
+if ([TrinitySelfTest.Win32]::GetLongPathName($env:TEMP, $longTemp, 1024) -gt 0) { $env:TEMP = $longTemp.ToString(); $env:TMP = $env:TEMP }
 # Keep the user's real repo registry and dashboard pid out of the tests.
 $env:TRINITY_HOME = Join-Path $env:TEMP ("trinity-selftest-home-" + [Guid]::NewGuid().ToString('N'))
 
