@@ -94,7 +94,8 @@ try {
             }
         } finally { $archive.Dispose() }
     } finally { $stream.Dispose() }
-    $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try { $hash = [BitConverter]::ToString($sha.ComputeHash([IO.File]::ReadAllBytes($zipPath))).Replace('-', '').ToLowerInvariant() } finally { $sha.Dispose() }
     [IO.File]::WriteAllText($hashPath, "$hash  $tag.zip`n", (New-Object Text.UTF8Encoding($false)))
 
     $change = [IO.File]::ReadAllText((Join-Path $root 'CHANGELOG.md'))

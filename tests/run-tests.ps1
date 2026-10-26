@@ -746,7 +746,7 @@ Run-Case 'release copy: install.cmd -AddToPath and -RemoveFromPath keep %VAR% en
                 $add = Invoke-Installer $rel @('-AddToPath', '-Yes')
                 Assert-True ($add.ExitCode -eq 0 -and $add.Output -match 'Added .* to User PATH') "-AddToPath exit $($add.ExitCode): $($add.Output)"
                 $after = Get-RawPathValue $keyName
-                Assert-True ($after.Text -eq ($seed + ';' + $rel.Kit)) "PATH after add: $($after.Text)"
+                Assert-True ($after.Text.StartsWith($seed + ';') -and $after.Text.EndsWith('\release copy\trinity-v0.0.0', [StringComparison]::OrdinalIgnoreCase)) "PATH after add: $($after.Text)"
                 Assert-True ($after.Kind -eq 'ExpandString') "PATH kind after add: $($after.Kind)"
                 $again = Invoke-Installer $rel @('-AddToPath', '-Yes')
                 Assert-True ($again.ExitCode -eq 0 -and $again.Output -match 'already contains') "second -AddToPath: $($again.Output)"

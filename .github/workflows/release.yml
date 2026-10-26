@@ -18,6 +18,7 @@ jobs:
           git config --global user.name "ci"
           git config --global user.email "ci@example.invalid"
       - name: Run tests
+        shell: powershell
         run: .\tests\run-tests.cmd
       - name: Check tag version
         shell: powershell

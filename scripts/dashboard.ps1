@@ -22,9 +22,16 @@ $script:ClaudeSummaryCache = @{}
 $script:AvailabilityCache = $null
 $script:AvailabilityCachedAt = [datetime]::MinValue
 $script:CollectDurations = New-Object System.Collections.Generic.List[int]
+# Get-FileHash comes from a module that Windows PowerShell cannot autoload when PSModulePath is inherited from pwsh 7
+# (CI runners, pwsh users), so hash with .NET instead.
+function Get-ShortFileHash([string]$Path) {
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try { $bytes = $sha.ComputeHash([IO.File]::ReadAllBytes($Path)) } finally { $sha.Dispose() }
+    return ([BitConverter]::ToString($bytes).Replace('-', '').Substring(0, 12).ToLowerInvariant())
+}
 $script:ServerFacts = [pscustomobject]@{
     startedAt = (Get-Date).ToString("yyyy-MM-dd'T'HH:mm:ssK")
-    scriptHash = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash.Substring(0, 12).ToLowerInvariant()
+    scriptHash = Get-ShortFileHash $PSCommandPath
 }
 $script:BlockedRemoteCount = 0
 $script:JsonLinesDroppedLong = $false
@@ -824,7 +831,7 @@ function Get-DashboardState {
     $script:CollectDurations.Add($collectMs)
     while ($script:CollectDurations.Count -gt 10) { $script:CollectDurations.RemoveAt(0) }
     $avgCollectMs = [int][Math]::Round(($script:CollectDurations | Measure-Object -Average).Average)
-    $scriptHashOnDisk = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash.Substring(0, 12).ToLowerInvariant()
+    $scriptHashOnDisk = Get-ShortFileHash $PSCommandPath
     $server = [pscustomobject]@{
         startedAt = $script:ServerFacts.startedAt
         scriptHash = $script:ServerFacts.scriptHash
