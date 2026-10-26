@@ -959,7 +959,8 @@ function Start-ActionProcess([string]$Id, [string]$Action, [string]$Task, [strin
         return
     }
     $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    if ($Action -eq 'review-task') { $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $RepoPath 'scripts\trinity.ps1'),'review','--base','main'); $cwd=$Worktree }
+    # trinity.ps1 finds its repo root from its own path, so the review must run the worktree's copy to see the task branch.
+    if ($Action -eq 'review-task') { $reviewScript = Join-Path $Worktree 'scripts\trinity.ps1'; if (-not (Test-Path -LiteralPath $reviewScript -PathType Leaf)) { $reviewScript = Join-Path $RepoPath 'scripts\trinity.ps1' }; $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$reviewScript,'review','--base','main'); $cwd=$Worktree }
     elseif ($Action -eq 'cancel') { $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $RepoPath 'scripts\trinity.ps1'),'cancel',$Task); $cwd=$RepoPath }
     else { $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $RepoPath 'scripts\trinity.ps1'),'merge',$Task,'-Yes'); $cwd=$RepoPath }
     $processArguments = @($processArguments | ForEach-Object { Quote-ProcessArgument ([string]$_) })
