@@ -1337,13 +1337,63 @@ Run-Case 'dashboard task read endpoints diff log and merge checks' {
         }
     } finally { if ($process) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue } }
 }
+Run-Case 'dashboard dispatch validation is read-only and checks conflicts' {
+    param($f)
+    & {
+        . (Join-Path $f.Repo 'scripts\dashboard.ps1') -LibraryOnly
+        $repo=[pscustomobject]@{ path=$f.Repo; tasks=@([pscustomobject]@{task='busy';agent='codex';state='running';scope='src/*'},[pscustomobject]@{task='old';agent='claude';state='merged';scope=''}) }
+        $avail=[pscustomobject]@{codex=@{available=$false};antigravity=@{available=$true}}
+        $check=Get-DispatchCheck $repo $avail 'codex' 'new-task' ' src/lib/*, tests/* '
+        Assert-True ($check.canDispatch -and $check.rerouted -and $check.effectiveAgent -eq 'antigravity' -and $check.scopeNormalized.Count -eq 2 -and $check.overlaps[0].task -eq 'busy') 'valid check/reroute/overlap failed'
+        foreach ($name in @('../bad','UPPER',('x'*41),'busy','old')) { Assert-True (-not (Get-DispatchCheck $repo $avail 'claude' $name '').taskOk) "accepted task $name" }
+        foreach ($scope in @('../src/*','/src/*','C:/src/*','src\*','src/*,',('a,'*20+'b'),"src/`n*","`nfoo")) { Assert-True (-not (Get-DispatchCheck $repo $avail 'claude' 'new-task' $scope).scopeOk) "accepted scope $scope" }
+        $empty=Get-DispatchCheck $repo $avail 'claude' 'new-task' ''
+        Assert-True ($empty.canDispatch -and $empty.scopeReason -eq 'no scope: overlap not checked' -and $empty.agentReason -match 'Park') 'empty scope/Claude park failed'
+        Invoke-Git $f.Repo @('branch','agent/claude/branch-only') | Out-Null
+        Assert-True (-not (Get-DispatchCheck $repo $avail 'claude' 'branch-only' '').taskOk) 'existing branch accepted'
+        New-Item -ItemType Directory -Path (Join-Path $f.Worktrees 'codex-leftover') -Force | Out-Null
+        Assert-True (-not (Get-DispatchCheck $repo $avail 'claude' 'leftover' '').taskOk) 'leftover worktree accepted'
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $f.Repo '.codex-out'))) 'validation wrote to disk'
+    }
+}
+Run-Case 'dashboard dispatch process uses a fake worker and a prompt file' {
+    param($f)
+    & {
+        . (Join-Path $f.Repo 'scripts\dashboard.ps1') -LibraryOnly
+        $script:Jobs=@{}
+        $workerProcess=$null
+        $prompt="-Force`r`n"+[char]0xE9+[char]0x20AC+"`n"
+        $out=Join-Path $f.Repo '.codex-out'; [void][IO.Directory]::CreateDirectory($out)
+        $file=Join-Path $out 'prompt-direct-api.md'; [IO.File]::WriteAllText($file,$prompt,[Text.UTF8Encoding]::new($false))
+        try {
+            Start-ActionProcess '123456abcdef' 'dispatch' 'direct-api' $f.Repo '' 'trinity dispatch codex direct-api -PromptFile <file>' 'codex' '' $file
+            $deadline=(Get-Date).AddSeconds(15)
+            do { Update-ActionJobs; if ($script:Jobs['123456abcdef'].state -ne 'running') { break }; Start-Sleep -Milliseconds 100 } while ((Get-Date) -lt $deadline)
+            $job=$script:Jobs['123456abcdef']
+            Assert-True ($job.state -eq 'done' -and $job.exitCode -eq 0) "dispatch child failed: $(Read-JobOutput $job)"
+            $pidFile=Join-Path $out 'pid-direct-api.txt'
+            if (Test-Path -LiteralPath $pidFile) { $workerProcess=Get-Process -Id ([int][IO.File]::ReadAllText($pidFile).Trim()) -ErrorAction SilentlyContinue }
+            $wait=Invoke-Trinity $f @('wait','direct-api','-Timeout','15')
+            Assert-True ($wait.ExitCode -eq 0) "fake worker did not finish: $($wait.Output)"
+            Assert-True ((Invoke-Git $f.Repo @('show','agent/codex/direct-api:fake-output.txt')) -eq 'fake codex output') 'fake agent did not commit output'
+            Assert-True ([Convert]::ToBase64String([IO.File]::ReadAllBytes($file)) -ceq [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($prompt))) 'prompt changed'
+        }
+        finally {
+            foreach ($job in @($script:Jobs.Values)) { if ($job.process -and -not $job.process.HasExited) { Stop-Process -Id $job.process.Id -Force -ErrorAction SilentlyContinue } }
+            if ($workerProcess) { if (-not $workerProcess.HasExited) { $workerProcess.Kill(); [void]$workerProcess.WaitForExit(2000) }; $workerProcess.Dispose() }
+        }
+    }
+}
 Run-Case 'dashboard action API validates requests and runs a review job' {
     param($f)
-    $process = $null
+    $process = $null; $dispatchWorker=$null
     try {
         Start-CodexTask $f 'api-task'
         $wait = Invoke-Trinity $f @('wait', 'api-task', '-Timeout', '50')
         Assert-True ($wait.ExitCode -eq 0) "fixture task did not finish: $($wait.Output)"
+        $track=Invoke-Trinity $f @('track','busy-api','test overlap','-Scope','tests/*')
+        Assert-True ($track.ExitCode -eq 0) 'could not track overlap fixture'
+        $env:TRINITY_DISABLE='antigravity'
         [IO.File]::WriteAllText((Join-Path $f.Repo 'scripts\dashboard.html'), '<meta name="trinity-token" content="__TRINITY_TOKEN__">', [Text.UTF8Encoding]::new($false))
         $tcp = New-Object System.Net.Sockets.TcpListener([Net.IPAddress]::Loopback, 0); $tcp.Start(); $port=$tcp.LocalEndpoint.Port; $tcp.Stop()
         $dashboard = Join-Path $f.Repo 'scripts\dashboard.ps1'
@@ -1386,13 +1436,60 @@ Run-Case 'dashboard action API validates requests and runs a review job' {
         $job=$null; $jobDeadline=(Get-Date).AddSeconds(20)
         while ((Get-Date) -lt $jobDeadline) { $jobReply=& $send "$base/api/job?id=$jobId" 'GET' $null '' '' ''; $job=$jobReply.Content | ConvertFrom-Json; if ($job.state -ne 'running') { break }; Start-Sleep -Milliseconds 150 }
         Assert-True ($job -and $job.state -eq 'done' -and $job.exitCode -eq 0) "review job did not finish successfully: $($job | ConvertTo-Json -Compress)"
+        $query='repo='+[uri]::EscapeDataString($f.Repo)+'&agent=codex&task=dispatch-api&scope=tests/*'
+        $checkReply=& $send "$base/api/dispatch/check?$query" 'GET' $null '' '' ''
+        Assert-True ($checkReply.Status -eq 200 -and ($checkReply.Content | ConvertFrom-Json).canDispatch) 'HTTP dispatch check rejected a valid task'
+        Assert-True (($checkReply.Content | ConvertFrom-Json).overlaps.task -contains 'busy-api') 'HTTP overlap warning absent'
+        $reroute=& $send ("$base/api/dispatch/check?"+($query -replace 'agent=codex','agent=antigravity')) 'GET' $null '' '' ''
+        $rerouteBody=$reroute.Content | ConvertFrom-Json
+        Assert-True ($rerouteBody.canDispatch -and $rerouteBody.rerouted -and $rerouteBody.effectiveAgent -eq 'codex') 'HTTP availability reroute failed'
+        foreach ($invalid in @('task=api-task&scope=','task=new&scope=../bad','task=new&scope=/absolute')) {
+            $reply=& $send ("$base/api/dispatch/check?repo="+[uri]::EscapeDataString($f.Repo)+'&agent=codex&'+$invalid) 'GET' $null '' '' ''
+            Assert-True ($reply.Status -eq 200 -and -not ($reply.Content | ConvertFrom-Json).canDispatch) 'HTTP duplicate task or invalid scope accepted'
+        }
+        foreach ($pair in @(@('repo=unknown&agent=codex&task=new',404),@(('repo='+[uri]::EscapeDataString($f.Repo)+'&agent=codex&task=../bad'),200))) {
+            $reply=& $send "$base/api/dispatch/check?$($pair[0])" 'GET' $null '' '' ''
+            Assert-True ($reply.Status -eq $pair[1]) 'dispatch check status incorrect'
+            if ($reply.Status -eq 200) { Assert-True (-not ($reply.Content | ConvertFrom-Json).taskOk) 'HTTP bad name accepted' }
+        }
+        $prompt="-Force`r`n"+[char]0xE9+[char]0x20AC+"`n"+('dispatch prompt '*700)
+        $dispatch=@{action='dispatch';repo=$f.Repo;task='dispatch-api';agent='codex';scope='tests/*';prompt=$prompt;confirm=$true}
+        $dispatchJson=$dispatch | ConvertTo-Json -Compress
+        Assert-True ((& $send "$base/api/action" 'POST' $dispatchJson '' $origin 'application/json').Status -eq 401) 'dispatch missing token accepted'
+        Assert-True ((& $send "$base/api/action" 'POST' $dispatchJson $token 'http://evil.invalid' 'application/json').Status -eq 403) 'dispatch bad Origin accepted'
+        $dispatch.confirm=$false
+        Assert-True ((& $send "$base/api/action" 'POST' ($dispatch|ConvertTo-Json -Compress) $token $origin 'application/json').Status -eq 400) 'dispatch missing confirmation accepted'
+        $dispatch.confirm=$true; $dispatch.task='../bad'
+        Assert-True ((& $send "$base/api/action" 'POST' ($dispatch|ConvertTo-Json -Compress) $token $origin 'application/json').Status -eq 400) 'dispatch invalid task accepted'
+        $accepted=& $send "$base/api/action" 'POST' $dispatchJson $token $origin 'application/json'
+        Assert-True ($accepted.Status -eq 202) "dispatch not accepted: $($accepted.Content)"
+        $dispatchJob=($accepted.Content | ConvertFrom-Json).job
+        $actual=[IO.File]::ReadAllBytes((Join-Path $f.Repo '.codex-out\prompt-dispatch-api.md'))
+        Assert-True ([Convert]::ToBase64String($actual) -ceq [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($prompt))) 'prompt bytes changed or BOM added'
+        $deadline=(Get-Date).AddSeconds(15); $job=$null
+        while ((Get-Date) -lt $deadline) {
+            $reply=& $send "$base/api/job?id=$dispatchJob" 'GET' $null '' '' ''; $job=$reply.Content | ConvertFrom-Json
+            if ($job.state -ne 'running') { break }; Start-Sleep -Milliseconds 100
+        }
+        Assert-True ($job.state -eq 'done' -and $job.exitCode -eq 0) "dispatch job failed: $($job.output)"
+        $pidFile=Join-Path $f.Repo '.codex-out\pid-dispatch-api.txt'
+        if (Test-Path -LiteralPath $pidFile) { $dispatchWorker=Get-Process -Id ([int][IO.File]::ReadAllText($pidFile).Trim()) -ErrorAction SilentlyContinue }
+        $wait=Invoke-Trinity $f @('wait','dispatch-api','-Timeout','15')
+        Assert-True ($wait.ExitCode -eq 0) "fake dispatch worker failed: $($wait.Output)"
+        Assert-True (-not $job.command.Contains($prompt)) 'prompt appeared in command'
+        $again=& $send "$base/api/action" 'POST' $dispatchJson $token $origin 'application/json'
+        Assert-True ($again.Status -eq 400) 'existing prompt/task was overwritten'
         $actionLog=Join-Path $env:TRINITY_HOME 'actions.log'
         Assert-True (Test-Path -LiteralPath $actionLog) 'actions.log was not created'
         $logText=[IO.File]::ReadAllText($actionLog)
         Assert-True ($logText -match [regex]::Escape($jobId) -and $logText -match 'exitCode=0') 'actions.log omitted job or exit code'
         Assert-True (-not $logText.Contains($token)) 'actions.log contains the server token'
+        Assert-True (-not $logText.Contains('dispatch prompt') -and $logText -match 'action=dispatch.*agent=codex') 'dispatch log leaked prompt or omitted agent'
     }
-    finally { if ($process) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue } }
+    finally {
+        if ($dispatchWorker) { if (-not $dispatchWorker.HasExited) { $dispatchWorker.Kill(); [void]$dispatchWorker.WaitForExit(2000) }; $dispatchWorker.Dispose() }
+        if ($process) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+    }
 }
 
 Write-Output "$passed passed, $failed failed, $skipped skipped"
