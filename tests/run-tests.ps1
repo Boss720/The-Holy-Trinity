@@ -1,4 +1,4 @@
-﻿param([switch]$Keep)
+﻿param([switch]$Keep, [string]$Only)
 
 $ErrorActionPreference = 'Stop'
 $repoSource = Split-Path $PSScriptRoot -Parent
@@ -119,6 +119,7 @@ function Skip-Case([string]$Reason) {
 }
 
 function Run-Case([string]$Name, [scriptblock]$Body, [string]$TestCommand = 'exit 0') {
+    if ($script:Only -and $Name -notlike "*$($script:Only)*") { return }
     $fixture = $null
     $oldCodex = $env:CODEX_EXE
     $oldAgy = $env:AGY_EXE
@@ -517,6 +518,108 @@ Run-Case 'init merges or upgrades the SessionStart hook in a kept settings.json'
     Assert-True (Test-Path (Join-Path $custom '.codex-out\settings.json.bak')) 'no backup of the original settings.json'
     $upgraded = [IO.File]::ReadAllText((Join-Path $legacy '.claude\settings.json')) | ConvertFrom-Json
     Assert-True ($upgraded.hooks.SessionStart[0].hooks[0].command -match "Join-Path \(git rev-parse --show-toplevel\) 'scripts/trinity.ps1'") "legacy hook not upgraded: $($upgraded.hooks.SessionStart[0].hooks[0].command)"
+}
+
+# A GitHub release zip: the toolkit files in a folder with spaces, no .git anywhere around it.
+function New-ReleaseCopy($Fixture) {
+    $kit = Join-Path $Fixture.Root 'release copy\trinity-v0.0.0'
+    New-Item -ItemType Directory -Path $kit -Force | Out-Null
+    foreach ($rel in @('VERSION', 'trinity.cmd', 'trinity.sh', 'install.cmd', 'install.ps1', 'AGENTS.md', 'CLAUDE.md', 'GEMINI.md', 'scripts', '.agent', '.claude', '.githooks')) {
+        $src = Join-Path $script:repoSource $rel
+        if (Test-Path -LiteralPath $src) { Copy-Item -LiteralPath $src -Destination $kit -Recurse -Force }
+    }
+    [pscustomobject]@{ Kit = $kit; Trinity = (Join-Path $kit 'scripts\trinity.ps1'); Version = ([IO.File]::ReadAllText((Join-Path $script:repoSource 'VERSION'))).Trim() }
+}
+
+function Invoke-InFolder([string]$Folder, [scriptblock]$Body) {
+    Push-Location -LiteralPath $Folder
+    try { & $Body } finally { Pop-Location }
+}
+
+Run-Case 'release copy without .git: version and help run, repo commands say what is wrong' {
+    param($f)
+    $rel = New-ReleaseCopy $f
+    Assert-True (-not (Test-Path (Join-Path $rel.Kit '.git'))) 'release copy must not be a git repo'
+    Invoke-InFolder $f.Root {
+        $version = Invoke-Trinity $rel @('version')
+        Assert-True ($version.ExitCode -eq 0 -and $version.Output.Trim() -eq "trinity $($rel.Version)") "version output: $($version.Output)"
+        $help = Invoke-Trinity $rel @('help')
+        Assert-True ($help.ExitCode -eq 0 -and $help.Output -match 'doctor' -and $help.Output -match 'init <path>') "help output: $($help.Output)"
+        $status = Invoke-Trinity $rel @('status')
+        Assert-True ($status.ExitCode -ne 0 -and $status.Output -match 'not inside a git repo' -and $status.Output -match 'trinity init') "status outside a repo: $($status.Output)"
+    }
+    Assert-True (-not (Test-Path (Join-Path $rel.Kit '.codex-out'))) 'a repo-free command created .codex-out inside the release copy'
+}
+
+Run-Case 'release copy works on the repo of the current folder, not on a repo around the copy' {
+    param($f)
+    $outer = Join-Path $f.Root 'outer repo'
+    New-Item -ItemType Directory -Path $outer -Force | Out-Null
+    & git -C $outer init -b main 2>&1 | Out-Null
+    $rel = New-ReleaseCopy ([pscustomobject]@{ Root = $outer })
+    Invoke-InFolder $f.Root {
+        $status = Invoke-Trinity $rel @('status')
+        Assert-True ($status.ExitCode -ne 0 -and $status.Output -match 'not inside a git repo') "a repo around the release copy was used: $($status.Output)"
+    }
+    Invoke-InFolder $f.Repo {
+        $status = Invoke-Trinity $rel @('status')
+        Assert-True ($status.ExitCode -eq 0 -and $status.Output -match 'main checkout: branch=main') "status in the project folder: $($status.Output)"
+    }
+    Assert-True (Test-Path (Join-Path $f.Repo '.codex-out')) 'state was not created in the project repo'
+    Assert-True (-not (Test-Path (Join-Path $rel.Kit '.codex-out'))) 'state was created inside the release copy'
+}
+
+Run-Case 'release copy: init installs a working copy into a project, version matches' {
+    param($f)
+    $rel = New-ReleaseCopy $f
+    $target = Join-Path $f.Root 'my project'
+    New-Item -ItemType Directory -Path $target -Force | Out-Null
+    & git -C $target init -b main 2>&1 | Out-Null
+    Invoke-InFolder $f.Root {
+        $init = Invoke-Trinity $rel @('init', $target)
+        Assert-True ($init.ExitCode -eq 0) "init failed: $($init.Output)"
+    }
+    foreach ($relPath in @('VERSION', 'trinity.cmd', 'scripts\trinity.ps1', 'scripts\lib\board.ps1', 'AGENTS.md', '.claude\settings.json')) {
+        Assert-True (Test-Path -LiteralPath (Join-Path $target $relPath)) "init did not install $relPath"
+    }
+    if (Test-Path -LiteralPath (Join-Path $rel.Kit 'scripts\doctor.ps1')) {
+        Assert-True (Test-Path -LiteralPath (Join-Path $target 'scripts\doctor.ps1')) 'init did not install scripts\doctor.ps1'
+    }
+    $installed = [pscustomobject]@{ Trinity = (Join-Path $target 'scripts\trinity.ps1') }
+    Invoke-InFolder $target {
+        $version = Invoke-Trinity $installed @('version')
+        Assert-True ($version.Output.Trim() -eq "trinity $($rel.Version)") "installed version: $($version.Output)"
+        $status = Invoke-Trinity $installed @('status')
+        Assert-True ($status.ExitCode -eq 0 -and $status.Output -match 'main checkout') "status in the initialized project: $($status.Output)"
+    }
+}
+
+Run-Case 'release copy as the only install: dispatch, wait and merge work on the project of the current folder' {
+    param($f)
+    $rel = New-ReleaseCopy $f
+    $utf8 = New-Object Text.UTF8Encoding($false)
+    $proj = Join-Path $f.Root 'plain project'
+    New-Item -ItemType Directory -Path $proj -Force | Out-Null
+    & git -C $proj init -b main 2>&1 | Out-Null
+    Invoke-Git $proj @('config', 'user.name', 'Trinity Selftest') | Out-Null
+    Invoke-Git $proj @('config', 'user.email', 'selftest@example.invalid') | Out-Null
+    [IO.File]::WriteAllText((Join-Path $proj 'AGENTS.md'), ("# Plain`r`n`r`n" + '- Test: `exit 0`' + "`r`n"), $utf8)
+    [IO.File]::WriteAllText((Join-Path $proj '.gitignore'), ".codex-out/`r`n", $utf8)
+    Invoke-Git $proj @('add', '-A') | Out-Null
+    Invoke-Git $proj @('commit', '-m', 'first') | Out-Null
+    $prompt = Join-Path $f.Root 'plain-prompt.md'
+    [IO.File]::WriteAllText($prompt, "Perform the fixture task.`r`n", $utf8)
+    Invoke-InFolder $proj {
+        $dispatch = Invoke-Trinity $rel @('dispatch', 'codex', 'rc-task', '-Scope', 'src/*', '-PromptFile', $prompt)
+        Assert-True ($dispatch.ExitCode -eq 0) "dispatch failed ($($dispatch.ExitCode)): $($dispatch.Output)"
+        $wait = Invoke-Trinity $rel @('wait', 'rc-task', '-Timeout', '50')
+        Assert-True ($wait.ExitCode -eq 0) "wait exit $($wait.ExitCode): $($wait.Output)"
+        $merge = Invoke-Trinity $rel @('merge', 'rc-task', '-Yes')
+        Assert-True ($merge.ExitCode -eq 0) "merge failed ($($merge.ExitCode)): $($merge.Output)"
+    }
+    Assert-True ((Invoke-Git $proj @('show', 'main:fake-output.txt')) -eq 'fake codex output') 'project main lacks the merged file'
+    Assert-True (-not (Test-Path (Join-Path $rel.Kit '.codex-out'))) 'state was created inside the release copy'
+    & git -C $proj worktree prune 2>&1 | Out-Null
 }
 
 Run-Case 'board rejects bad and duplicate task names and frees merged names' {

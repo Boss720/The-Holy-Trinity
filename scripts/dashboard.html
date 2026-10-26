@@ -3056,7 +3056,7 @@
       const trinityToken = tokenMeta ? tokenMeta.getAttribute('content') : null;
 
       function areActionsEnabled(state) {
-        const hasValidToken = (trinityToken && trinityToken !== '__TRINITY_TOKEN__') || isSample;
+        const hasValidToken = (trinityToken && trinityToken !== '__TRINITY_' + 'TOKEN__') && !isSample;
         return hasValidToken && !!(state && state.server && state.server.actionsEnabled === true);
       }
 
@@ -3972,7 +3972,7 @@
 
           // Review (has branch)
           if (task.branch && task.branch !== '-') {
-            const reviewCmd = 'trinity review --base main';
+            const reviewCmd = 'cd /d "' + repoPath + '.worktrees\\' + task.agent + '-' + task.task + '" && trinity review --base main';
             const ctrl = createActionControl('review', 'Review', reviewCmd, function () {
               requestAction('review-task', task.task, repoPath, reviewCmd, false, ctrl.querySelector('.btn-action'));
             }, false, taskRefKey);

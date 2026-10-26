@@ -4,7 +4,7 @@ Update before you stop. Newest entry on top.
 
 ## Status
 - Completed: Modules 0-4 (dashboard detail + chats; works without Codex), dashboard detail v3 (Antigravity parity)
-- In flight: none. GUI step 1 (read-only Inbox, Health, deep links, age chip) merged: gui-s1-server a78178c + gui-s1-page f04cc78
+- In flight (2026-10-26, release-install work, spec `docs/reco/install-spec.md`): Codex `installer` (install.ps1, install.cmd, scripts/doctor.ps1), Codex `release-pack` (scripts/build-release.ps1, .github/workflows), Antigravity `install-docs` (INSTALL.md, docs/claude-install-prompt.md). Claude: repo-free commands + VERSION + `trinity version/doctor` hook committed 91ef83a; README, CHANGELOG, self-tests, merges, fresh-extract test pending. Not released or tagged yet. Earlier: GUI step 1 merged (gui-s1-server a78178c + gui-s1-page f04cc78), gui-s2 merged 4d8c9a5 (by another session)
 - Next command: GUI build order step 2 in `docs/recommendations-gui.md` (action API with token/Origin/loopback checks, jobs, first actions cancel/merge/review-task/open-folder). Known: Inbox "done-unmerged" lists old board entries merged by hand; add a dismiss or board cleanup in step 2
 - Blockers: none (two PLAN boxes need the user: notification seen on screen, Claude headless reviewer logged in)
 

@@ -3,11 +3,15 @@
 ## Unreleased
 
 ### Added
+- Release install: GitHub releases now ship `trinity-vX.Y.Z.zip` + `.sha256` (built by `scripts\build-release.ps1`, published by `.github/workflows/release.yml` on a `vX.Y.Z` tag, CI in `ci.yml`). `install.cmd` checks prerequisites, can install Git with winget (`-InstallGit`), put `trinity` on the user PATH (`-AddToPath`) and run `trinity init` (`-Init <path>`). `docs/claude-install-prompt.md` is the same install as a prompt for Claude Code. `INSTALL.md` has the steps and a troubleshooting table.
+- `trinity doctor [-Json]` checks Windows, PowerShell, git (2.31+), git identity, Claude/Codex/Antigravity CLIs and logins, PATH, repo hooks and disk, and prints the exact fix for each problem. `trinity version`, `VERSION` file.
 - Dashboard GUI step 1 (read-only): Inbox view (default) with a needs-attention list and running tasks, Health view, `#task=<repo>/<task>` deep links, data-age chip, "server outdated" banner. `/api/state` gains `server`, `attention` and `health`. Spec: `docs/reco/gui-step1.md`.
 - Dashboard: "Copy merge" button on finished tasks; dashboard request errors logged to `%USERPROFILE%\.trinity\dashboard-errors.log`.
 - `trinity init` merges the SessionStart hook into a kept `.claude\settings.json` (original saved to `.codex-out\settings.json.bak`) and upgrades the old hook command.
 
 ### Fixed
+- A release copy of the toolkit (no `.git`) works: `help`, `version`, `doctor` and `init` no longer need a repo, and every other command uses the git repo of the current folder instead of failing with "not inside a git repo". A repo that merely contains the extracted folder is not mistaken for the project.
+- Codex CLI installed by the official standalone installer (`%LOCALAPPDATA%\Programs\OpenAI\Codex\bin\codex.exe`) is found by `Find-CodexExe` and `scripts\codex.cmd`.
 - SessionStart hook works when Claude starts in a subfolder (resolves the repo root with git).
 - Pre-commit hook also checks renamed and type-changed files, and fails if it cannot list staged files.
 - `agy.cmd` / `agy.bat` on PATH count as Antigravity.
