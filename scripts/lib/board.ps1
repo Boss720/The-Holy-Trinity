@@ -131,6 +131,12 @@ function New-AgentWorktree($Paths, [string]$Agent, [string]$Task, [string]$Scope
     if ($LASTEXITCODE -eq 0) { Fail "branch $branch already exists" }
     if (Test-Path $wtPath) { Fail "path already exists: $wtPath" }
     if (-not (Test-Path $Paths.Worktrees)) { New-Item -ItemType Directory -Path $Paths.Worktrees | Out-Null }
+    git -C $Paths.Main rev-parse --verify --quiet ($Base + '^{commit}') | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        git -C $Paths.Main rev-parse --verify --quiet HEAD | Out-Null
+        if ($LASTEXITCODE -ne 0) { Fail 'this repo has no commits yet; make a first commit (git add -A, then git commit -m "first commit") and dispatch again' }
+        Fail "branch '$Base' does not exist; trinity branches from it. Rename your default branch (git branch -m $Base) or pass -Base <branch>"
+    }
     git -C $Paths.Main worktree add -b $branch $wtPath $Base | Out-Host
     if ($LASTEXITCODE -ne 0) { Fail 'git worktree add failed' }
     try { Add-BoardEntry $Paths $Task $Agent $branch $wtPath $Scope }

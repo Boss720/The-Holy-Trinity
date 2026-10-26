@@ -34,53 +34,64 @@ function Get-DoctorResult {
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'scripts\doctor.ps1') | ForEach-Object { Write-Host "$_" }
     return $LASTEXITCODE
 }
+# The User PATH is read and written raw in the registry. [Environment]::SetEnvironmentVariable would store the
+# expanded text as REG_SZ and freeze every %VAR% entry. TRINITY_USER_ENV_KEY points these functions at a
+# throwaway key (self-test only).
+function Get-UserEnvKeyName {
+    if ($env:TRINITY_USER_ENV_KEY) { return $env:TRINITY_USER_ENV_KEY }
+    return 'Environment'
+}
+function Get-UserPathRaw {
+    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey((Get-UserEnvKeyName))
+    if (-not $key) { return '' }
+    try { return [string]$key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) }
+    finally { $key.Close() }
+}
+function Set-UserPathRaw([string]$Value) {
+    $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey((Get-UserEnvKeyName))
+    try { $key.SetValue('Path', $Value, [Microsoft.Win32.RegistryValueKind]::ExpandString) }
+    finally { $key.Close() }
+    if (-not $env:TRINITY_USER_ENV_KEY) {
+        # Setting and clearing a user variable makes Windows tell running programs that the environment changed.
+        [Environment]::SetEnvironmentVariable('TRINITY_PATH_REFRESH', '1', 'User')
+        [Environment]::SetEnvironmentVariable('TRINITY_PATH_REFRESH', $null, 'User')
+    }
+}
+function Get-PathKey([string]$Entry) {
+    $text = [Environment]::ExpandEnvironmentVariables($Entry.Trim())
+    try { $text = [IO.Path]::GetFullPath($text) } catch { }
+    return $text.TrimEnd('\')
+}
+function Test-PathEntry([string]$Entry, [string]$Target) {
+    return [string]::Equals((Get-PathKey $Entry), $Target, [StringComparison]::OrdinalIgnoreCase)
+}
+# Messages use Write-Host: anything written to the output stream would become part of the function's return value.
 function Update-UserPath([bool]$Add) {
-    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-    if ($null -eq $userPath) { $userPath = '' }
-    $parts = @($userPath -split ';' | Where-Object { $_ })
+    $raw = Get-UserPathRaw
+    $parts = @($raw -split ';' | Where-Object { $_.Trim() })
     $target = [IO.Path]::GetFullPath($root).TrimEnd('\')
-    $found = $false
-    foreach ($part in $parts) {
-        try { $normalized = [IO.Path]::GetFullPath($part.Trim()).TrimEnd('\') }
-        catch { $normalized = $part.Trim().TrimEnd('\') }
-        if ([string]::Equals($normalized, $target, [StringComparison]::OrdinalIgnoreCase)) { $found = $true; break }
-    }
-    if ($Add -and $found) { Write-Output 'User PATH already contains this toolkit folder; left it unchanged.'; return $true }
-    if (-not $Add -and -not $found) { Write-Output 'User PATH does not contain this toolkit folder; left it unchanged.'; return $true }
-    if ($Add) {
-        $parts += $target
-        $newPath = $parts -join ';'
-    }
-    else {
-        $newPath = @($parts | Where-Object {
-            try { -not [string]::Equals([IO.Path]::GetFullPath($_.Trim()).TrimEnd('\'), $target, [StringComparison]::OrdinalIgnoreCase) }
-            catch { -not [string]::Equals($_.Trim().TrimEnd('\'), $target, [StringComparison]::OrdinalIgnoreCase) }
-        }) -join ';'
-    }
+    $found = (@($parts | Where-Object { Test-PathEntry $_ $target }).Count -gt 0)
+    if ($Add -and $found) { Write-Host 'User PATH already contains this toolkit folder; left it unchanged.'; return $true }
+    if (-not $Add -and -not $found) { Write-Host 'User PATH does not contain this toolkit folder; left it unchanged.'; return $true }
+    if ($Add) { $newParts = @($parts) + $target }
+    else { $newParts = @($parts | Where-Object { -not (Test-PathEntry $_ $target) }) }
     try {
-        [Environment]::SetEnvironmentVariable('Path', $newPath, 'User')
+        $backup = Join-Path (Get-TrinityHome) 'user-path-backup.txt'
+        New-Item -ItemType Directory -Path (Split-Path -Parent $backup) -Force | Out-Null
+        [IO.File]::WriteAllText($backup, $raw, (New-Object Text.UTF8Encoding($false)))
+        Set-UserPathRaw ($newParts -join ';')
         $current = @($env:Path -split ';' | Where-Object { $_ })
         if ($Add) {
-            $processHasTarget = $false
-            foreach ($part in $current) {
-                try { $normalized = [IO.Path]::GetFullPath($part.Trim()).TrimEnd('\') }
-                catch { $normalized = $part.Trim().TrimEnd('\') }
-                if ([string]::Equals($normalized, $target, [StringComparison]::OrdinalIgnoreCase)) { $processHasTarget = $true; break }
-            }
-            if (-not $processHasTarget) { $current += $target }
+            if (-not (@($current | Where-Object { Test-PathEntry $_ $target }).Count -gt 0)) { $current += $target }
         }
-        else {
-            $current = @($current | Where-Object {
-                try { -not [string]::Equals([IO.Path]::GetFullPath($_.Trim()).TrimEnd('\'), $target, [StringComparison]::OrdinalIgnoreCase) }
-                catch { -not [string]::Equals($_.Trim().TrimEnd('\'), $target, [StringComparison]::OrdinalIgnoreCase) }
-            })
-        }
+        else { $current = @($current | Where-Object { -not (Test-PathEntry $_ $target) }) }
         $env:Path = $current -join ';'
-        Write-Output $(if ($Add) { "Added $target to User PATH." } else { "Removed $target from User PATH." })
-        Write-Output 'Open a new terminal for the User PATH change to apply there.'
+        Write-Host $(if ($Add) { "Added $target to User PATH." } else { "Removed $target from User PATH." })
+        Write-Host "Previous User PATH saved to $backup."
+        Write-Host 'Open a new terminal for the User PATH change to apply there.'
         return $true
     }
-    catch { Write-Output "Could not update User PATH: $($_.Exception.Message)"; return $false }
+    catch { Write-Host "Could not update User PATH: $($_.Exception.Message)"; return $false }
 }
 
 $checkOnly = $false

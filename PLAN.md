@@ -24,6 +24,8 @@ Per-module checklist. Owner = claude | codex | antigravity.
 - [x] Self-test covers Antigravity, cancel, forged done (12 cases) - codex + claude (task selftest-agy)
 - [x] Only the runner can finish a headless task (done refused, live runner pid = pending) - claude
 - [ ] Windows notification seen on screen (code runs without error; not visually confirmed) - user
+- [x] Release install: `install.cmd`, `trinity doctor`, `build-release.ps1`, release/CI workflows, INSTALL.md, Claude install prompt; fresh-extract walkthrough passed - claude + codex + antigravity (tasks installer, release-pack, install-docs)
+- [ ] Cut release v0.4.0 (CHANGELOG heading, tag, push) and confirm the first GitHub Actions run - user
 
 ## Module 3: Dashboard (see `docs/dashboard.md`)
 - [x] Spec + JSON contract (`docs/dashboard.md`) - claude

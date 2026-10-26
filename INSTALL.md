@@ -115,7 +115,7 @@ The installer supports the following flags:
 - `-Check`: Run prerequisite checks only and make no changes.
 - `-InstallGit`: Install Git for Windows via winget if missing or older than 2.31.
 - `-InstallClaude`: Install Claude Code using the official installer.
-- `-AddToPath`: Add the toolkit folder to the User PATH environment variable.
+- `-AddToPath`: Add the toolkit folder to the User PATH environment variable. Existing `%VAR%` entries are kept as they are, and the previous value is saved to `%USERPROFILE%\.trinity\user-path-backup.txt`.
 - `-RemoveFromPath`: Remove the toolkit folder from the User PATH environment variable.
 - `-Init <path>`: Initialize Trinity in the target git repository if checks pass.
 - `-Yes`: Run without interactive confirmation prompts.

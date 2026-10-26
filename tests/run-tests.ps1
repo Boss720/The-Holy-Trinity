@@ -622,6 +622,178 @@ Run-Case 'release copy as the only install: dispatch, wait and merge work on the
     & git -C $proj worktree prune 2>&1 | Out-Null
 }
 
+# doctor and the installer run from a release copy; git identity and logins are isolated from the real machine.
+function Test-GlobalConfigOverride {
+    $text = (& git --version 2>$null | Out-String)
+    if ($text -notmatch 'git version (\d+)\.(\d+)') { return $false }
+    return ([int]$Matches[1] -gt 2 -or ([int]$Matches[1] -eq 2 -and [int]$Matches[2] -ge 32))
+}
+
+function Invoke-WithGitConfig([string]$GlobalConfig, [scriptblock]$Body) {
+    $names = 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'TRINITY_DOCTOR_SKIP_LOGIN'
+    $saved = @{}
+    foreach ($n in $names) { $saved[$n] = [Environment]::GetEnvironmentVariable($n) }
+    try {
+        $env:GIT_CONFIG_GLOBAL = $GlobalConfig
+        $env:GIT_CONFIG_NOSYSTEM = '1'
+        $env:TRINITY_DOCTOR_SKIP_LOGIN = '1'
+        & $Body
+    }
+    finally { foreach ($n in $names) { [Environment]::SetEnvironmentVariable($n, $saved[$n]) } }
+}
+
+function Invoke-Installer($Kit, [string[]]$Arguments) {
+    $oldPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { $output = & (Join-Path $Kit.Kit 'install.cmd') @Arguments 2>&1 }
+    finally { $ErrorActionPreference = $oldPreference }
+    $code = $LASTEXITCODE
+    return [pscustomobject]@{ ExitCode = $code; Output = ($output | Out-String) }
+}
+
+function New-GitConfigFile($Fixture, [string]$Name, [bool]$WithIdentity) {
+    $path = Join-Path $Fixture.Root $Name
+    $text = if ($WithIdentity) { "[user]`r`n`tname = Selftest`r`n`temail = selftest@example.invalid`r`n" } else { "" }
+    [IO.File]::WriteAllText($path, $text, (New-Object Text.UTF8Encoding($false)))
+    return $path
+}
+
+Run-Case 'release copy: doctor passes with a git identity, prints a summary and valid -Json' {
+    param($f)
+    $rel = New-ReleaseCopy $f
+    if (-not (Test-Path -LiteralPath (Join-Path $rel.Kit 'scripts\doctor.ps1'))) { return }
+    if (-not (Test-GlobalConfigOverride)) { return }
+    $cfg = New-GitConfigFile $f 'gitconfig-ok' $true
+    Invoke-InFolder $f.Root {
+        Invoke-WithGitConfig $cfg {
+            $text = Invoke-Trinity $rel @('doctor')
+            Assert-True ($text.ExitCode -eq 0) "doctor exit $($text.ExitCode): $($text.Output)"
+            Assert-True ($text.Output -match '\[ OK \] git ' -and $text.Output -match 'doctor: \d+ ok, \d+ warnings, 0 failures') "doctor output: $($text.Output)"
+            $json = Invoke-Trinity $rel @('doctor', '-Json')
+            Assert-True ($json.ExitCode -eq 0) "doctor -Json exit $($json.ExitCode): $($json.Output)"
+            $parsed = $json.Output | ConvertFrom-Json
+            Assert-True ($parsed.fail -eq 0 -and $parsed.version -eq $rel.Version) "doctor -Json content: $($json.Output)"
+            $names = @($parsed.checks | ForEach-Object { $_.name })
+            foreach ($want in 'git', 'git-identity', 'workers') { Assert-True ($names -contains $want) "doctor -Json lacks the $want check" }
+        }
+    }
+}
+
+Run-Case 'release copy: doctor fails and says how to fix a missing git identity' {
+    param($f)
+    $rel = New-ReleaseCopy $f
+    if (-not (Test-Path -LiteralPath (Join-Path $rel.Kit 'scripts\doctor.ps1'))) { return }
+    if (-not (Test-GlobalConfigOverride)) { return }
+    $cfg = New-GitConfigFile $f 'gitconfig-empty' $false
+    Invoke-InFolder $f.Root {
+        Invoke-WithGitConfig $cfg {
+            $r = Invoke-Trinity $rel @('doctor')
+            Assert-True ($r.ExitCode -eq 1) "doctor exit $($r.ExitCode): $($r.Output)"
+            Assert-True ($r.Output -match '\[FAIL\] git-identity' -and $r.Output -match 'fix: git config --global user\.name') "doctor output: $($r.Output)"
+        }
+    }
+}
+
+Run-Case 'release copy: install.cmd -Check follows doctor, rejects bad options, changes nothing' {
+    param($f)
+    $rel = New-ReleaseCopy $f
+    if (-not (Test-Path -LiteralPath (Join-Path $rel.Kit 'install.cmd'))) { return }
+    if (-not (Test-GlobalConfigOverride)) { return }
+    $cfg = New-GitConfigFile $f 'gitconfig-ok' $true
+    $pathBefore = [Environment]::GetEnvironmentVariable('Path', 'User')
+    Invoke-InFolder $f.Root {
+        Invoke-WithGitConfig $cfg {
+            $check = Invoke-Installer $rel @('-Check')
+            Assert-True ($check.ExitCode -eq 0 -and $check.Output -match 'doctor: ') "install.cmd -Check exit $($check.ExitCode): $($check.Output)"
+            $help = Invoke-Installer $rel @('-Help')
+            Assert-True ($help.ExitCode -eq 0 -and $help.Output -match '-AddToPath') "install.cmd -Help: $($help.Output)"
+            $bogus = Invoke-Installer $rel @('-Bogus')
+            Assert-True ($bogus.ExitCode -eq 2 -and $bogus.Output -match 'unknown option') "install.cmd -Bogus exit $($bogus.ExitCode): $($bogus.Output)"
+            $mixed = Invoke-Installer $rel @('-Check', '-AddToPath')
+            Assert-True ($mixed.ExitCode -eq 2) "install.cmd -Check -AddToPath exit $($mixed.ExitCode): $($mixed.Output)"
+        }
+    }
+    Assert-True ([Environment]::GetEnvironmentVariable('Path', 'User') -eq $pathBefore) 'install.cmd -Check changed the User PATH'
+}
+
+function Get-RawPathValue([string]$KeyName) {
+    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($KeyName)
+    if (-not $key) { return $null }
+    try { return [pscustomobject]@{ Text = [string]$key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames); Kind = [string]$key.GetValueKind('Path') } }
+    finally { $key.Close() }
+}
+
+Run-Case 'release copy: install.cmd -AddToPath and -RemoveFromPath keep %VAR% entries and restore the PATH exactly' {
+    param($f)
+    $rel = New-ReleaseCopy $f
+    if (-not (Test-Path -LiteralPath (Join-Path $rel.Kit 'install.cmd'))) { return }
+    if (-not (Test-GlobalConfigOverride)) { return }
+    $cfg = New-GitConfigFile $f 'gitconfig-ok' $true
+    # A throwaway registry key stands in for HKCU\Environment; the real User PATH is never written.
+    $keyName = 'Software\TrinitySelftest-' + [Guid]::NewGuid().ToString('N')
+    $realBefore = [Environment]::GetEnvironmentVariable('Path', 'User')
+    $savedKey = $env:TRINITY_USER_ENV_KEY
+    $savedHome = $env:TRINITY_HOME
+    $seed = '%USERPROFILE%\selftest-bin;C:\selftest-other'
+    try {
+        $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($keyName)
+        $key.SetValue('Path', $seed, [Microsoft.Win32.RegistryValueKind]::ExpandString)
+        $key.Close()
+        $env:TRINITY_USER_ENV_KEY = $keyName
+        $env:TRINITY_HOME = Join-Path $f.Root 'trinity-home'
+        Invoke-InFolder $f.Root {
+            Invoke-WithGitConfig $cfg {
+                $add = Invoke-Installer $rel @('-AddToPath', '-Yes')
+                Assert-True ($add.ExitCode -eq 0 -and $add.Output -match 'Added .* to User PATH') "-AddToPath exit $($add.ExitCode): $($add.Output)"
+                $after = Get-RawPathValue $keyName
+                Assert-True ($after.Text -eq ($seed + ';' + $rel.Kit)) "PATH after add: $($after.Text)"
+                Assert-True ($after.Kind -eq 'ExpandString') "PATH kind after add: $($after.Kind)"
+                $again = Invoke-Installer $rel @('-AddToPath', '-Yes')
+                Assert-True ($again.ExitCode -eq 0 -and $again.Output -match 'already contains') "second -AddToPath: $($again.Output)"
+                Assert-True ((Get-RawPathValue $keyName).Text -eq $after.Text) 'second -AddToPath changed the PATH'
+                $remove = Invoke-Installer $rel @('-RemoveFromPath', '-Yes')
+                Assert-True ($remove.ExitCode -eq 0 -and $remove.Output -match 'Removed ') "-RemoveFromPath exit $($remove.ExitCode): $($remove.Output)"
+                $restored = Get-RawPathValue $keyName
+                Assert-True ($restored.Text -eq $seed -and $restored.Kind -eq 'ExpandString') "PATH after remove: $($restored.Text) ($($restored.Kind))"
+                Assert-True (Test-Path -LiteralPath (Join-Path $env:TRINITY_HOME 'user-path-backup.txt')) 'no PATH backup file'
+            }
+        }
+    }
+    finally {
+        $env:TRINITY_USER_ENV_KEY = $savedKey
+        $env:TRINITY_HOME = $savedHome
+        try { [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree($keyName, $false) } catch { }
+    }
+    Assert-True ([Environment]::GetEnvironmentVariable('Path', 'User') -eq $realBefore) 'the real User PATH changed'
+}
+
+Run-Case 'dispatch in a repo without commits or without the base branch says what to do' {
+    param($f)
+    $rel = New-ReleaseCopy $f
+    $utf8 = New-Object Text.UTF8Encoding($false)
+    $proj = Join-Path $f.Root 'empty project'
+    New-Item -ItemType Directory -Path $proj -Force | Out-Null
+    & git -C $proj init -b main 2>&1 | Out-Null
+    Invoke-Git $proj @('config', 'user.name', 'Trinity Selftest') | Out-Null
+    Invoke-Git $proj @('config', 'user.email', 'selftest@example.invalid') | Out-Null
+    $prompt = Join-Path $f.Root 'empty-prompt.md'
+    [IO.File]::WriteAllText($prompt, "Perform the fixture task.`r`n", $utf8)
+    Invoke-InFolder $proj {
+        $none = Invoke-Trinity $rel @('dispatch', 'codex', 'ec-task', '-Scope', 'src/*', '-PromptFile', $prompt)
+        Assert-True ($none.ExitCode -ne 0 -and $none.Output -match 'no commits yet' -and $none.Output -match 'first commit') "dispatch without commits: $($none.Output)"
+    }
+    [IO.File]::WriteAllText((Join-Path $proj 'a.txt'), "a`r`n", $utf8)
+    Invoke-Git $proj @('add', '-A') | Out-Null
+    Invoke-Git $proj @('commit', '-m', 'first') | Out-Null
+    Invoke-Git $proj @('branch', '-m', 'trunk') | Out-Null
+    Invoke-InFolder $proj {
+        $trunk = Invoke-Trinity $rel @('dispatch', 'codex', 'ec-task', '-Scope', 'src/*', '-PromptFile', $prompt)
+        Assert-True ($trunk.ExitCode -ne 0 -and $trunk.Output -match "branch 'main' does not exist" -and $trunk.Output -match 'git branch -m main') "dispatch without main: $($trunk.Output)"
+    }
+    $board = Join-Path $proj '.git\agent-board.md'
+    Assert-True ((-not (Test-Path $board)) -or ((Get-Content -Raw $board) -notmatch 'ec-task')) 'a refused dispatch left a board entry'
+}
+
 Run-Case 'board rejects bad and duplicate task names and frees merged names' {
     param($f)
     $bad = Invoke-Trinity $f @('track', 'Bad_Name', 'x')

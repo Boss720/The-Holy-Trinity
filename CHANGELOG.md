@@ -10,6 +10,8 @@
 - `trinity init` merges the SessionStart hook into a kept `.claude\settings.json` (original saved to `.codex-out\settings.json.bak`) and upgrades the old hook command.
 
 ### Fixed
+- `install.cmd -AddToPath` / `-RemoveFromPath` edit the User PATH in the registry as an expandable value: `%VAR%` entries survive, the previous value is saved to `%USERPROFILE%\.trinity\user-path-backup.txt`, and a failure is reported instead of being swallowed.
+- `trinity dispatch` in a repo with no commits, or without a `main` branch, says what to do (first commit, `git branch -m main` or `-Base`) instead of a raw git error.
 - A release copy of the toolkit (no `.git`) works: `help`, `version`, `doctor` and `init` no longer need a repo, and every other command uses the git repo of the current folder instead of failing with "not inside a git repo". A repo that merely contains the extracted folder is not mistaken for the project.
 - Codex CLI installed by the official standalone installer (`%LOCALAPPDATA%\Programs\OpenAI\Codex\bin\codex.exe`) is found by `Find-CodexExe` and `scripts\codex.cmd`.
 - SessionStart hook works when Claude starts in a subfolder (resolves the repo root with git).
