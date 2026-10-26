@@ -585,9 +585,22 @@ function Get-TaskLog([string]$Repo, $Task, [long]$Offset) {
         if ($Offset -lt 0 -or $reset) { $Offset=[Math]::Max(0,$size-16384) }
         [void]$stream.Seek($Offset,[IO.SeekOrigin]::Begin); $buffer=New-Object byte[] ([int][Math]::Min(65536,$size-$Offset)); $read=0
         while ($read -lt $buffer.Length) { $n=$stream.Read($buffer,$read,$buffer.Length-$read); if ($n -eq 0) { break }; $read+=$n }
-        $text=[Text.Encoding]::UTF8.GetString($buffer,0,$read)
+        $start=0; $end=$read
+        # A tail or caller offset can begin inside a UTF-8 character.
+        if ($Offset -gt 0) { while ($start -lt $end -and ($buffer[$start] -band 0xC0) -eq 0x80) { $start++ } }
+        if ($end -gt $start) {
+            $lead=$end-1
+            while ($lead -gt $start -and ($buffer[$lead] -band 0xC0) -eq 0x80) { $lead-- }
+            $byte=$buffer[$lead]; $width=1
+            if ($byte -ge 0xC2 -and $byte -le 0xDF) { $width=2 }
+            elseif ($byte -ge 0xE0 -and $byte -le 0xEF) { $width=3 }
+            elseif ($byte -ge 0xF0 -and $byte -le 0xF4) { $width=4 }
+            # Leave a partial character for the next poll, including at EOF.
+            if ($end-$lead -lt $width) { $end=$lead }
+        }
+        $text=Get-Redacted ([Text.Encoding]::UTF8.GetString($buffer,$start,$end-$start))
         $text=[regex]::Replace($text,'[\x00-\x08\x0b-\x1f\x7f]',{ param($m) '\x{0:x2}' -f [int][char]$m.Value })
-        return @{ size=$size; offset=$Offset; nextOffset=($Offset+$read); text=$text; reset=$reset; exists=$true }
+        return @{ size=$size; offset=$Offset; nextOffset=($Offset+$end); text=$text; reset=$reset; exists=$true }
     } finally { $stream.Dispose() }
 }
 
