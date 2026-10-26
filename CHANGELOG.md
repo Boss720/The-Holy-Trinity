@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.4.0 - 2026-10-26
 
 ### Added
 - Release install: GitHub releases now ship `trinity-vX.Y.Z.zip` + `.sha256` (built by `scripts\build-release.ps1`, published by `.github/workflows/release.yml` on a `vX.Y.Z` tag, CI in `ci.yml`). `install.cmd` checks prerequisites, can install Git with winget (`-InstallGit`), put `trinity` on the user PATH (`-AddToPath`) and run `trinity init` (`-Init <path>`). `docs/claude-install-prompt.md` is the same install as a prompt for Claude Code. `INSTALL.md` has the steps and a troubleshooting table.
