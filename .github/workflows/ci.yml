@@ -20,3 +20,6 @@ jobs:
       - name: Run tests
         shell: powershell
         run: .\tests\run-tests.cmd
+      - name: Build release (verify)
+        shell: powershell
+        run: .\scripts\build-release.ps1 -OutDir dist -Verify
