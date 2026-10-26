@@ -1121,6 +1121,8 @@ function Get-DispatchCheck($RepoState, $Availability, [string]$Agent, [string]$T
             }
         }
     }
+    # The worker resolves its repository from the script's own path, so a repo without its own copy cannot be targeted.
+    if (-not (Test-Path -LiteralPath (Join-Path ([string]$RepoState.path) 'scripts	rinity.ps1') -PathType Leaf)) { $r.agentOk=$false; $r.agentReason='Repository has no scripts	rinity.ps1 (run trinity init there)' }
     $r.canDispatch=$r.taskOk -and $r.agentOk -and $r.scopeOk
     $r.command='trinity dispatch {0} {1} -Scope "{2}" -PromptFile <file>' -f $r.effectiveAgent,$Task,($r.scopeNormalized -join ',')
     return $r
