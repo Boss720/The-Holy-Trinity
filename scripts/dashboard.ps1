@@ -831,6 +831,7 @@ function Get-DashboardState {
         scriptHashOnDisk = $scriptHashOnDisk
         listenerScope = 'loopback'
         blockedRemoteCount = [int]$script:BlockedRemoteCount
+        actionsEnabled = $true
         collectMs = $collectMs
         avgCollectMs = $avgCollectMs
     }
@@ -902,6 +903,93 @@ function Write-DashboardError([string]$Route, $ErrorRecord) {
     catch { }
 }
 
+function Send-JsonResponse($Response, [int]$Status, $Value) {
+    $bytes = [Text.Encoding]::UTF8.GetBytes((Convert-StateToJson $Value))
+    $Response.StatusCode = $Status
+    $Response.ContentType = 'application/json; charset=utf-8'
+    $Response.Headers['Cache-Control'] = 'no-store'
+    $Response.ContentLength64 = $bytes.Length
+    $Response.OutputStream.Write($bytes, 0, $bytes.Length)
+}
+
+function Test-ServerToken([string]$Candidate, [string]$Expected) {
+    $candidateBytes = [Text.Encoding]::ASCII.GetBytes($Candidate)
+    $expectedBytes = [Text.Encoding]::ASCII.GetBytes($Expected)
+    $difference = $candidateBytes.Length -bxor $expectedBytes.Length
+    for ($i = 0; $i -lt $expectedBytes.Length; $i++) {
+        $value = if ($i -lt $candidateBytes.Length) { [int]$candidateBytes[$i] } else { 0 }
+        $difference = $difference -bor ($value -bxor [int]$expectedBytes[$i])
+    }
+    return ($difference -eq 0)
+}
+
+function Add-ActionLog([string]$Action, [string]$Repo, [string]$Task, [string]$Result, [string]$ExitCode = '') {
+    try {
+        $dir = if ($env:TRINITY_HOME) { $env:TRINITY_HOME } else { Join-Path $env:USERPROFILE '.trinity' }
+        if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
+        $log = Join-Path $dir 'actions.log'
+        if ((Test-Path -LiteralPath $log) -and (Get-Item -LiteralPath $log).Length -gt 512KB) { Move-Item -LiteralPath $log -Destination "$log.1" -Force }
+        $fields = New-Object System.Collections.Generic.List[string]
+        foreach ($field in @($Action, $Repo, $Task, $Result, $ExitCode)) {
+            $value = [regex]::Replace([string]$field, '[\r\n]+', ' ')
+            if ($value.Length -gt 512) { $value = $value.Substring(0, 512) }
+            if ($script:ServerToken) { $value = $value.Replace($script:ServerToken, '[redacted]') }
+            $fields.Add($value)
+        }
+        $line = '{0} action={1} repo={2} task={3} result={4} exitCode={5}' -f (Get-Date).ToString("yyyy-MM-dd'T'HH:mm:ssK"), $fields[0], $fields[1], $fields[2], $fields[3], $fields[4]
+        [IO.File]::AppendAllText($log, $line + "`r`n", (New-Object Text.UTF8Encoding($false)))
+    } catch { }
+}
+
+function Quote-ProcessArgument([string]$Value) {
+    if ($Value -notmatch '[\s"]') { return $Value }
+    return '"' + ($Value -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"'
+}
+
+function Start-ActionProcess([string]$Id, [string]$Action, [string]$Task, [string]$RepoPath, [string]$Worktree, [string]$Command) {
+    $outDir = Join-Path $RepoPath '.codex-out\jobs'
+    if (-not (Test-Path -LiteralPath $outDir)) { New-Item -ItemType Directory -Path $outDir -Force | Out-Null }
+    $outputPath = Join-Path $outDir "$Id.txt"
+    $errorPath = Join-Path $outDir "$Id.stderr.txt"
+    $script:Jobs[$Id] = @{ id=$Id; action=$Action; task=$Task; state='running'; exitCode=$null; outputPath=$outputPath; errorPath=$errorPath; command=$Command; process=$null; repo=$RepoPath }
+    if ($Action -eq 'open-folder') {
+        $script:Jobs[$Id].state = 'done'; $script:Jobs[$Id].exitCode = 0
+        [IO.File]::WriteAllText($outputPath, '', (New-Object Text.UTF8Encoding($false)))
+        Start-Process -FilePath 'explorer.exe' -ArgumentList @((Quote-ProcessArgument $Worktree)) -WorkingDirectory $RepoPath -WindowStyle Hidden | Out-Null
+        return
+    }
+    $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    if ($Action -eq 'review-task') { $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $RepoPath 'scripts\trinity.ps1'),'review','--base','main'); $cwd=$Worktree }
+    elseif ($Action -eq 'cancel') { $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $RepoPath 'scripts\trinity.ps1'),'cancel',$Task); $cwd=$RepoPath }
+    else { $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $RepoPath 'scripts\trinity.ps1'),'merge',$Task,'-Yes'); $cwd=$RepoPath }
+    $processArguments = @($processArguments | ForEach-Object { Quote-ProcessArgument ([string]$_) })
+    [IO.File]::WriteAllText($outputPath, '', (New-Object Text.UTF8Encoding($false)))
+    [IO.File]::WriteAllText($errorPath, '', (New-Object Text.UTF8Encoding($false)))
+    $process = Start-Process -FilePath $powershell -ArgumentList $processArguments -WorkingDirectory $cwd -RedirectStandardOutput $outputPath -RedirectStandardError $errorPath -WindowStyle Hidden -PassThru
+    $script:Jobs[$Id].process = $process
+}
+
+function Update-ActionJobs {
+    foreach ($job in @($script:Jobs.Values)) {
+        if ($job.state -eq 'running' -and $job.process -and $job.process.HasExited) {
+            try {
+                $job.process.WaitForExit(); $job.exitCode = [int]$job.process.ExitCode; $job.state = if ($job.exitCode -eq 0) { 'done' } else { 'failed' }
+                if (Test-Path -LiteralPath $job.errorPath -PathType Leaf) { $errorText=[IO.File]::ReadAllText($job.errorPath); if ($errorText) { [IO.File]::AppendAllText($job.outputPath, $errorText, (New-Object Text.UTF8Encoding($false))) }; Remove-Item -LiteralPath $job.errorPath -Force -ErrorAction SilentlyContinue }
+                Add-ActionLog $job.action $job.repo $job.task $job.id ([string]$job.exitCode); $job.process.Dispose(); $job.process=$null
+            } catch { $job.state='failed'; $job.exitCode=1 }
+        }
+    }
+}
+
+function Read-JobOutput($Job) {
+    if (-not (Test-Path -LiteralPath $Job.outputPath -PathType Leaf)) { return '' }
+    try {
+        $stream = New-Object IO.FileStream($Job.outputPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        try { $count=[int][Math]::Min(65536,$stream.Length); [void]$stream.Seek(-$count,[IO.SeekOrigin]::End); $buffer=New-Object byte[] $count; $read=0; while($read -lt $count){$n=$stream.Read($buffer,$read,$count-$read);if($n -le 0){break};$read+=$n}; $text=[Text.Encoding]::UTF8.GetString($buffer,0,$read) } finally { $stream.Dispose() }
+        return [regex]::Replace($text, '[^\x20-\x7E\r\n\t]', '?')
+    } catch { return '' }
+}
+
 if ($LibraryOnly) { return }
 
 if ($Chat) {
@@ -922,6 +1010,10 @@ $listener = $null
 $collectorRunspace = $null
 $collectorPowerShell = $null
 $collectorAsync = $null
+$tokenBytes = New-Object byte[] 32
+[Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($tokenBytes)
+$script:ServerToken = ([BitConverter]::ToString($tokenBytes) -replace '-', '').ToLowerInvariant()
+$script:Jobs = @{}
 $sharedState = [hashtable]::Synchronized(@{ bytes = $null; builtAt = [datetime]::MinValue; lastRequestAt = [datetime]::MinValue; stop = $false; error = $null; errorAt = [datetime]::MinValue; errorSeq = 0; serverFacts = $script:ServerFacts; blockedRemoteCount = 0 })
 $loggedErrorSeq = 0
 try {
@@ -976,9 +1068,85 @@ try {
             $hostName = [string]$context.Request.Headers['Host']
             $remoteAddress = $context.Request.RemoteEndPoint.Address
             if ($remoteAddress.IsIPv4MappedToIPv6) { $remoteAddress = $remoteAddress.MapToIPv4() }
-            if (-not [System.Net.IPAddress]::IsLoopback($remoteAddress) -or $hostName -ne "localhost:$Port") {
+            if (-not [System.Net.IPAddress]::IsLoopback($remoteAddress) -or $hostName -cne "localhost:$Port") {
                 $sharedState.blockedRemoteCount = [int]$sharedState.blockedRemoteCount + 1
                 $response.StatusCode = 403
+            }
+            elseif ($context.Request.Url.AbsolutePath -eq '/api/action' -and $context.Request.HttpMethod -eq 'POST') {
+                $action = ''; $repoRequest = ''; $taskName = ''; $authPassed = $false; $actionLogged = $false
+                try {
+                    if ([string]$context.Request.Headers['Origin'] -cne "http://localhost:$Port") { Send-JsonResponse $response 403 @{ error='Origin must match this dashboard' }; continue }
+                    if (-not (Test-ServerToken ([string]$context.Request.Headers['X-Trinity-Token']) $script:ServerToken)) { Send-JsonResponse $response 401 @{ error='Missing or invalid token' }; continue }
+                    $authPassed = $true
+                    if ([string]$context.Request.ContentType -notmatch '^application/json(?:\s*;|$)') { Add-ActionLog '' '' '' '415'; $actionLogged=$true; Send-JsonResponse $response 415 @{ error='Content-Type must be application/json' }; continue }
+                    if ($context.Request.ContentLength64 -gt 8192) { Add-ActionLog '' '' '' '413'; $actionLogged=$true; Send-JsonResponse $response 413 @{ error='Request body exceeds 8 KB' }; continue }
+                    $bodyStream = New-Object IO.MemoryStream
+                    $buffer = New-Object byte[] 1024
+                    while ($bodyStream.Length -le 8192) {
+                        $read = $context.Request.InputStream.Read($buffer, 0, [int][Math]::Min($buffer.Length, 8193 - $bodyStream.Length))
+                        if ($read -le 0) { break }
+                        $bodyStream.Write($buffer, 0, $read)
+                    }
+                    if ($bodyStream.Length -gt 8192) { Add-ActionLog '' '' '' '413'; $actionLogged=$true; Send-JsonResponse $response 413 @{ error='Request body exceeds 8 KB' }; continue }
+                    try { $body = $script:JsonSerializer.DeserializeObject([Text.Encoding]::UTF8.GetString($bodyStream.ToArray())) } catch { Add-ActionLog '' '' '' '400'; $actionLogged=$true; Send-JsonResponse $response 400 @{ error='Invalid JSON body' }; continue }
+                    if ($body -isnot [System.Collections.IDictionary]) { Add-ActionLog '' '' '' '400'; $actionLogged=$true; Send-JsonResponse $response 400 @{ error='JSON body must be an object' }; continue }
+                    $actionValue = Get-JsonValue $body 'action' ''
+                    $repoValue = Get-JsonValue $body 'repo' ''
+                    $taskValue = Get-JsonValue $body 'task' ''
+                    if ($actionValue -isnot [string] -or $repoValue -isnot [string] -or $taskValue -isnot [string]) { Add-ActionLog '' '' '' '400'; $actionLogged=$true; Send-JsonResponse $response 400 @{ error='action, repo, and task must be strings' }; continue }
+                    $action = $actionValue
+                    $repoRequest = $repoValue
+                    $taskName = $taskValue
+                    $confirm = (Get-JsonValue $body 'confirm' $false) -eq $true
+                    $confirmValue = Get-JsonValue $body 'confirm' $false
+                    if ($confirmValue -isnot [bool]) { Add-ActionLog $action $repoRequest $taskName '400'; $actionLogged=$true; Send-JsonResponse $response 400 @{ error='confirm must be a boolean' }; continue }
+                    if ($action -notin @('cancel','merge','review-task','open-folder')) { Add-ActionLog $action $repoRequest $taskName '400'; $actionLogged=$true; Send-JsonResponse $response 400 @{ error='Unknown action' }; continue }
+                    if ($taskName -notmatch '^[a-z0-9][a-z0-9-]*$') { Add-ActionLog $action $repoRequest $taskName '400'; $actionLogged=$true; Send-JsonResponse $response 400 @{ error='Invalid task name' }; continue }
+                    if ($action -in @('cancel','merge') -and -not $confirm) { Add-ActionLog $action $repoRequest $taskName '412'; $actionLogged=$true; Send-JsonResponse $response 412 @{ error='This action requires confirm:true' }; continue }
+                    $snapshot = $null
+                    if ($sharedState.bytes) { $snapshot = [Text.Encoding]::UTF8.GetString($sharedState.bytes) | ConvertFrom-Json }
+                    $repoState = @($snapshot.repos | Where-Object { [string]::Equals([string]$_.path, $repoRequest, [StringComparison]::OrdinalIgnoreCase) }) | Select-Object -First 1
+                    if (-not $repoState) { Add-ActionLog $action $repoRequest $taskName '404'; $actionLogged=$true; Send-JsonResponse $response 404 @{ error='Unknown repository' }; continue }
+                    $repoPath = [IO.Path]::GetFullPath([string]$repoState.path)
+                    $taskState = @($repoState.tasks | Where-Object { $_.task -ceq $taskName }) | Select-Object -First 1
+                    if (-not $taskState) { Add-ActionLog $action $repoPath $taskName '404'; $actionLogged=$true; Send-JsonResponse $response 404 @{ error='Unknown task' }; continue }
+                    $worktree = [string]$taskState.worktree
+                    $hasWorktree = $false
+                    if ($worktree -and $worktree -ne '-') {
+                        try {
+                            $worktree = [IO.Path]::GetFullPath($worktree)
+                            $expected = [IO.Path]::GetFullPath((Join-Path (Split-Path $repoPath -Parent) ((Split-Path $repoPath -Leaf) + '.worktrees'))).TrimEnd('\','/') + [IO.Path]::DirectorySeparatorChar
+                            $hasWorktree = $worktree.StartsWith($expected, [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $worktree -PathType Container)
+                        } catch { $hasWorktree = $false }
+                    }
+                    if (($action -eq 'cancel' -and $taskState.state -in @('merged','cancelled')) -or ($action -eq 'merge' -and $taskState.state -ne 'done') -or ($action -in @('review-task','open-folder') -and (-not $hasWorktree -or -not $taskState.branch -or $taskState.branch -eq '-'))) {
+                        Add-ActionLog $action $repoPath $taskName '400'; $actionLogged=$true; Send-JsonResponse $response 400 @{ error='Task state does not allow this action' }; continue
+                    }
+                    Update-ActionJobs
+                    $running = @($script:Jobs.Values | Where-Object { $_.state -eq 'running' })
+                    if (@($running | Where-Object { [string]::Equals($_.repo,$repoPath,[StringComparison]::OrdinalIgnoreCase) -and $_.task -eq $taskName }).Count) { Add-ActionLog $action $repoPath $taskName '409'; $actionLogged=$true; Send-JsonResponse $response 409 @{ error='An action is already running for this task' }; continue }
+                    if ($running.Count -ge 4) { Add-ActionLog $action $repoPath $taskName '429'; $actionLogged=$true; Send-JsonResponse $response 429 @{ error='Too many running actions' }; continue }
+                    $idBytes = New-Object byte[] 6; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($idBytes); $jobId=([BitConverter]::ToString($idBytes) -replace '-','').ToLowerInvariant()
+                    $display = switch ($action) { 'cancel' { "trinity cancel $taskName" }; 'merge' { "trinity merge $taskName -Yes" }; 'review-task' { "trinity review --base main" }; 'open-folder' { "explorer.exe `"$worktree`"" } }
+                    Start-ActionProcess $jobId $action $taskName $repoPath $worktree $display
+                    Add-ActionLog $action $repoPath $taskName $jobId
+                    $actionLogged=$true
+                    $jobFiles = @(Get-ChildItem -LiteralPath (Join-Path $repoPath '.codex-out\jobs') -Filter '*.txt' -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^[0-9a-f]{12}\.txt$' } | Sort-Object LastWriteTimeUtc -Descending)
+                    foreach ($oldJob in @($jobFiles | Select-Object -Skip 50)) { $oldId=[IO.Path]::GetFileNameWithoutExtension($oldJob.Name); if ($script:Jobs.ContainsKey($oldId) -and $script:Jobs[$oldId].state -eq 'running') { continue }; Remove-Item -LiteralPath $oldJob.FullName -Force -ErrorAction SilentlyContinue; $script:Jobs.Remove($oldId) }
+                    Send-JsonResponse $response 202 @{ job=$jobId; command=$display }
+                }
+                catch {
+                    if ($authPassed -and -not $actionLogged) { Add-ActionLog $action $repoRequest $taskName '500' }
+                    Write-DashboardError '/api/action' $_
+                    Send-JsonResponse $response 500 @{ error='Could not start action' }
+                }
+            }
+            elseif ($context.Request.Url.AbsolutePath -eq '/api/job' -and $context.Request.HttpMethod -eq 'GET') {
+                Update-ActionJobs
+                $jobId = [string]$context.Request.QueryString['id']
+                if ($jobId -notmatch '^[0-9a-f]{12}$') { Send-JsonResponse $response 400 @{ error='Invalid job id' } }
+                elseif (-not $script:Jobs.ContainsKey($jobId)) { Send-JsonResponse $response 404 @{ error='Unknown job' } }
+                else { $job=$script:Jobs[$jobId]; Send-JsonResponse $response 200 @{ id=$job.id; action=$job.action; task=$job.task; state=$job.state; exitCode=$job.exitCode; output=(Read-JobOutput $job); command=$job.command } }
             }
             elseif ($context.Request.HttpMethod -ne 'GET') {
                 $response.StatusCode = 404
@@ -1037,7 +1205,8 @@ try {
                 $isSample = $context.Request.Url.AbsolutePath -ne '/'
                 $htmlPath = Join-Path $PSScriptRoot $(if ($isSample) { 'dashboard-sample.json' } else { 'dashboard.html' })
                 if (Test-Path -LiteralPath $htmlPath -PathType Leaf) {
-                    $bytes = [IO.File]::ReadAllBytes($htmlPath)
+                    if ($isSample) { $bytes = [IO.File]::ReadAllBytes($htmlPath) }
+                    else { $html = [IO.File]::ReadAllText($htmlPath); $bytes = [Text.Encoding]::UTF8.GetBytes($html.Replace('__TRINITY_TOKEN__', $script:ServerToken)) }
                     $response.StatusCode = 200
                     $response.ContentType = $(if ($isSample) { 'application/json; charset=utf-8' } else { 'text/html; charset=utf-8' })
                     $response.ContentLength64 = $bytes.Length
@@ -1063,6 +1232,7 @@ try {
 }
 finally {
     $sharedState.stop = $true
+    foreach ($job in @($script:Jobs.Values)) { if ($job.process) { try { if (-not $job.process.HasExited) { $job.process.Kill(); [void]$job.process.WaitForExit(2000) } } catch { }; try { $job.process.Dispose() } catch { } } }
     if ($collectorAsync -and $collectorPowerShell) {
         try { if (-not $collectorAsync.IsCompleted) { [void]$collectorAsync.AsyncWaitHandle.WaitOne(1500) } } catch { }
         try { $collectorPowerShell.Stop() } catch { }; try { $collectorPowerShell.Dispose() } catch { }
