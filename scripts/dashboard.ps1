@@ -1122,7 +1122,7 @@ function Get-DispatchCheck($RepoState, $Availability, [string]$Agent, [string]$T
         }
     }
     # The worker resolves its repository from the script's own path, so a repo without its own copy cannot be targeted.
-    if (-not (Test-Path -LiteralPath (Join-Path ([string]$RepoState.path) 'scripts	rinity.ps1') -PathType Leaf)) { $r.agentOk=$false; $r.agentReason='Repository has no scripts	rinity.ps1 (run trinity init there)' }
+    if (-not (Test-Path -LiteralPath (Join-Path ([string]$RepoState.path) 'scripts\trinity.ps1') -PathType Leaf)) { $r.agentOk=$false; $r.agentReason='Repository has no scripts\trinity.ps1 (run trinity init there)' }
     $r.canDispatch=$r.taskOk -and $r.agentOk -and $r.scopeOk
     $r.command='trinity dispatch {0} {1} -Scope "{2}" -PromptFile <file>' -f $r.effectiveAgent,$Task,($r.scopeNormalized -join ',')
     return $r
@@ -1335,7 +1335,7 @@ try {
                         $promptDir=Join-Path $repoPath '.codex-out'
                         [void][IO.Directory]::CreateDirectory($promptDir)
                         $promptFile=Join-Path $promptDir "prompt-$taskName.md"
-                        try { $promptStream=New-Object IO.FileStream($promptFile,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write) }
+                        try { $promptStream=New-Object IO.FileStream($promptFile,[IO.FileMode]::Create,[IO.FileAccess]::Write) }
                         catch [IO.IOException] { Send-JsonResponse $response 400 @{ error='Could not create a new prompt file' }; continue }
                         try { $promptBytes=[Text.Encoding]::UTF8.GetBytes($promptValue); $promptStream.Write($promptBytes,0,$promptBytes.Length) } finally { $promptStream.Dispose() }
                         $display=$check.command
