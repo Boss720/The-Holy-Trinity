@@ -3056,7 +3056,7 @@
       const trinityToken = tokenMeta ? tokenMeta.getAttribute('content') : null;
 
       function areActionsEnabled(state) {
-        const hasValidToken = (trinityToken && trinityToken !== '__TRINITY_TOKEN__') && !isSample;
+        const hasValidToken = (trinityToken && trinityToken !== '__TRINITY_' + 'TOKEN__') && !isSample;
         return hasValidToken && !!(state && state.server && state.server.actionsEnabled === true);
       }
 
