@@ -1266,6 +1266,32 @@ Run-Case 'dashboard task read endpoints diff log and merge checks' {
             Assert-True ($next.text -eq 'new text' -and $next.offset -eq $tail.nextOffset) 'log offsets lost continuity'
             $reset=Get-TaskLog $f.Repo $task 999999
             Assert-True $reset.reset 'rotated log did not reset'
+            # Split both two- and three-byte characters at the 64 KiB read boundary.
+            foreach ($code in @(0xE9,0x20AC)) {
+                $character=[string][char]$code
+                $prefix='a'*65535
+                [IO.File]::WriteAllText($log,($prefix+$character+'z'),[Text.UTF8Encoding]::new($false))
+                $first=Get-TaskLog $f.Repo $task 0
+                $second=Get-TaskLog $f.Repo $task $first.nextOffset
+                Assert-True ($first.text -eq $prefix -and $first.nextOffset -eq 65535 -and $second.text -eq ($character+'z') -and $second.nextOffset -eq $second.size) 'split UTF-8 log lost text or byte offsets'
+                Assert-True (($first.text+$second.text).IndexOf([char]0xFFFD) -lt 0) 'split UTF-8 log contains a replacement character'
+                $json=Convert-StateToJson $second
+                Assert-True ($json -notmatch '[^\x00-\x7f]' -and ($json | ConvertFrom-Json).text -eq $second.text) 'split UTF-8 log JSON was not ASCII-safe or failed round trip'
+                $inside=Get-TaskLog $f.Repo $task 65536
+                Assert-True ($inside.text -eq 'z' -and $inside.nextOffset -eq $inside.size) 'leading UTF-8 continuation bytes were not skipped'
+            }
+            [IO.File]::WriteAllBytes($log,[byte[]]@(0xE2,0x82))
+            $partial=Get-TaskLog $f.Repo $task 0
+            Assert-True ($partial.text -eq '' -and $partial.nextOffset -eq 0) 'partial EOF character was consumed'
+            $again=Get-TaskLog $f.Repo $task $partial.nextOffset
+            Assert-True ($again.text -eq '' -and $again.nextOffset -eq 0) 'partial EOF poll did not remain bounded'
+            [IO.File]::WriteAllBytes($log,[byte[]]@(0xE2,0x82,0xAC))
+            $complete=Get-TaskLog $f.Repo $task $partial.nextOffset
+            Assert-True ($complete.text -eq [string][char]0x20AC -and $complete.nextOffset -eq 3) 'completed EOF character was not reread'
+            $secret='sk-' + ('FakeToken1234'*3)
+            [IO.File]::WriteAllText($log,($secret+[char]27),[Text.UTF8Encoding]::new($false))
+            $redacted=Get-TaskLog $f.Repo $task 0
+            Assert-True ($redacted.text -eq '[redacted]\x1b' -and $redacted.nextOffset -eq (Get-Item -LiteralPath $log).Length) 'log secret was not redacted with raw byte offset'
             $check=Get-TaskMergeCheck $f.Repo $task
             Assert-True ($check.canMerge -and $check.ahead -eq 1) 'clean done branch cannot merge'
             $task.state='running'; [IO.File]::WriteAllText((Join-Path $f.Repo '.codex-out\pid-read-task.txt'),[string]$PID)
@@ -1294,6 +1320,12 @@ Run-Case 'dashboard task read endpoints diff log and merge checks' {
             $reply=Invoke-WebRequest "http://localhost:$port/api/task/$($route)?$query" -UseBasicParsing -TimeoutSec 10
             Assert-True ($reply.StatusCode -eq 200) "task $route failed"
         }
+        $secret='sk-' + ('FakeToken1234'*3)
+        [IO.File]::WriteAllText($log,($secret+[char]0xE9+[char]0x20AC),[Text.UTF8Encoding]::new($false))
+        $reply=Invoke-WebRequest "http://localhost:$port/api/task/log?$query&offset=0" -UseBasicParsing -TimeoutSec 10
+        $body=$reply.Content | ConvertFrom-Json
+        Assert-True ($body.text -eq ('[redacted]'+[char]0xE9+[char]0x20AC) -and $body.nextOffset -eq (Get-Item -LiteralPath $log).Length) 'HTTP log redaction or raw offset incorrect'
+        Assert-True ($reply.Content -notmatch '[^\x00-\x7f]' -and -not $reply.Content.Contains($secret)) 'HTTP log JSON was not ASCII-safe or leaked secret'
         foreach ($pair in @(@('repo=unknown&task=read-task',404),@('repo=unknown&task=../bad',400),@(('repo='+[uri]::EscapeDataString($f.Repo)+'&task=branchless'),409),@(('repo='+[uri]::EscapeDataString($f.Repo)+'&task=missing'),404))) {
             $status=0; try { Invoke-WebRequest "http://localhost:$port/api/task/diff?$($pair[0])" -UseBasicParsing -TimeoutSec 5 | Out-Null } catch { if ($_.Exception.Response) { $status=[int]$_.Exception.Response.StatusCode } }
             Assert-True ($status -eq $pair[1]) "task validation returned $status instead of $($pair[1])"
