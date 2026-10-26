@@ -8,6 +8,9 @@ for /f "delims=" %%D in ('dir /b /ad /o-d "%BIN%" 2^>nul') do (
   if not defined CODEX_EXE if exist "%BIN%\%%D\codex.exe" set "CODEX_EXE=%BIN%\%%D\codex.exe"
 )
 if defined CODEX_EXE goto run
+rem Standalone Codex CLI installer (chatgpt.com/codex/install.ps1)
+if exist "%LOCALAPPDATA%\Programs\OpenAI\Codex\bin\codex.exe" set "CODEX_EXE=%LOCALAPPDATA%\Programs\OpenAI\Codex\bin\codex.exe"
+if defined CODEX_EXE goto run
 rem .exe only, so this wrapper (codex.cmd) never finds itself and recurses
 for /f "delims=" %%P in ('where codex.exe 2^>nul') do if not defined CODEX_EXE set "CODEX_EXE=%%P"
 if not defined CODEX_EXE (

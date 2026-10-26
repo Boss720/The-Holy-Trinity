@@ -9,8 +9,15 @@ $script:Utf8 = New-Object Text.UTF8Encoding($false)
 
 # Repo paths seen from any checkout (main or worktree).
 function Get-RepoPaths([string]$From) {
-    $root = (git -C $From rev-parse --show-toplevel)
-    if ($LASTEXITCODE -ne 0 -or -not $root) { Fail 'not inside a git repo' }
+    # The checkout this script lives in counts only when it is a trinity checkout (scripts\trinity.ps1 at its root);
+    # a release copy extracted anywhere, even inside someone else's repo, works on the repo of the current folder.
+    $root = (git -C $From rev-parse --show-toplevel 2>$null)
+    if ($LASTEXITCODE -ne 0 -or -not $root -or -not (Test-Path (Join-Path ($root -replace '/', '\') 'scripts\trinity.ps1'))) {
+        $root = (git -C (Get-Location).Path rev-parse --show-toplevel 2>$null)
+        if ($LASTEXITCODE -ne 0 -or -not $root) {
+            Fail 'not inside a git repo. Run trinity from your project folder (a git repo), or set one up first: trinity init <path>'
+        }
+    }
     $root = $root -replace '/', '\'
     $common = (git -C $root rev-parse --path-format=absolute --git-common-dir) -replace '/', '\'
     $main = Split-Path $common -Parent
@@ -172,6 +179,9 @@ function Find-CodexExe {
     $exe = Get-ChildItem $bin -Directory -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending |
         ForEach-Object { Join-Path $_.FullName 'codex.exe' } | Where-Object { Test-Path $_ } | Select-Object -First 1
     if ($exe) { return $exe }
+    # The standalone Codex CLI installer (chatgpt.com/codex/install.ps1) puts codex.exe here.
+    $cli = Join-Path $env:LOCALAPPDATA 'Programs\OpenAI\Codex\bin\codex.exe'
+    if (Test-Path $cli) { return $cli }
     $cmd = Get-Command codex.exe -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
     $null

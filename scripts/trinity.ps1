@@ -16,8 +16,13 @@ param(
 )
 
 . (Join-Path $PSScriptRoot 'lib\board.ps1')
-$paths = Get-RepoPaths $PSScriptRoot
-if (-not (Test-Path $paths.Out)) { New-Item -ItemType Directory -Path $paths.Out | Out-Null }
+# A release copy of the toolkit is not a git repo, so these commands must run without one.
+$repoFree = @('help', 'version', 'doctor', 'init')
+if ($repoFree -contains $Command) { $paths = $null }
+else {
+    $paths = Get-RepoPaths $PSScriptRoot
+    if (-not (Test-Path $paths.Out)) { New-Item -ItemType Directory -Path $paths.Out | Out-Null }
+}
 
 function Show-Usage {
     Write-Host 'trinity <command> [options]'
@@ -51,6 +56,8 @@ function Show-Usage {
     Write-Host '  dashboard [-Port 7777] [-Json] [-Stop] live page of all three agents across every trinity repo'
     Write-Host '  ui                                    open the main checkout in Antigravity'
     Write-Host '  setup                                 enable .githooks and create .codex-out'
+    Write-Host '  doctor [-Json]                        check prerequisites (git, agents, PATH, hooks) and print the fix for each problem'
+    Write-Host '  version                               print the installed toolkit version'
     Write-Host '  help                                  this text'
 }
 
@@ -372,6 +379,19 @@ function Start-Dispatch([string]$agent, [string]$task, [string]$prompt) {
 
 switch ($Command) {
     'status' { Show-Status }
+
+    'version' {
+        $verFile = Join-Path (Split-Path -Parent $PSScriptRoot) 'VERSION'
+        $ver = if (Test-Path $verFile) { ([IO.File]::ReadAllText($verFile)).Trim() } else { 'unknown' }
+        Write-Host "trinity $ver"
+    }
+
+    'doctor' {
+        $script = Join-Path $PSScriptRoot 'doctor.ps1'
+        if (-not (Test-Path $script)) { Fail 'scripts\doctor.ps1 is missing; rerun trinity init from a current release' }
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script @Rest
+        exit $LASTEXITCODE
+    }
 
     'review' {
         # PowerShell binds "--base x" to -Base, so a bound Base means a branch review.
@@ -725,7 +745,7 @@ switch ($Command) {
         }
 
         # Toolkit files are always refreshed, so rerunning init updates an install.
-        $toolkit = @('trinity.cmd', 'trinity.sh', 'scripts\trinity.ps1', 'scripts\agent-task.ps1', 'scripts\lib\board.ps1',
+        $toolkit = @('VERSION', 'trinity.cmd', 'trinity.sh', 'scripts\trinity.ps1', 'scripts\agent-task.ps1', 'scripts\lib\board.ps1', 'scripts\doctor.ps1',
             'scripts\codex.cmd', 'scripts\codex-review.cmd', 'scripts\codex-ask.cmd', '.githooks\pre-commit',
             'scripts\dashboard.ps1', 'scripts\dashboard.html',
             '.claude\agents\codex-worker.md', '.claude\agents\codex-reviewer.md', '.claude\agents\antigravity-worker.md',
