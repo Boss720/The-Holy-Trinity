@@ -1327,6 +1327,10 @@ try {
                     if (-not $taskState) { Send-JsonResponse $response 404 @{ error='Unknown task' }; continue }
                     if (-not $taskState.branch -or $taskState.branch -eq '-') { Send-JsonResponse $response 409 @{ error='task has no branch' }; continue }
                     $repoPath=[string]$repoState.path
+                    if ($context.Request.Url.AbsolutePath -ne '/api/task/log') {
+                        $branchCheck=Invoke-GitRead $repoPath @('rev-parse','--verify','--quiet',('refs/heads/'+[string]$taskState.branch)) -Bounded -MaxChars 256
+                        if ($branchCheck.code -ne 0) { Send-JsonResponse $response 409 @{ error='branch no longer exists (already merged or removed)' }; continue }
+                    }
                     $offset=-1L; $rawOffset=[string]$context.Request.QueryString['offset']
                     if ($rawOffset -and -not [long]::TryParse($rawOffset,[ref]$offset)) { Send-JsonResponse $response 400 @{ error='Invalid offset' }; continue }
                     switch ($context.Request.Url.AbsolutePath) {

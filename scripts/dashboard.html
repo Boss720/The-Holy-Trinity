@@ -3380,6 +3380,7 @@
       let expandedTaskKeys = new Set();
       let currentRepoFilter = 'all';
       let pendingTaskTabDeepLink = null;
+      let appliedDeepLinkHash = null;
       const taskActiveTabs = new Map();
       const taskLogState = new Map();
       const diffInFlight = new Set();
@@ -6184,6 +6185,7 @@
 
         currentView = view;
         pendingTaskDeepLink = taskDeepLink;
+        if (!taskDeepLink) appliedDeepLinkHash = null;
 
         // Update tabs active state
         const tabs = { inbox: tabInbox, tasks: tabTasks, health: tabHealth };
@@ -6205,7 +6207,9 @@
         if (viewTasks) viewTasks.style.display = (view === 'tasks') ? 'flex' : 'none';
         if (viewHealth) viewHealth.style.display = (view === 'health') ? 'flex' : 'none';
 
-        if (view === 'tasks' && pendingTaskDeepLink && lastStateData) {
+        // Apply a deep link once per hash; every state render calls this, and re-applying would undo the user's tab choice.
+        if (view === 'tasks' && pendingTaskDeepLink && lastStateData && appliedDeepLinkHash !== hash) {
+          appliedDeepLinkHash = hash;
           activateTaskDeepLink(pendingTaskDeepLink, pendingTaskTabDeepLink);
         }
       }

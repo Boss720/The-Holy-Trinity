@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Dashboard GUI step 3: task detail tabs Summary, Diff, Log, Merge check (`#task=<repo>/<task>&tab=diff|log|merge`), live log tail, and a merge dry run with blockers (main dirty, conflicts, scope violations, runner alive) behind a "Review merge" button; new read-only endpoints `/api/task/diff`, `/api/task/log`, `/api/task/merge-check`.
+
 ## v0.4.0 - 2026-10-26
 
 ### Added
