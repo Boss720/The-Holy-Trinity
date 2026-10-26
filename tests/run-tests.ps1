@@ -964,6 +964,64 @@ Run-Case 'dashboard chat HTTP validates ids and guards hosts' {
     finally { if ($process) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }; $env:CODEX_HOME=$oldCodexHome; $env:TRINITY_AGY_HOME=$oldAgyHome; $env:CLAUDE_CONFIG_DIR=$oldClaudeHome; $env:TRINITY_DISABLE=$oldDisable }
 }
 
+Run-Case 'dashboard action API validates requests and runs a review job' {
+    param($f)
+    $process = $null
+    try {
+        Start-CodexTask $f 'api-task'
+        $wait = Invoke-Trinity $f @('wait', 'api-task', '-Timeout', '50')
+        Assert-True ($wait.ExitCode -eq 0) "fixture task did not finish: $($wait.Output)"
+        [IO.File]::WriteAllText((Join-Path $f.Repo 'scripts\dashboard.html'), '<meta name="trinity-token" content="__TRINITY_TOKEN__">', [Text.UTF8Encoding]::new($false))
+        $tcp = New-Object System.Net.Sockets.TcpListener([Net.IPAddress]::Loopback, 0); $tcp.Start(); $port=$tcp.LocalEndpoint.Port; $tcp.Stop()
+        $dashboard = Join-Path $f.Repo 'scripts\dashboard.ps1'
+        $process = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -WindowStyle Hidden -PassThru -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"{0}"' -f $dashboard),'-Port',[string]$port,'-Repos',('"{0}"' -f $f.Repo))
+        $deadline=(Get-Date).AddSeconds(15); $page=$null
+        while (-not $page -and (Get-Date) -lt $deadline -and -not $process.HasExited) { try { $page=Invoke-WebRequest -Uri "http://localhost:$port/" -UseBasicParsing -TimeoutSec 2 } catch { Start-Sleep -Milliseconds 100 } }
+        if (-not $page -and $process.HasExited) { Skip-Case 'HttpListener is unsupported or blocked in this environment' }
+        Assert-True ([bool]$page) 'dashboard did not serve its page'
+        $tokenMatch=[regex]::Match($page.Content,'name="trinity-token" content="([0-9a-f]{64})"')
+        Assert-True $tokenMatch.Success 'dashboard page did not receive the server token'
+        $token=$tokenMatch.Groups[1].Value
+        $send = {
+            param($Url,$Method,$Body,$Token,$Origin,$ContentType)
+            $request=[Net.HttpWebRequest]::Create($Url); $request.Method=$Method; $request.Timeout=3000
+            if ($Token) { $request.Headers.Add('X-Trinity-Token',$Token) }
+            if ($Origin) { $request.Headers.Add('Origin',$Origin) }
+            if ($null -ne $Body) { $bytes=[Text.Encoding]::UTF8.GetBytes($Body); $request.ContentType=$ContentType; $request.ContentLength=$bytes.Length; $stream=$request.GetRequestStream(); $stream.Write($bytes,0,$bytes.Length); $stream.Dispose() }
+            try { $response=$request.GetResponse(); $reader=New-Object IO.StreamReader($response.GetResponseStream()); $result=[pscustomobject]@{ Status=[int]$response.StatusCode; Content=$reader.ReadToEnd() }; $reader.Dispose(); $response.Dispose(); return $result }
+            catch [Net.WebException] { if (-not $_.Exception.Response) { throw }; $response=$_.Exception.Response; $reader=New-Object IO.StreamReader($response.GetResponseStream()); $result=[pscustomobject]@{ Status=[int]$response.StatusCode; Content=$reader.ReadToEnd() }; $reader.Dispose(); $response.Dispose(); return $result }
+        }
+        $base="http://localhost:$port"
+        $origin="http://localhost:$port"
+        $payload=@{ action='review-task'; repo=$f.Repo; task='api-task'; confirm=$false } | ConvertTo-Json -Compress
+        Assert-True ((& $send "$base/api/action" 'POST' $payload '' $origin 'application/json').Status -eq 401) 'missing token was not refused'
+        Assert-True ((& $send "$base/api/action" 'POST' $payload $token 'http://evil.invalid' 'application/json').Status -eq 403) 'wrong Origin was not refused'
+        Assert-True ((& $send "$base/api/action" 'POST' '{"action":"bogus","repo":"x","task":"api-task","confirm":false}' $token $origin 'application/json').Status -eq 400) 'unknown action was not rejected'
+        Assert-True ((& $send "$base/api/action" 'POST' '{"action":"review-task","repo":"x","task":"../bad","confirm":false}' $token $origin 'application/json').Status -eq 400) 'bad task name was not rejected'
+        Assert-True ((& $send "$base/api/action" 'POST' '{"action":"review-task","repo":"not-a-repo","task":"api-task","confirm":false}' $token $origin 'application/json').Status -eq 404) 'unknown repo was not rejected'
+        Assert-True ((& $send "$base/api/action" 'POST' (@{action='cancel';repo=$f.Repo;task='api-task';confirm=$false}|ConvertTo-Json -Compress) $token $origin 'application/json').Status -eq 412) 'cancel without confirm did not return 412'
+        Assert-True ((& $send "$base/api/action" 'POST' (@{action='merge';repo=$f.Repo;task='api-task';confirm=$false}|ConvertTo-Json -Compress) $token $origin 'application/json').Status -eq 412) 'merge without confirm did not return 412'
+        Assert-True ((& $send "$base/api/action" 'POST' $payload $token $origin 'text/plain').Status -eq 415) 'wrong content type was not rejected'
+        Assert-True ((& $send "$base/api/action" 'POST' ('x' * 9000) $token $origin 'application/json').Status -eq 413) 'oversized body was not rejected'
+        $badJob=& $send "$base/api/job?id=bad" 'GET' $null '' '' ''
+        Assert-True ($badJob.Status -eq 400) 'invalid job id was not rejected'
+        $stateReply=& $send "$base/api/state" 'GET' $null '' '' ''
+        Assert-True (($stateReply.Content | ConvertFrom-Json).server.actionsEnabled -eq $true) 'state did not enable actions'
+        $accepted=& $send "$base/api/action" 'POST' $payload $token $origin 'application/json'
+        Assert-True ($accepted.Status -eq 202) "review action was not accepted: $($accepted.Content)"
+        $jobId=($accepted.Content | ConvertFrom-Json).job
+        $job=$null; $jobDeadline=(Get-Date).AddSeconds(20)
+        while ((Get-Date) -lt $jobDeadline) { $jobReply=& $send "$base/api/job?id=$jobId" 'GET' $null '' '' ''; $job=$jobReply.Content | ConvertFrom-Json; if ($job.state -ne 'running') { break }; Start-Sleep -Milliseconds 150 }
+        Assert-True ($job -and $job.state -eq 'done' -and $job.exitCode -eq 0) "review job did not finish successfully: $($job | ConvertTo-Json -Compress)"
+        $actionLog=Join-Path $env:TRINITY_HOME 'actions.log'
+        Assert-True (Test-Path -LiteralPath $actionLog) 'actions.log was not created'
+        $logText=[IO.File]::ReadAllText($actionLog)
+        Assert-True ($logText -match [regex]::Escape($jobId) -and $logText -match 'exitCode=0') 'actions.log omitted job or exit code'
+        Assert-True (-not $logText.Contains($token)) 'actions.log contains the server token'
+    }
+    finally { if ($process) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue } }
+}
+
 Write-Output "$passed passed, $failed failed, $skipped skipped"
 if (-not $Keep) {
     foreach ($root in @($fixtures)) {
