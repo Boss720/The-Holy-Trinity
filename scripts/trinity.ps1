@@ -390,7 +390,8 @@ switch ($Command) {
     'doctor' {
         $script = Join-Path $PSScriptRoot 'doctor.ps1'
         if (-not (Test-Path $script)) { Fail 'scripts\doctor.ps1 is missing; rerun trinity init from a current release' }
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script @Rest
+        $doctorArgs = @(if ($Json) { '-Json' })
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script @doctorArgs
         exit $LASTEXITCODE
     }
 
