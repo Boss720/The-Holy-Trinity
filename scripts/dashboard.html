@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
+  <meta name="trinity-token" content="__TRINITY_TOKEN__">
   <link rel="icon" href="data:,">
   <title>Trinity Operator Dashboard</title>
   <style>
@@ -1275,6 +1276,339 @@
       border-color: var(--border-focus);
     }
 
+    /* Task Action Bar & Action Controls */
+    .task-action-bar {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 6px 0 8px 0;
+      border-bottom: 1px solid var(--border-subtle);
+      margin-bottom: 6px;
+    }
+
+    .action-control {
+      display: inline-flex;
+      align-items: center;
+      gap: 0;
+      border-radius: 4px;
+      overflow: hidden;
+      border: 1px solid var(--border-color);
+      background-color: var(--bg-surface);
+      vertical-align: middle;
+    }
+
+    .action-control .btn-action {
+      border: none;
+      background-color: var(--bg-subtle);
+      color: var(--text-main);
+      padding: 3px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-family: inherit;
+      transition: background-color 0.15s ease, color 0.15s ease;
+      line-height: 1.4;
+    }
+
+    .action-control .btn-action:hover:not(:disabled) {
+      background-color: var(--bg-surface-hover);
+    }
+
+    .action-control .btn-action.merge {
+      color: var(--badge-done-text);
+      background-color: var(--badge-done-bg);
+    }
+
+    .action-control .btn-action.merge:hover:not(:disabled) {
+      background-color: var(--badge-done-border);
+      color: #ffffff;
+    }
+
+    .action-control .btn-action.cancel {
+      color: var(--badge-failed-text);
+      background-color: var(--badge-failed-bg);
+    }
+
+    .action-control .btn-action.cancel:hover:not(:disabled) {
+      background-color: var(--badge-failed-border);
+      color: #ffffff;
+    }
+
+    .action-control .btn-action.review {
+      color: var(--badge-running-text);
+      background-color: var(--badge-running-bg);
+    }
+
+    .action-control .btn-action.review:hover:not(:disabled) {
+      background-color: var(--badge-running-border);
+      color: #ffffff;
+    }
+
+    .action-control .btn-action.folder {
+      color: var(--text-main);
+      background-color: var(--bg-subtle);
+    }
+
+    .action-control .btn-action.folder:hover:not(:disabled) {
+      background-color: var(--bg-surface-hover);
+      color: var(--border-focus);
+    }
+
+    .action-control .btn-action-copy {
+      border: none;
+      border-left: 1px solid var(--border-color);
+      background-color: var(--bg-surface);
+      color: var(--text-muted);
+      padding: 3px 6px;
+      font-size: 10px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      font-family: inherit;
+      line-height: 1.4;
+      transition: background-color 0.15s ease, color 0.15s ease;
+    }
+
+    .action-control .btn-action-copy:hover:not(:disabled) {
+      background-color: var(--bg-surface-hover);
+      color: var(--text-main);
+    }
+
+    .action-control .btn-action:disabled,
+    .action-control .btn-action-copy:disabled,
+    .btn-chat:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
+    .inbox-item-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .btn-chat.danger {
+      background-color: var(--badge-failed-bg);
+      color: var(--badge-failed-text);
+      border-color: var(--badge-failed-border);
+    }
+
+    .btn-chat.danger:hover:not(:disabled) {
+      background-color: var(--badge-failed-border);
+      color: #ffffff;
+    }
+
+    /* Confirm Dialog */
+    dialog.action-confirm-dialog {
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      background-color: var(--bg-surface);
+      color: var(--text-main);
+      padding: 0;
+      max-width: 480px;
+      width: calc(100vw - 32px);
+      box-shadow: var(--shadow-lg);
+      margin: auto;
+    }
+
+    dialog.action-confirm-dialog::backdrop {
+      background-color: var(--overlay-backdrop);
+      backdrop-filter: blur(1px);
+    }
+
+    .confirm-dialog-content {
+      display: flex;
+      flex-direction: column;
+      padding: 16px;
+      gap: 12px;
+    }
+
+    .confirm-dialog-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .confirm-dialog-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .btn-close-dialog {
+      background: transparent;
+      border: none;
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text-secondary);
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+      line-height: 1;
+    }
+
+    .btn-close-dialog:hover {
+      background-color: var(--bg-subtle);
+      color: var(--text-main);
+    }
+
+    .confirm-dialog-body {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .confirm-dialog-prompt {
+      line-height: 1.4;
+      color: var(--text-main);
+    }
+
+    .confirm-command-box {
+      background-color: var(--code-bg);
+      color: var(--code-text);
+      border: 1px solid var(--code-border);
+      border-radius: 4px;
+      padding: 8px 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .confirm-dialog-cmd {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      word-break: break-all;
+      flex: 1;
+    }
+
+    .confirm-dialog-footer {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      padding-top: 6px;
+    }
+
+    /* Job Toasts */
+    .job-toasts-container {
+      position: fixed;
+      bottom: 16px;
+      right: 16px;
+      display: flex;
+      flex-direction: column-reverse;
+      gap: 10px;
+      z-index: 1000;
+      max-width: 440px;
+      width: calc(100vw - 32px);
+      pointer-events: none;
+    }
+
+    .job-toast {
+      pointer-events: auto;
+      background-color: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      box-shadow: var(--shadow-lg);
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-size: 12px;
+      transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+
+    .job-toast.toast-running {
+      border-left: 4px solid var(--badge-running-text);
+    }
+
+    .job-toast.toast-done {
+      border-left: 4px solid var(--badge-done-text);
+    }
+
+    .job-toast.toast-failed,
+    .job-toast.toast-error {
+      border-left: 4px solid var(--badge-failed-text);
+    }
+
+    .toast-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .toast-title-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+
+    .toast-title {
+      font-weight: 700;
+      font-size: 12px;
+      color: var(--text-main);
+      word-break: break-all;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .btn-toast-dismiss {
+      background: transparent;
+      border: none;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text-secondary);
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+      line-height: 1;
+    }
+
+    .btn-toast-dismiss:hover {
+      background-color: var(--bg-subtle);
+      color: var(--text-main);
+    }
+
+    .toast-command {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      color: var(--text-secondary);
+      word-break: break-all;
+    }
+
+    .toast-output {
+      background-color: var(--code-bg);
+      color: var(--code-text);
+      border: 1px solid var(--code-border);
+      border-radius: 4px;
+      padding: 6px 8px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.35;
+      max-height: 140px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .toast-error-msg {
+      color: var(--badge-failed-text);
+      font-weight: 600;
+      font-size: 12px;
+      word-break: break-word;
+    }
+
     /* Chat Drawer Overlay */
     .chat-backdrop {
       display: none;
@@ -1369,12 +1703,16 @@
 
     @media (max-width: 600px) {
       .btn-chat,
+      .btn-action,
+      .btn-action-copy,
       .btn-copy {
         min-height: 44px;
         padding: 8px 14px;
       }
 
-      .btn-close-drawer {
+      .btn-close-drawer,
+      .btn-close-dialog,
+      .btn-toast-dismiss {
         min-height: 44px;
         min-width: 44px;
         padding: 8px 14px;
@@ -2584,6 +2922,30 @@
     </div>
   </aside>
 
+  <!-- Action Confirm Dialog -->
+  <dialog id="action-confirm-dialog" class="action-confirm-dialog" aria-labelledby="confirm-dialog-title">
+    <div class="confirm-dialog-content">
+      <div class="confirm-dialog-header">
+        <h3 id="confirm-dialog-title" class="confirm-dialog-title">Confirm Action</h3>
+        <button type="button" class="btn-close-dialog" id="confirm-dialog-close" aria-label="Close dialog">&times;</button>
+      </div>
+      <div class="confirm-dialog-body">
+        <p id="confirm-dialog-prompt" class="confirm-dialog-prompt">Are you sure you want to run this destructive action?</p>
+        <div class="confirm-command-box">
+          <code id="confirm-dialog-cmd" class="confirm-dialog-cmd"></code>
+          <button type="button" id="confirm-dialog-copy" class="btn-copy">Copy cmd</button>
+        </div>
+      </div>
+      <div class="confirm-dialog-footer">
+        <button type="button" id="confirm-dialog-cancel" class="btn-chat">Cancel</button>
+        <button type="button" id="confirm-dialog-run" class="btn-chat primary danger">Run</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Job Toasts Container -->
+  <div id="job-toasts-container" class="job-toasts-container" aria-live="polite"></div>
+
   <script>
     (function () {
       'use strict';
@@ -2688,6 +3050,404 @@
       const chatMessagesContainer = document.getElementById('chat-messages');
       const chatErrorInline = document.getElementById('chat-error-inline');
       const chatJumpLatestBtn = document.getElementById('chat-jump-latest');
+
+      // Action API & Trinity token state
+      const tokenMeta = document.querySelector('meta[name="trinity-token"]');
+      const trinityToken = tokenMeta ? tokenMeta.getAttribute('content') : null;
+
+      function areActionsEnabled(state) {
+        const hasValidToken = (trinityToken && trinityToken !== '__TRINITY_TOKEN__') || isSample;
+        return hasValidToken && !!(state && state.server && state.server.actionsEnabled === true);
+      }
+
+      const activeJobs = new Map(); // jobId -> jobRecord
+      const activeTaskJobs = new Set(); // Set of taskRefKeys (repoPath + '::' + task)
+
+      const confirmDialog = document.getElementById('action-confirm-dialog');
+      const confirmDialogClose = document.getElementById('confirm-dialog-close');
+      const confirmDialogCancel = document.getElementById('confirm-dialog-cancel');
+      const confirmDialogRun = document.getElementById('confirm-dialog-run');
+      const confirmDialogPrompt = document.getElementById('confirm-dialog-prompt');
+      const confirmDialogCmd = document.getElementById('confirm-dialog-cmd');
+      const confirmDialogCopy = document.getElementById('confirm-dialog-copy');
+      const toastsContainer = document.getElementById('job-toasts-container');
+
+      let pendingConfirmAction = null;
+
+      function closeConfirmDialog() {
+        if (!confirmDialog) return;
+        if (confirmDialog.close) {
+          try { confirmDialog.close(); } catch (e) {}
+        }
+        confirmDialog.removeAttribute('open');
+        if (pendingConfirmAction && pendingConfirmAction.originBtn) {
+          try { pendingConfirmAction.originBtn.focus(); } catch (e) {}
+        }
+        pendingConfirmAction = null;
+      }
+
+      function openConfirmDialog(action, taskName, repoPath, command, originBtn) {
+        if (!confirmDialog) return;
+        pendingConfirmAction = { action: action, taskName: taskName, repoPath: repoPath, command: command, originBtn: originBtn };
+        if (confirmDialogPrompt) {
+          confirmDialogPrompt.textContent = 'Are you sure you want to run "' + action + '" on ' + taskName + '?';
+        }
+        if (confirmDialogCmd) {
+          confirmDialogCmd.textContent = command;
+        }
+        if (confirmDialogCopy) {
+          confirmDialogCopy.onclick = function (e) {
+            e.stopPropagation();
+            copyToClipboard(command, confirmDialogCopy, 'Copy cmd');
+          };
+        }
+
+        if (typeof confirmDialog.showModal === 'function') {
+          confirmDialog.showModal();
+        } else {
+          confirmDialog.setAttribute('open', '');
+        }
+        if (confirmDialogCancel) {
+          confirmDialogCancel.focus();
+        }
+      }
+
+      if (confirmDialogClose) confirmDialogClose.addEventListener('click', closeConfirmDialog);
+      if (confirmDialogCancel) confirmDialogCancel.addEventListener('click', closeConfirmDialog);
+
+      if (confirmDialogRun) {
+        confirmDialogRun.addEventListener('click', function () {
+          if (pendingConfirmAction) {
+            const act = pendingConfirmAction.action;
+            const task = pendingConfirmAction.taskName;
+            const repo = pendingConfirmAction.repoPath;
+            closeConfirmDialog();
+            sendAction(act, repo, task, true);
+          }
+        });
+      }
+
+      if (confirmDialog) {
+        confirmDialog.addEventListener('keydown', function (e) {
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            closeConfirmDialog();
+            return;
+          }
+          if (e.key === 'Tab') {
+            const focusables = confirmDialog.querySelectorAll('button:not([disabled]), [tabindex]:not([tabindex="-1"])');
+            if (focusables.length === 0) return;
+            const first = focusables[0];
+            const last = focusables[focusables.length - 1];
+            if (e.shiftKey) {
+              if (document.activeElement === first) {
+                e.preventDefault();
+                last.focus();
+              }
+            } else {
+              if (document.activeElement === last) {
+                e.preventDefault();
+                first.focus();
+              }
+            }
+          }
+        });
+      }
+
+      function getRepoPathForTask(task) {
+        if (task && task.repoPath) return task.repoPath;
+        if (lastStateData && Array.isArray(lastStateData.repos) && task && task.repoName) {
+          const r = lastStateData.repos.find(function (repo) { return repo.name === task.repoName; });
+          if (r && r.path) return r.path;
+        }
+        return '';
+      }
+
+      function getRepoPathForAttention(item) {
+        if (item && item.repoPath) return item.repoPath;
+        if (lastStateData && Array.isArray(lastStateData.repos) && item && item.repo) {
+          const r = lastStateData.repos.find(function (repo) { return repo.name === item.repo || repo.path === item.repo; });
+          if (r && r.path) return r.path;
+        }
+        return '';
+      }
+
+      function updateActionButtonsDisabledState() {
+        const allActionButtons = document.querySelectorAll('[data-task-action-btn]');
+        allActionButtons.forEach(function (btn) {
+          const taskKey = btn.getAttribute('data-task-key');
+          const isRunning = taskKey && activeTaskJobs.has(taskKey);
+          btn.disabled = !!isRunning;
+          if (isRunning) {
+            btn.setAttribute('aria-disabled', 'true');
+          } else {
+            btn.removeAttribute('aria-disabled');
+          }
+        });
+      }
+
+      function copyToClipboard(text, buttonEl, defaultLabel) {
+        const origText = defaultLabel || (buttonEl ? buttonEl.textContent : '');
+        function showFeedback(msg) {
+          if (!buttonEl) return;
+          buttonEl.textContent = msg;
+          setTimeout(function () {
+            buttonEl.textContent = origText;
+          }, 1500);
+        }
+        function fallbackCopy() {
+          const area = document.createElement('textarea');
+          area.value = text;
+          area.setAttribute('readonly', '');
+          area.style.position = 'fixed';
+          area.style.opacity = '0';
+          document.body.appendChild(area);
+          area.select();
+          let ok = false;
+          try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+          document.body.removeChild(area);
+          showFeedback(ok ? 'Copied!' : 'Failed');
+        }
+        if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
+          fallbackCopy();
+          return;
+        }
+        navigator.clipboard.writeText(text).then(function () {
+          showFeedback('Copied!');
+        }).catch(fallbackCopy);
+      }
+
+      function createActionControl(actionName, label, command, onClickAction, isDestructive, taskRefKey) {
+        const group = el('div', 'action-control action-' + actionName);
+        group.setAttribute('data-action', actionName);
+
+        const actionBtn = el('button', 'btn-action ' + actionName, label);
+        actionBtn.type = 'button';
+        actionBtn.setAttribute('data-task-action-btn', actionName);
+        if (taskRefKey) actionBtn.setAttribute('data-task-key', taskRefKey);
+        if (taskRefKey && activeTaskJobs.has(taskRefKey)) {
+          actionBtn.disabled = true;
+          actionBtn.setAttribute('aria-disabled', 'true');
+        }
+        actionBtn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          onClickAction();
+        });
+        group.appendChild(actionBtn);
+
+        if (command) {
+          const copyBtn = el('button', 'btn-action-copy', 'Copy cmd');
+          copyBtn.type = 'button';
+          copyBtn.title = command;
+          copyBtn.setAttribute('aria-label', 'Copy command: ' + command);
+          copyBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            copyToClipboard(command, copyBtn, 'Copy cmd');
+          });
+          group.appendChild(copyBtn);
+        }
+
+        return group;
+      }
+
+      function requestAction(action, taskName, repoPath, command, isDestructive, originBtn) {
+        if (isDestructive) {
+          openConfirmDialog(action, taskName, repoPath, command, originBtn);
+        } else {
+          sendAction(action, repoPath, taskName, false);
+        }
+      }
+
+      async function sendAction(action, repoPath, taskName, confirm) {
+        const taskKey = (repoPath || '') + '::' + taskName;
+        if (activeTaskJobs.has(taskKey)) {
+          return;
+        }
+
+        activeTaskJobs.add(taskKey);
+        updateActionButtonsDisabledState();
+
+        try {
+          const res = await fetch('/api/action', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Trinity-Token': trinityToken || ''
+            },
+            body: JSON.stringify({
+              action: action,
+              repo: repoPath,
+              task: taskName,
+              confirm: !!confirm
+            })
+          });
+
+          let resData = null;
+          try {
+            resData = await res.json();
+          } catch (e) {}
+
+          if (res.status === 202 && resData && resData.job) {
+            createJobToast(resData.job, action, taskName, repoPath, resData.command);
+          } else {
+            activeTaskJobs.delete(taskKey);
+            updateActionButtonsDisabledState();
+            const errorMsg = (resData && resData.error) ? resData.error : ('HTTP ' + res.status + ' ' + (res.statusText || 'Error'));
+            showErrorToast(action, taskName, errorMsg, res.status);
+          }
+        } catch (err) {
+          activeTaskJobs.delete(taskKey);
+          updateActionButtonsDisabledState();
+          showErrorToast(action, taskName, err.message || 'Request failed');
+        }
+      }
+
+      function showErrorToast(action, taskName, errorMsg, statusCode) {
+        if (!toastsContainer) return;
+        const toast = el('div', 'job-toast toast-error');
+        toast.setAttribute('role', 'status');
+
+        const header = el('div', 'toast-header');
+        const titleGroup = el('div', 'toast-title-group');
+        titleGroup.appendChild(el('span', 'toast-title', action + ' ' + taskName));
+
+        const statusLabel = statusCode ? ('ERROR ' + statusCode) : 'ERROR';
+        titleGroup.appendChild(el('span', 'state-badge state-failed', statusLabel));
+        header.appendChild(titleGroup);
+
+        const dismissBtn = el('button', 'btn-toast-dismiss', '×');
+        dismissBtn.type = 'button';
+        dismissBtn.setAttribute('aria-label', 'Dismiss toast');
+        dismissBtn.addEventListener('click', function () {
+          if (toast.parentNode) toast.parentNode.removeChild(toast);
+        });
+        header.appendChild(dismissBtn);
+        toast.appendChild(header);
+
+        const errBox = el('div', 'toast-error-msg', errorMsg);
+        toast.appendChild(errBox);
+
+        toastsContainer.appendChild(toast);
+      }
+
+      function createJobToast(jobId, action, taskName, repoPath, command) {
+        if (!toastsContainer) return;
+        const taskKey = (repoPath || '') + '::' + taskName;
+        const toast = el('div', 'job-toast toast-running');
+        toast.setAttribute('role', 'status');
+        toast.setAttribute('data-job-id', jobId);
+
+        const header = el('div', 'toast-header');
+        const titleGroup = el('div', 'toast-title-group');
+        titleGroup.appendChild(el('span', 'toast-title', action + ' ' + taskName));
+
+        const stateBadge = el('span', 'state-badge state-running', 'RUNNING');
+        titleGroup.appendChild(stateBadge);
+        header.appendChild(titleGroup);
+
+        const dismissBtn = el('button', 'btn-toast-dismiss', '×');
+        dismissBtn.type = 'button';
+        dismissBtn.setAttribute('aria-label', 'Dismiss toast');
+        dismissBtn.addEventListener('click', function () {
+          if (toast.parentNode) toast.parentNode.removeChild(toast);
+        });
+        header.appendChild(dismissBtn);
+        toast.appendChild(header);
+
+        if (command) {
+          const cmdEl = el('div', 'toast-command', command);
+          toast.appendChild(cmdEl);
+        }
+
+        const outputEl = el('pre', 'toast-output', '');
+        toast.appendChild(outputEl);
+
+        toastsContainer.appendChild(toast);
+
+        const jobRecord = {
+          jobId: jobId,
+          action: action,
+          task: taskName,
+          repoPath: repoPath,
+          taskKey: taskKey,
+          toastEl: toast,
+          stateBadge: stateBadge,
+          outputEl: outputEl,
+          inFlight: false,
+          timer: null
+        };
+        activeJobs.set(jobId, jobRecord);
+
+        jobRecord.timer = setInterval(function () {
+          pollJob(jobId);
+        }, 1000);
+
+        pollJob(jobId);
+      }
+
+      async function pollJob(jobId) {
+        const job = activeJobs.get(jobId);
+        if (!job) return;
+        if (document.hidden || job.inFlight) return;
+        job.inFlight = true;
+
+        try {
+          const res = await fetch('/api/job?id=' + encodeURIComponent(jobId) + '&_t=' + Date.now(), {
+            cache: 'no-store'
+          });
+          if (!res.ok) {
+            throw new Error('HTTP ' + res.status + ' ' + res.statusText);
+          }
+          const data = await res.json();
+
+          if (typeof data.output === 'string') {
+            const isScrolledToBottom = (job.outputEl.scrollHeight - job.outputEl.scrollTop - job.outputEl.clientHeight) < 40;
+            job.outputEl.textContent = data.output;
+            if (isScrolledToBottom) {
+              job.outputEl.scrollTop = job.outputEl.scrollHeight;
+            }
+          }
+
+          if (data.state === 'done') {
+            if (job.timer) clearInterval(job.timer);
+            job.timer = null;
+            job.toastEl.className = 'job-toast toast-done';
+            job.stateBadge.className = 'state-badge state-done';
+            const exitStr = typeof data.exitCode === 'number' ? ('exit ' + data.exitCode) : '0';
+            job.stateBadge.textContent = 'DONE (' + exitStr + ')';
+
+            activeJobs.delete(jobId);
+            activeTaskJobs.delete(job.taskKey);
+            updateActionButtonsDisabledState();
+            pollState();
+          } else if (data.state === 'failed') {
+            if (job.timer) clearInterval(job.timer);
+            job.timer = null;
+            job.toastEl.className = 'job-toast toast-failed';
+            job.stateBadge.className = 'state-badge state-failed';
+            const exitStr = typeof data.exitCode === 'number' ? ('exit ' + data.exitCode) : 'failed';
+            job.stateBadge.textContent = 'FAILED (' + exitStr + ')';
+
+            activeJobs.delete(jobId);
+            activeTaskJobs.delete(job.taskKey);
+            updateActionButtonsDisabledState();
+            pollState();
+          }
+        } catch (err) {
+          if (err.message && err.message.includes('404')) {
+            if (job.timer) clearInterval(job.timer);
+            job.timer = null;
+            job.toastEl.className = 'job-toast toast-failed';
+            job.stateBadge.className = 'state-badge state-failed';
+            job.stateBadge.textContent = 'NOT FOUND (404)';
+            activeJobs.delete(jobId);
+            activeTaskJobs.delete(job.taskKey);
+            updateActionButtonsDisabledState();
+          }
+        } finally {
+          if (job) job.inFlight = false;
+        }
+      }
 
       // Safe localStorage utilities
       function loadSavedPreferences() {
@@ -3194,6 +3954,65 @@
 
         // Expandable drawer
         const drawer = el('div', 'task-card-drawer');
+
+        // Action bar (Merge, Review, Cancel, Open folder, Copy branch)
+        if (areActionsEnabled(lastStateData)) {
+          const actionBar = el('div', 'task-action-bar');
+          const repoPath = getRepoPathForTask(task);
+          const taskRefKey = (repoPath || '') + '::' + task.task;
+
+          // Merge (only state done)
+          if (task.state === 'done') {
+            const mergeCmd = 'trinity merge ' + task.task + ' -Yes';
+            const ctrl = createActionControl('merge', 'Merge', mergeCmd, function () {
+              requestAction('merge', task.task, repoPath, mergeCmd, true, ctrl.querySelector('.btn-action'));
+            }, true, taskRefKey);
+            actionBar.appendChild(ctrl);
+          }
+
+          // Review (has branch)
+          if (task.branch && task.branch !== '-') {
+            const reviewCmd = 'trinity review --base main';
+            const ctrl = createActionControl('review', 'Review', reviewCmd, function () {
+              requestAction('review-task', task.task, repoPath, reviewCmd, false, ctrl.querySelector('.btn-action'));
+            }, false, taskRefKey);
+            actionBar.appendChild(ctrl);
+          }
+
+          // Cancel (not merged/cancelled)
+          if (task.state !== 'merged' && task.state !== 'cancelled') {
+            const cancelCmd = 'trinity cancel ' + task.task;
+            const ctrl = createActionControl('cancel', 'Cancel', cancelCmd, function () {
+              requestAction('cancel', task.task, repoPath, cancelCmd, true, ctrl.querySelector('.btn-action'));
+            }, true, taskRefKey);
+            actionBar.appendChild(ctrl);
+          }
+
+          // Open folder (has worktree)
+          if (task.worktree && task.worktree !== '-') {
+            const folderCmd = 'explorer.exe "' + task.worktree + '"';
+            const ctrl = createActionControl('folder', 'Open folder', folderCmd, function () {
+              requestAction('open-folder', task.task, repoPath, folderCmd, false, ctrl.querySelector('.btn-action'));
+            }, false, taskRefKey);
+            actionBar.appendChild(ctrl);
+          }
+
+          // Copy branch (has branch)
+          if (task.branch && task.branch !== '-') {
+            const copyBranchBtn = el('button', 'btn-chat', 'Copy branch');
+            copyBranchBtn.type = 'button';
+            copyBranchBtn.title = 'Copy branch: ' + task.branch;
+            copyBranchBtn.addEventListener('click', function (e) {
+              e.stopPropagation();
+              copyToClipboard(task.branch, copyBranchBtn, 'Copy branch');
+            });
+            actionBar.appendChild(copyBranchBtn);
+          }
+
+          if (actionBar.childNodes.length > 0) {
+            drawer.appendChild(actionBar);
+          }
+        }
 
         // Action header with Open Chat button if task has chat
         if (task.chat) {
@@ -3809,6 +4628,7 @@
         updateOutdatedBanner(state.server);
         updateViewBadges(state);
         applyViewFromHash();
+        updateActionButtonsDisabledState();
       }
 
 
@@ -3991,6 +4811,32 @@
 
         row.appendChild(left);
 
+
+        if (areActionsEnabled(lastStateData)) {
+          const repoPath = getRepoPathForAttention(item);
+          const taskRefKey = (repoPath || '') + '::' + item.task;
+          const actionsWrap = el('div', 'inbox-item-actions');
+          actionsWrap.setAttribute('data-field', 'actions');
+
+          if (item.reason === 'done-unmerged') {
+            const mergeCmd = 'trinity merge ' + item.task + ' -Yes';
+            const ctrl = createActionControl('merge', 'Merge', mergeCmd, function () {
+              requestAction('merge', item.task, repoPath, mergeCmd, true, ctrl.querySelector('.btn-action'));
+            }, true, taskRefKey);
+            actionsWrap.appendChild(ctrl);
+          } else if (item.reason === 'failed' || item.reason === 'runner-dead') {
+            const cancelCmd = 'trinity cancel ' + item.task;
+            const ctrl = createActionControl('cancel', 'Cancel', cancelCmd, function () {
+              requestAction('cancel', item.task, repoPath, cancelCmd, true, ctrl.querySelector('.btn-action'));
+            }, true, taskRefKey);
+            actionsWrap.appendChild(ctrl);
+          }
+
+          if (actionsWrap.childNodes.length > 0) {
+            row.appendChild(actionsWrap);
+          }
+        }
+
         const right = el('div', 'inbox-item-right');
         const timeEl = el('span', 'inbox-time', formatRelativeTime(item.since));
         timeEl.setAttribute('data-field', 'time');
@@ -4040,6 +4886,38 @@
         const detail = row.querySelector('[data-field="detail"]');
         if (detail) {
           detail.textContent = item.detail || '';
+        }
+
+        let actionsWrap = row.querySelector('[data-field="actions"]');
+        if (areActionsEnabled(lastStateData)) {
+          const repoPath = getRepoPathForAttention(item);
+          const taskRefKey = (repoPath || '') + '::' + item.task;
+          if (!actionsWrap) {
+            actionsWrap = el('div', 'inbox-item-actions');
+            actionsWrap.setAttribute('data-field', 'actions');
+            const rightEl = row.querySelector('.inbox-item-right');
+            if (rightEl) {
+              row.insertBefore(actionsWrap, rightEl);
+            } else {
+              row.appendChild(actionsWrap);
+            }
+          }
+          while (actionsWrap.firstChild) actionsWrap.removeChild(actionsWrap.firstChild);
+          if (item.reason === 'done-unmerged') {
+            const mergeCmd = 'trinity merge ' + item.task + ' -Yes';
+            const ctrl = createActionControl('merge', 'Merge', mergeCmd, function () {
+              requestAction('merge', item.task, repoPath, mergeCmd, true, ctrl.querySelector('.btn-action'));
+            }, true, taskRefKey);
+            actionsWrap.appendChild(ctrl);
+          } else if (item.reason === 'failed' || item.reason === 'runner-dead') {
+            const cancelCmd = 'trinity cancel ' + item.task;
+            const ctrl = createActionControl('cancel', 'Cancel', cancelCmd, function () {
+              requestAction('cancel', item.task, repoPath, cancelCmd, true, ctrl.querySelector('.btn-action'));
+            }, true, taskRefKey);
+            actionsWrap.appendChild(ctrl);
+          }
+        } else if (actionsWrap && actionsWrap.parentNode) {
+          actionsWrap.parentNode.removeChild(actionsWrap);
         }
 
         const timeEl = row.querySelector('[data-field="time"]');
@@ -4765,6 +5643,11 @@
             }
             pollState();
           }
+          activeJobs.forEach(function (job, jobId) {
+            if (!job.inFlight) {
+              pollJob(jobId);
+            }
+          });
         }
       });
 
