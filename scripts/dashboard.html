@@ -1016,6 +1016,427 @@
     .task-card.expanded .task-card-drawer {
       display: flex;
     }
+/* Task Drawer Tabs */
+    .task-drawer-tabs {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 6px;
+      margin-bottom: 4px;
+      overflow-x: auto;
+    }
+
+    .task-tab-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      padding: 4px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+      white-space: nowrap;
+    }
+
+    .task-tab-btn:hover {
+      background-color: var(--bg-surface-hover);
+      color: var(--text-main);
+    }
+
+    .task-tab-btn.active {
+      background-color: var(--bg-surface);
+      color: var(--text-main);
+      border-color: var(--border-color);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .task-tab-btn:focus-visible {
+      outline: 2px solid var(--border-focus);
+      outline-offset: -1px;
+    }
+
+    .task-tab-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      width: 100%;
+    }
+
+    .task-tab-panel[hidden],
+    .task-tab-panel:not(.active) {
+      display: none !important;
+    }
+
+    /* Common Tab Error Message */
+    .tab-error-message {
+      padding: 8px 12px;
+      border-radius: 4px;
+      background-color: var(--status-offline-bg);
+      border: 1px solid var(--badge-failed-border);
+      color: var(--status-offline);
+      font-size: 11px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      word-break: break-all;
+    }
+
+    /* Diff Tab Styles */
+    .diff-header-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .diff-header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .diff-stat-text {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .diff-truncated-badge {
+      display: inline-flex;
+      align-items: center;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 10px;
+      background-color: var(--status-warn-bg);
+      color: var(--status-warn);
+      border: 1px solid var(--status-warn-border);
+    }
+
+    .diff-file-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .diff-file-entry {
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      background-color: var(--bg-surface);
+      overflow: hidden;
+    }
+
+    .diff-file-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 6px 10px;
+      cursor: pointer;
+      user-select: none;
+      font-size: 11px;
+      background-color: var(--bg-surface);
+      transition: background-color 0.15s;
+    }
+
+    .diff-file-row:hover {
+      background-color: var(--bg-surface-hover);
+    }
+
+    .diff-file-row:focus-visible {
+      outline: 2px solid var(--border-focus);
+      outline-offset: -2px;
+    }
+
+    .diff-file-row-left {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .diff-status-chip {
+      display: inline-block;
+      width: 16px;
+      text-align: center;
+      font-size: 10px;
+      font-weight: 700;
+      border-radius: 2px;
+      padding: 1px 0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .diff-status-chip.diff-status-A {
+      background-color: var(--status-live-bg);
+      color: var(--status-live);
+    }
+
+    .diff-status-chip.diff-status-M {
+      background-color: var(--badge-running-bg);
+      color: var(--badge-running-text);
+    }
+
+    .diff-status-chip.diff-status-D {
+      background-color: var(--status-offline-bg);
+      color: var(--status-offline);
+    }
+
+    .diff-status-chip.diff-status-R {
+      background-color: var(--badge-merged-bg);
+      color: var(--badge-merged-text);
+    }
+
+    .diff-file-path {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: var(--text-main);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .diff-file-row-right {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .diff-counts {
+      font-size: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      display: inline-flex;
+      gap: 4px;
+    }
+
+    .diff-add {
+      color: var(--status-live);
+    }
+
+    .diff-del {
+      color: var(--status-offline);
+    }
+
+    .diff-binary-badge {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
+    .diff-hunk-container {
+      border-top: 1px solid var(--border-color);
+      background-color: var(--code-bg);
+      color: var(--code-text);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.35;
+      padding: 6px 0;
+      max-height: 360px;
+      overflow-x: auto;
+      overflow-y: auto;
+    }
+
+    .diff-line {
+      padding: 1px 10px;
+      white-space: pre;
+    }
+
+    .diff-line-add {
+      color: var(--status-live);
+      background-color: var(--status-live-bg);
+    }
+
+    .diff-line-del {
+      color: var(--status-offline);
+      background-color: var(--status-offline-bg);
+    }
+
+    .diff-line-hunk {
+      color: var(--text-muted);
+      background-color: var(--bg-subtle);
+      font-style: italic;
+    }
+
+    .diff-line-meta {
+      color: var(--text-secondary);
+      font-weight: 600;
+    }
+
+    .diff-line-ctx {
+      color: var(--code-text);
+    }
+
+    /* Log Tab Styles */
+    .log-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .log-toolbar-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1 1 180px;
+    }
+
+    .log-search-input {
+      flex: 1 1 130px;
+      min-width: 100px;
+      background-color: var(--bg-input);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      color: var(--text-main);
+      font-size: 11px;
+      padding: 4px 8px;
+    }
+
+    .log-search-input:focus {
+      outline: 2px solid var(--border-focus);
+      outline-offset: -1px;
+    }
+
+    .log-search-count {
+      font-size: 10px;
+      color: var(--text-secondary);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .log-toolbar-right {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .log-follow-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .log-viewer-block {
+      max-height: 340px;
+      min-height: 120px;
+      overflow-y: auto;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    mark.log-match {
+      background-color: #ffe066;
+      color: #000000;
+      border-radius: 2px;
+      padding: 0 1px;
+    }
+
+    /* Merge Check Tab Styles */
+    .merge-check-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .merge-check-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    .blocker-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .blocker-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 6px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+    }
+
+    .blocker-item.blocker-block {
+      background-color: var(--status-offline-bg);
+      border: 1px solid var(--badge-failed-border);
+      color: var(--status-offline);
+    }
+
+    .blocker-item.blocker-warn {
+      background-color: var(--status-warn-bg);
+      border: 1px solid var(--status-warn-border);
+      color: var(--status-warn);
+    }
+
+    .blocker-chip {
+      display: inline-flex;
+      align-items: center;
+      font-weight: 700;
+      font-size: 11px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .blocker-chip.blocker-clean {
+      background-color: var(--status-live-bg);
+      color: var(--status-live);
+      border: 1px solid var(--badge-done-border);
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+
+    .blocker-detail {
+      font-size: 11px;
+      color: var(--text-main);
+    }
+
+    .merge-check-footer {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding-top: 4px;
+    }
+
+    .merge-reason-chips {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+
+    .merge-reason-chip {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background-color: var(--status-offline-bg);
+      color: var(--status-offline);
+      border: 1px solid var(--badge-failed-border);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
 
     .drawer-section {
       display: flex;
@@ -2958,6 +3379,11 @@
       let lastStateData = null;
       let expandedTaskKeys = new Set();
       let currentRepoFilter = 'all';
+      let pendingTaskTabDeepLink = null;
+      const taskActiveTabs = new Map();
+      const taskLogState = new Map();
+      const diffInFlight = new Set();
+      const mergeCheckInFlight = new Set();
       let hideFinished = false;
 
       // Chat drawer state
@@ -3732,6 +4158,688 @@
         }
       }
 
+
+      // ==========================================
+      // GUI Step 3: Diff, Log & Merge Check Helpers
+      // ==========================================
+
+      function renderTabError(panel, errorText) {
+        while (panel.firstChild) panel.removeChild(panel.firstChild);
+        const errEl = el('div', 'tab-error-message', errorText || 'An error occurred');
+        panel.appendChild(errEl);
+      }
+
+      function splitPatchByFiles(patchText) {
+        const map = new Map();
+        if (!patchText || typeof patchText !== 'string') return map;
+        const lines = patchText.split(/\r?\n/);
+        let currentFile = null;
+        let currentLines = [];
+
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          if (line.startsWith('diff --git ')) {
+            if (currentFile && currentLines.length > 0) {
+              map.set(currentFile, currentLines.join('\n'));
+            }
+            currentLines = [line];
+            const match = line.match(/^diff --git a\/(.+?) b\/(.+?)$/);
+            if (match) {
+              currentFile = match[2];
+            } else {
+              currentFile = null;
+            }
+          } else if (currentLines.length > 0) {
+            currentLines.push(line);
+          }
+        }
+        if (currentFile && currentLines.length > 0) {
+          map.set(currentFile, currentLines.join('\n'));
+        }
+        return map;
+      }
+
+      function renderHunkPre(hunkText) {
+        const pre = el('pre', 'diff-hunk-container');
+        const lines = (hunkText || '').split(/\r?\n/);
+        lines.forEach(function (line) {
+          let cls = 'diff-line-ctx';
+          if (line.startsWith('+') && !line.startsWith('+++')) {
+            cls = 'diff-line-add';
+          } else if (line.startsWith('-') && !line.startsWith('---')) {
+            cls = 'diff-line-del';
+          } else if (line.startsWith('@@')) {
+            cls = 'diff-line-hunk';
+          } else if (line.startsWith('diff --git') || line.startsWith('index') || line.startsWith('---') || line.startsWith('+++')) {
+            cls = 'diff-line-meta';
+          }
+          const lineDiv = el('div', 'diff-line ' + cls, line || ' ');
+          pre.appendChild(lineDiv);
+        });
+        return pre;
+      }
+
+      function switchTaskTab(taskKey, tabId, card) {
+        if (!card) {
+          card = document.querySelector('.task-card[data-task-key="' + CSS.escape(taskKey) + '"]');
+        }
+        if (!card) return;
+
+        const validTabs = ['summary', 'diff', 'log', 'merge'];
+        if (validTabs.indexOf(tabId) === -1) tabId = 'summary';
+
+        const oldTab = taskActiveTabs.get(taskKey) || 'summary';
+        taskActiveTabs.set(taskKey, tabId);
+
+        if (oldTab === 'log' && tabId !== 'log') {
+          pauseTaskLog(taskKey);
+        }
+
+        const tabBtns = card.querySelectorAll('.task-tab-btn');
+        tabBtns.forEach(function (btn) {
+          const isThis = btn.getAttribute('data-tab-id') === tabId;
+          btn.classList.toggle('active', isThis);
+          btn.setAttribute('aria-selected', isThis ? 'true' : 'false');
+          btn.setAttribute('tabindex', isThis ? '0' : '-1');
+        });
+
+        const panels = card.querySelectorAll('.task-tab-panel');
+        panels.forEach(function (p) {
+          const isThis = p.getAttribute('data-tab-id') === tabId;
+          p.classList.toggle('active', isThis);
+          p.style.display = isThis ? 'flex' : 'none';
+        });
+
+        if (tabId === 'diff') {
+          loadTaskDiff(taskKey, card);
+        } else if (tabId === 'log') {
+          activateTaskLog(taskKey, card);
+        } else if (tabId === 'merge') {
+          loadTaskMergeCheck(taskKey, card);
+        }
+      }
+
+      function handleTabKeydown(e, taskKey, card) {
+        const tablist = card.querySelector('.task-drawer-tabs');
+        if (!tablist) return;
+        const tabBtns = Array.from(tablist.querySelectorAll('.task-tab-btn'));
+        const currentIndex = tabBtns.indexOf(e.target);
+        if (currentIndex === -1) return;
+
+        let nextIndex = -1;
+        if (e.key === 'ArrowRight') {
+          nextIndex = (currentIndex + 1) % tabBtns.length;
+        } else if (e.key === 'ArrowLeft') {
+          nextIndex = (currentIndex - 1 + tabBtns.length) % tabBtns.length;
+        } else if (e.key === 'Home') {
+          nextIndex = 0;
+        } else if (e.key === 'End') {
+          nextIndex = tabBtns.length - 1;
+        }
+
+        if (nextIndex >= 0) {
+          e.preventDefault();
+          const nextBtn = tabBtns[nextIndex];
+          const nextTabId = nextBtn.getAttribute('data-tab-id');
+          switchTaskTab(taskKey, nextTabId, card);
+          nextBtn.focus();
+        }
+      }
+
+      async function loadTaskDiff(taskKey, card, force) {
+        if (!card) return;
+        const panel = card.querySelector('.task-tab-panel[data-tab-id="diff"]');
+        if (!panel) return;
+
+        if (diffInFlight.has(taskKey)) return;
+        if (!force && panel.getAttribute('data-loaded') === 'true') {
+          return;
+        }
+
+        diffInFlight.add(taskKey);
+        if (!panel.hasChildNodes()) {
+          panel.innerHTML = '<div class="mono-empty">Loading diff...</div>';
+        }
+
+        const repoPath = card.getAttribute('data-repo-path') || '';
+        const taskName = card.getAttribute('data-task-name') || '';
+
+        try {
+          const url = '/api/task/diff?repo=' + encodeURIComponent(repoPath) + '&task=' + encodeURIComponent(taskName);
+          const res = await fetch(url);
+          if (!res.ok) {
+            let errText = 'Diff failed (' + res.status + ')';
+            try {
+              const errJson = await res.json();
+              if (errJson && errJson.error) errText = errJson.error;
+            } catch (e) {}
+            renderTabError(panel, errText);
+            return;
+          }
+
+          const data = await res.json();
+          renderDiffContent(panel, data);
+          panel.setAttribute('data-loaded', 'true');
+        } catch (err) {
+          renderTabError(panel, err.message || 'Network error fetching diff');
+        } finally {
+          diffInFlight.delete(taskKey);
+        }
+      }
+
+      function renderDiffContent(panel, data) {
+        while (panel.firstChild) panel.removeChild(panel.firstChild);
+
+        const stat = data.stat || { files: 0, added: 0, deleted: 0 };
+        const files = Array.isArray(data.files) ? data.files : [];
+
+        const headerBar = el('div', 'diff-header-bar');
+        const headerLeft = el('div', 'diff-header-left');
+
+        const fileCountStr = stat.files === 1 ? '1 file' : stat.files + ' files';
+        const statText = fileCountStr + ', +' + (stat.added || 0) + ' -' + (stat.deleted || 0);
+        const statEl = el('span', 'diff-stat-text', statText);
+        headerLeft.appendChild(statEl);
+
+        if (data.truncated) {
+          const truncNotice = el('span', 'diff-truncated-badge', 'truncated at 200 KB');
+          headerLeft.appendChild(truncNotice);
+        }
+        headerBar.appendChild(headerLeft);
+
+        const copyBtn = el('button', 'btn-chat diff-copy-btn', 'Copy diff');
+        copyBtn.type = 'button';
+        copyBtn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          copyToClipboard(data.patch || '', copyBtn, 'Copy diff');
+        });
+        headerBar.appendChild(copyBtn);
+        panel.appendChild(headerBar);
+
+        if (files.length === 0 && (!data.patch || !data.patch.trim())) {
+          panel.appendChild(el('div', 'mono-empty', 'No changes vs main'));
+          return;
+        }
+
+        const hunksByFile = splitPatchByFiles(data.patch || '');
+        const list = el('div', 'diff-file-list');
+
+        files.forEach(function (file) {
+          const entry = el('div', 'diff-file-entry');
+          const row = el('div', 'diff-file-row');
+          row.setAttribute('role', 'button');
+          row.setAttribute('tabindex', '0');
+          row.setAttribute('aria-expanded', 'false');
+
+          const rowLeft = el('div', 'diff-file-row-left');
+          const statusChip = el('span', 'diff-status-chip diff-status-' + (file.status || 'M'), file.status || 'M');
+          rowLeft.appendChild(statusChip);
+
+          const pathEl = el('span', 'diff-file-path', file.path || '');
+          pathEl.title = file.path || '';
+          rowLeft.appendChild(pathEl);
+          row.appendChild(rowLeft);
+
+          const rowRight = el('div', 'diff-file-row-right');
+          if (file.binary) {
+            rowRight.appendChild(el('span', 'diff-binary-badge', 'binary'));
+          } else {
+            const counts = el('span', 'diff-counts');
+            counts.appendChild(el('span', 'diff-add', '+' + (file.added || 0)));
+            counts.appendChild(el('span', 'diff-del', '-' + (file.deleted || 0)));
+            rowRight.appendChild(counts);
+
+            const chev = el('span', 'card-toggle-icon', '▶');
+            rowRight.appendChild(chev);
+          }
+          row.appendChild(rowRight);
+          entry.appendChild(row);
+
+          if (!file.binary) {
+            const hunkText = hunksByFile.get(file.path) || '';
+            const hunkContainer = el('div', 'diff-hunk-container');
+            hunkContainer.style.display = 'none';
+
+            if (hunkText) {
+              hunkContainer.appendChild(renderHunkPre(hunkText));
+            } else {
+              hunkContainer.appendChild(el('div', 'mono-empty', '(no hunk text)'));
+            }
+            entry.appendChild(hunkContainer);
+
+            function toggleHunk() {
+              const isOpen = hunkContainer.style.display !== 'none';
+              hunkContainer.style.display = isOpen ? 'none' : 'block';
+              row.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+              const icon = row.querySelector('.card-toggle-icon');
+              if (icon) icon.style.transform = isOpen ? 'none' : 'rotate(90deg)';
+            }
+
+            row.addEventListener('click', toggleHunk);
+            row.addEventListener('keydown', function (e) {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                toggleHunk();
+              }
+            });
+          }
+
+          list.appendChild(entry);
+        });
+
+        panel.appendChild(list);
+      }
+
+      function activateTaskLog(taskKey, card) {
+        if (!card) return;
+        const panel = card.querySelector('.task-tab-panel[data-tab-id="log"]');
+        if (!panel) return;
+
+        let logState = taskLogState.get(taskKey);
+        if (!logState) {
+          logState = {
+            text: '',
+            offset: -1,
+            nextOffset: -1,
+            inFlight: false,
+            timer: null,
+            follow: true,
+            filter: '',
+            exists: true
+          };
+          taskLogState.set(taskKey, logState);
+        }
+
+        if (!panel.querySelector('.log-viewer-block')) {
+          buildLogPanelUI(panel, taskKey, logState);
+        }
+
+        const repoPath = card.getAttribute('data-repo-path') || '';
+        const taskName = card.getAttribute('data-task-name') || '';
+        const isRunning = card.classList.contains('is-running');
+
+        fetchTaskLogChunk(taskKey, card, repoPath, taskName, isRunning);
+
+        if (isRunning && !logState.timer) {
+          logState.timer = setInterval(function () {
+            const c = document.querySelector('.task-card[data-task-key="' + CSS.escape(taskKey) + '"]');
+            if (!c || !c.classList.contains('is-running')) {
+              clearInterval(logState.timer);
+              logState.timer = null;
+              return;
+            }
+            fetchTaskLogChunk(taskKey, c, repoPath, taskName, true);
+          }, 2000);
+        }
+      }
+
+      function buildLogPanelUI(panel, taskKey, logState) {
+        while (panel.firstChild) panel.removeChild(panel.firstChild);
+
+        const toolbar = el('div', 'log-toolbar');
+
+        const left = el('div', 'log-toolbar-left');
+        const searchInput = el('input', 'log-search-input');
+        searchInput.type = 'search';
+        searchInput.placeholder = 'Search log...';
+        searchInput.setAttribute('aria-label', 'Search log');
+        searchInput.value = logState.filter || '';
+        left.appendChild(searchInput);
+
+        const searchCount = el('span', 'log-search-count');
+        searchCount.style.display = 'none';
+        left.appendChild(searchCount);
+        toolbar.appendChild(left);
+
+        const right = el('div', 'log-toolbar-right');
+
+        const followLabel = el('label', 'log-follow-label');
+        const followCheck = el('input', 'log-follow-checkbox');
+        followCheck.type = 'checkbox';
+        followCheck.checked = logState.follow;
+        followLabel.appendChild(followCheck);
+        followLabel.appendChild(document.createTextNode(' Follow'));
+        right.appendChild(followLabel);
+
+        const copyBtn = el('button', 'btn-chat log-copy-btn', 'Copy log');
+        copyBtn.type = 'button';
+        right.appendChild(copyBtn);
+
+        const clearBtn = el('button', 'btn-chat log-clear-btn', 'Clear view');
+        clearBtn.type = 'button';
+        right.appendChild(clearBtn);
+
+        toolbar.appendChild(right);
+        panel.appendChild(toolbar);
+
+        const emptyMsg = el('div', 'mono-empty log-empty-msg', 'No log file yet');
+        emptyMsg.style.display = 'none';
+        panel.appendChild(emptyMsg);
+
+        const viewer = el('pre', 'mono-block log-viewer-block');
+        viewer.setAttribute('tabindex', '0');
+        panel.appendChild(viewer);
+
+        viewer.addEventListener('scroll', function () {
+          const atBottom = (viewer.scrollHeight - viewer.scrollTop - viewer.clientHeight) <= 24;
+          if (!atBottom && logState.follow) {
+            logState.follow = false;
+            followCheck.checked = false;
+          }
+        });
+
+        followCheck.addEventListener('change', function () {
+          logState.follow = followCheck.checked;
+          if (logState.follow) {
+            viewer.scrollTop = viewer.scrollHeight;
+          }
+        });
+
+        searchInput.addEventListener('input', function () {
+          logState.filter = searchInput.value;
+          updateLogDisplay(panel, logState);
+        });
+
+        copyBtn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          copyToClipboard(logState.text || '', copyBtn, 'Copy log');
+        });
+
+        clearBtn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          logState.text = '';
+          updateLogDisplay(panel, logState);
+        });
+      }
+
+      function updateLogDisplay(panel, logState) {
+        const viewer = panel.querySelector('.log-viewer-block');
+        const emptyMsg = panel.querySelector('.log-empty-msg');
+        const countEl = panel.querySelector('.log-search-count');
+        if (!viewer) return;
+
+        if (!logState.exists && !logState.text) {
+          if (emptyMsg) emptyMsg.style.display = 'block';
+          viewer.style.display = 'none';
+          if (countEl) countEl.style.display = 'none';
+          return;
+        }
+
+        if (emptyMsg) emptyMsg.style.display = 'none';
+        viewer.style.display = 'block';
+
+        const filter = (logState.filter || '').trim();
+        const rawText = logState.text || '';
+
+        if (!filter) {
+          viewer.textContent = rawText;
+          if (countEl) countEl.style.display = 'none';
+        } else {
+          while (viewer.firstChild) viewer.removeChild(viewer.firstChild);
+          const escapedFilter = filter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const regex = new RegExp(escapedFilter, 'gi');
+          let matchCount = 0;
+          let lastIndex = 0;
+          let match;
+
+          while ((match = regex.exec(rawText)) !== null) {
+            matchCount++;
+            if (match.index > lastIndex) {
+              viewer.appendChild(document.createTextNode(rawText.substring(lastIndex, match.index)));
+            }
+            const mark = el('mark', 'log-match', match[0]);
+            viewer.appendChild(mark);
+            lastIndex = regex.lastIndex;
+          }
+          if (lastIndex < rawText.length) {
+            viewer.appendChild(document.createTextNode(rawText.substring(lastIndex)));
+          }
+
+          if (countEl) {
+            countEl.style.display = 'inline-block';
+            countEl.textContent = matchCount === 1 ? '1 match' : matchCount + ' matches';
+          }
+        }
+
+        if (logState.follow) {
+          viewer.scrollTop = viewer.scrollHeight;
+        }
+      }
+
+      async function fetchTaskLogChunk(taskKey, card, repoPath, taskName, isRunning) {
+        const logState = taskLogState.get(taskKey);
+        if (!logState || logState.inFlight) return;
+
+        if (!card || !card.classList.contains('expanded') || taskActiveTabs.get(taskKey) !== 'log') {
+          return;
+        }
+
+        logState.inFlight = true;
+        try {
+          let url = '/api/task/log?repo=' + encodeURIComponent(repoPath) + '&task=' + encodeURIComponent(taskName);
+          if (logState.nextOffset >= 0) {
+            url += '&offset=' + logState.nextOffset;
+          }
+
+          const res = await fetch(url);
+          const panel = card.querySelector('.task-tab-panel[data-tab-id="log"]');
+          if (!panel) return;
+
+          if (!res.ok) {
+            let errText = 'Log request failed (' + res.status + ')';
+            try {
+              const errJson = await res.json();
+              if (errJson && errJson.error) errText = errJson.error;
+            } catch (e) {}
+            renderTabError(panel, errText);
+            return;
+          }
+
+          const data = await res.json();
+          logState.exists = data.exists !== false;
+
+          if (data.reset) {
+            logState.text = data.text || '';
+          } else if (data.text) {
+            logState.text = (logState.text || '') + data.text;
+          }
+
+          if (typeof data.nextOffset === 'number') {
+            logState.nextOffset = data.nextOffset;
+          }
+
+          updateLogDisplay(panel, logState);
+        } catch (err) {
+        } finally {
+          logState.inFlight = false;
+        }
+      }
+
+      function pauseTaskLog(taskKey) {
+        const logState = taskLogState.get(taskKey);
+        if (logState && logState.timer) {
+          clearInterval(logState.timer);
+          logState.timer = null;
+        }
+      }
+
+      async function loadTaskMergeCheck(taskKey, card, force) {
+        if (!card) return;
+        const panel = card.querySelector('.task-tab-panel[data-tab-id="merge"]');
+        if (!panel) return;
+
+        if (mergeCheckInFlight.has(taskKey)) return;
+        if (!force && panel.getAttribute('data-loaded') === 'true') {
+          return;
+        }
+
+        mergeCheckInFlight.add(taskKey);
+        panel.innerHTML = '<div class="mono-empty">Checking merge status...</div>';
+
+        const repoPath = card.getAttribute('data-repo-path') || '';
+        const taskName = card.getAttribute('data-task-name') || '';
+
+        try {
+          const url = '/api/task/merge-check?repo=' + encodeURIComponent(repoPath) + '&task=' + encodeURIComponent(taskName);
+          const res = await fetch(url);
+          if (!res.ok) {
+            let errText = 'Merge check failed (' + res.status + ')';
+            try {
+              const errJson = await res.json();
+              if (errJson && errJson.error) errText = errJson.error;
+            } catch (e) {}
+            renderTabError(panel, errText);
+            return;
+          }
+
+          const data = await res.json();
+          renderMergeCheckContent(panel, data, taskKey, card, repoPath, taskName);
+          panel.setAttribute('data-loaded', 'true');
+        } catch (err) {
+          renderTabError(panel, err.message || 'Network error during merge check');
+        } finally {
+          mergeCheckInFlight.delete(taskKey);
+        }
+      }
+
+      function renderMergeCheckContent(panel, data, taskKey, card, repoPath, taskName) {
+        while (panel.firstChild) panel.removeChild(panel.firstChild);
+
+        const header = el('div', 'merge-check-header');
+        const metaLeft = el('div', 'merge-check-meta');
+        const ahead = typeof data.ahead === 'number' ? data.ahead : 0;
+        const behind = typeof data.behind === 'number' ? data.behind : 0;
+        metaLeft.appendChild(el('span', 'stat-chip', 'ahead: ' + ahead + ' · behind: ' + behind));
+
+        if (data.mainHead) {
+          metaLeft.appendChild(el('span', 'stat-chip', 'main: ' + data.mainHead));
+        }
+
+        const checkTime = data.checkedAt ? formatHHMM(data.checkedAt) : formatHHMM(new Date().toISOString());
+        metaLeft.appendChild(el('span', 'stat-chip', 'checked: ' + checkTime));
+        header.appendChild(metaLeft);
+
+        const dryRunBtn = el('button', 'btn-chat primary btn-dry-run', '🔄 Dry run');
+        dryRunBtn.type = 'button';
+        dryRunBtn.title = 'Re-run merge dry run check';
+        dryRunBtn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          loadTaskMergeCheck(taskKey, card, true);
+        });
+        header.appendChild(dryRunBtn);
+        panel.appendChild(header);
+
+        const blockers = Array.isArray(data.blockers) ? data.blockers : [];
+        const blockersSection = el('div', 'drawer-section');
+        blockersSection.appendChild(el('div', 'drawer-label', 'Blockers (' + blockers.length + ')'));
+
+        if (blockers.length === 0) {
+          const cleanBox = el('div', 'blocker-clean-wrap');
+          cleanBox.appendChild(el('span', 'blocker-chip blocker-clean', '✔ No blockers'));
+          blockersSection.appendChild(cleanBox);
+        } else {
+          const blockerList = el('div', 'blocker-list');
+          blockers.forEach(function (b) {
+            const sev = (b.severity === 'warn') ? 'warn' : 'block';
+            const item = el('div', 'blocker-item blocker-' + sev);
+            const title = el('div', 'blocker-chip blocker-' + sev, '[' + (b.id || sev) + '] ' + (b.label || b.id));
+            item.appendChild(title);
+            if (b.detail) {
+              item.appendChild(el('div', 'blocker-detail', b.detail));
+            }
+            blockerList.appendChild(item);
+          });
+          blockersSection.appendChild(blockerList);
+        }
+        panel.appendChild(blockersSection);
+
+        if (Array.isArray(data.conflicts) && data.conflicts.length > 0) {
+          const confSection = el('div', 'drawer-section');
+          confSection.appendChild(el('div', 'drawer-label', 'Conflicted files (' + data.conflicts.length + ')'));
+          const confBox = el('div', 'files-touched-box');
+          data.conflicts.forEach(function (filePath) {
+            confBox.appendChild(el('div', 'file-touched-item', filePath));
+          });
+          confSection.appendChild(confBox);
+          panel.appendChild(confSection);
+        }
+
+        if (Array.isArray(data.scopeViolations) && data.scopeViolations.length > 0) {
+          const scopeSection = el('div', 'drawer-section');
+          scopeSection.appendChild(el('div', 'drawer-label', 'Scope violations (' + data.scopeViolations.length + ')'));
+          const scopeBox = el('div', 'files-touched-box');
+          data.scopeViolations.forEach(function (filePath) {
+            scopeBox.appendChild(el('div', 'file-touched-item', filePath));
+          });
+          scopeSection.appendChild(scopeBox);
+          panel.appendChild(scopeSection);
+        }
+
+        const footer = el('div', 'merge-check-footer');
+        const mergeBtn = el('button', 'btn-action btn-merge-final', 'Merge');
+        mergeBtn.type = 'button';
+
+        if (!data.canMerge) {
+          mergeBtn.classList.add('disabled');
+          mergeBtn.disabled = true;
+          mergeBtn.title = 'Merge is blocked';
+          footer.appendChild(mergeBtn);
+
+          const reasonsWrap = el('div', 'merge-reason-chips');
+          const blockBlockers = blockers.filter(function (b) { return b && b.severity === 'block'; });
+          if (blockBlockers.length > 0) {
+            blockBlockers.forEach(function (b) {
+              const chip = el('span', 'merge-reason-chip', b.id || b.label || 'blocked');
+              if (b.detail) chip.title = b.detail;
+              reasonsWrap.appendChild(chip);
+            });
+          } else {
+            const chip = el('span', 'merge-reason-chip', 'cannot merge');
+            reasonsWrap.appendChild(chip);
+          }
+          footer.appendChild(reasonsWrap);
+        } else {
+          mergeBtn.classList.add('primary');
+          mergeBtn.title = 'Merge branch into main';
+          mergeBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            const mergeCmd = 'trinity merge ' + taskName + ' -Yes';
+            requestAction('merge', taskName, repoPath, mergeCmd, true, mergeBtn);
+          });
+          footer.appendChild(mergeBtn);
+        }
+        panel.appendChild(footer);
+      }
+
+      function updateTaskCard(card, task) {
+        const taskKey = card.getAttribute('data-task-key');
+        const isRunning = task.state === 'running';
+        card.classList.toggle('is-running', isRunning);
+
+        const repoPath = getRepoPathForTask(task);
+        card.setAttribute('data-repo-path', repoPath || '');
+
+        const stateBadge = card.querySelector('.task-card-header .state-badge');
+        if (stateBadge) {
+          stateBadge.className = 'state-badge state-' + (task.state || 'other').toLowerCase();
+          stateBadge.textContent = (task.state || 'OTHER').toUpperCase();
+        }
+
+        const statusRow = card.querySelector('.task-status-row');
+        if (statusRow) {
+          if (task.status) {
+            statusRow.textContent = task.status;
+            statusRow.style.display = 'block';
+          } else {
+            statusRow.style.display = 'none';
+          }
+        }
+
+        if (!isRunning) {
+          pauseTaskLog(taskKey);
+        }
+      }
+
       // Task card component generator
       function createTaskCard(task) {
         const taskKey = (task.repoName || '') + '::' + (task.agent || '') + '::' + (task.task || '');
@@ -3744,10 +4852,16 @@
             const tPart = pendingTaskDeepLink.substring(slashIdx + 1).trim().toLowerCase();
             if ((task.repoName || '').toLowerCase() === rPart && (task.task || '').toLowerCase() === tPart) {
               expandedTaskKeys.add(taskKey);
+              if (pendingTaskTabDeepLink) {
+                taskActiveTabs.set(taskKey, pendingTaskTabDeepLink);
+              }
             }
           } else {
             if ((task.task || '').toLowerCase() === pendingTaskDeepLink.trim().toLowerCase()) {
               expandedTaskKeys.add(taskKey);
+              if (pendingTaskTabDeepLink) {
+                taskActiveTabs.set(taskKey, pendingTaskTabDeepLink);
+              }
             }
           }
         }
@@ -3761,6 +4875,9 @@
         card.setAttribute('data-task-key', taskKey);
         card.setAttribute('data-repo', task.repoName || '');
         card.setAttribute('data-task', task.task || '');
+        const repoPath = getRepoPathForTask(task);
+        card.setAttribute('data-repo-path', repoPath || '');
+        card.setAttribute('data-task-name', task.task || '');
 
         // Header section of card
         const cardHeader = el('div', 'task-card-header');
@@ -3952,8 +5069,64 @@
         cardHeader.appendChild(metaRow);
         card.appendChild(cardHeader);
 
-        // Expandable drawer
+        // Expandable drawer with Step 3 Tabs
         const drawer = el('div', 'task-card-drawer');
+        const activeTab = taskActiveTabs.get(taskKey) || 'summary';
+
+        // Tablist
+        const tablist = el('div', 'task-drawer-tabs');
+        tablist.setAttribute('role', 'tablist');
+        tablist.setAttribute('aria-label', 'Task detail tabs');
+
+        const tabsDef = [
+          { id: 'summary', label: 'Summary' },
+          { id: 'diff', label: 'Diff' },
+          { id: 'log', label: 'Log' },
+          { id: 'merge', label: 'Merge check' }
+        ];
+
+        tabsDef.forEach(function (tabDef) {
+          const isSelected = tabDef.id === activeTab;
+          const btn = el('button', 'task-tab-btn' + (isSelected ? ' active' : ''), tabDef.label);
+          btn.type = 'button';
+          btn.setAttribute('role', 'tab');
+          btn.setAttribute('data-tab-id', tabDef.id);
+          btn.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+          btn.setAttribute('tabindex', isSelected ? '0' : '-1');
+
+          btn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            switchTaskTab(taskKey, tabDef.id, card);
+          });
+
+          btn.addEventListener('keydown', function (e) {
+            handleTabKeydown(e, taskKey, card);
+          });
+
+          tablist.appendChild(btn);
+        });
+        drawer.appendChild(tablist);
+
+        // Panels
+        const panelSummary = el('div', 'task-tab-panel' + (activeTab === 'summary' ? ' active' : ''));
+        panelSummary.setAttribute('data-tab-id', 'summary');
+        panelSummary.setAttribute('role', 'tabpanel');
+        if (activeTab !== 'summary') panelSummary.style.display = 'none';
+
+        const panelDiff = el('div', 'task-tab-panel' + (activeTab === 'diff' ? ' active' : ''));
+        panelDiff.setAttribute('data-tab-id', 'diff');
+        panelDiff.setAttribute('role', 'tabpanel');
+        if (activeTab !== 'diff') panelDiff.style.display = 'none';
+
+        const panelLog = el('div', 'task-tab-panel' + (activeTab === 'log' ? ' active' : ''));
+        panelLog.setAttribute('data-tab-id', 'log');
+        panelLog.setAttribute('role', 'tabpanel');
+        if (activeTab !== 'log') panelLog.style.display = 'none';
+
+        const panelMerge = el('div', 'task-tab-panel' + (activeTab === 'merge' ? ' active' : ''));
+        panelMerge.setAttribute('data-tab-id', 'merge');
+        panelMerge.setAttribute('role', 'tabpanel');
+        if (activeTab !== 'merge') panelMerge.style.display = 'none';
 
         // Action bar (Merge, Review, Cancel, Open folder, Copy branch)
         if (areActionsEnabled(lastStateData)) {
@@ -3961,8 +5134,17 @@
           const repoPath = getRepoPathForTask(task);
           const taskRefKey = (repoPath || '') + '::' + task.task;
 
-          // Merge (only state done)
+          // Review merge and Merge on done-unmerged
           if (task.state === 'done') {
+            const reviewMergeBtn = el('button', 'btn-chat btn-review-merge', 'Review merge');
+            reviewMergeBtn.type = 'button';
+            reviewMergeBtn.title = 'Review merge and check blockers';
+            reviewMergeBtn.addEventListener('click', function (e) {
+              e.stopPropagation();
+              switchTaskTab(taskKey, 'merge', card);
+            });
+            actionBar.appendChild(reviewMergeBtn);
+
             const mergeCmd = 'trinity merge ' + task.task + ' -Yes';
             const ctrl = createActionControl('merge', 'Merge', mergeCmd, function () {
               requestAction('merge', task.task, repoPath, mergeCmd, true, ctrl.querySelector('.btn-action'));
@@ -4010,7 +5192,7 @@
           }
 
           if (actionBar.childNodes.length > 0) {
-            drawer.appendChild(actionBar);
+            panelSummary.appendChild(actionBar);
           }
         }
 
@@ -4031,13 +5213,13 @@
             });
           });
           actionRow.appendChild(openChatBtn);
-          drawer.appendChild(actionRow);
+          panelSummary.appendChild(actionRow);
         }
 
         // Session ID if present
         if (task.sessionId) {
           const sessionRow = el('div', 'task-scope-row', 'Session ID: ' + task.sessionId);
-          drawer.appendChild(sessionRow);
+          panelSummary.appendChild(sessionRow);
         }
 
         // Token breakdown
@@ -4065,7 +5247,7 @@
           }
           tokenBox.appendChild(row2);
           tokenSection.appendChild(tokenBox);
-          drawer.appendChild(tokenSection);
+          panelSummary.appendChild(tokenSection);
         }
 
         // Execution stats line: steps, thinking steps, background tasks when > 0
@@ -4087,7 +5269,7 @@
             }
             execRow.appendChild(el('span', 'exec-item', itemText));
           });
-          drawer.appendChild(execRow);
+          panelSummary.appendChild(execRow);
         }
 
         // Tools breakdown section (horizontal bar list)
@@ -4122,7 +5304,7 @@
             });
 
             toolsSection.appendChild(toolList);
-            drawer.appendChild(toolsSection);
+            panelSummary.appendChild(toolsSection);
           }
         }
 
@@ -4142,7 +5324,7 @@
               filesBox.appendChild(fileItem);
             });
             filesSection.appendChild(filesBox);
-            drawer.appendChild(filesSection);
+            panelSummary.appendChild(filesSection);
           }
         }
 
@@ -4173,7 +5355,7 @@
             rateSection.appendChild(cardLimit);
           });
 
-          drawer.appendChild(rateSection);
+          panelSummary.appendChild(rateSection);
         }
 
         // Sub-chats
@@ -4209,7 +5391,7 @@
           });
 
           subSection.appendChild(subList);
-          drawer.appendChild(subSection);
+          panelSummary.appendChild(subSection);
         }
 
         // Result subsection
@@ -4224,7 +5406,7 @@
           const resultEmpty = el('div', 'mono-empty', '(no result output recorded)');
           resultSection.appendChild(resultEmpty);
         }
-        drawer.appendChild(resultSection);
+        panelSummary.appendChild(resultSection);
 
         // Log tail subsection
         const logSection = el('div', 'drawer-section');
@@ -4238,22 +5420,34 @@
           const logEmpty = el('div', 'mono-empty', '(no log tail recorded)');
           logSection.appendChild(logEmpty);
         }
-        drawer.appendChild(logSection);
+        panelSummary.appendChild(logSection);
+
+        drawer.appendChild(panelSummary);
+        drawer.appendChild(panelDiff);
+        drawer.appendChild(panelLog);
+        drawer.appendChild(panelMerge);
 
         card.appendChild(drawer);
 
+        if (isExpanded && activeTab !== 'summary') {
+          switchTaskTab(taskKey, activeTab, card);
+        }
+
         // Click / Key toggle handler
         function toggleExpand(e) {
-          if (e.target.closest('button') || e.target.closest('pre')) return;
+          if (e.target.closest('button') || e.target.closest('pre') || e.target.closest('.task-card-drawer')) return;
 
           if (expandedTaskKeys.has(taskKey)) {
             expandedTaskKeys.delete(taskKey);
             card.classList.remove('expanded');
             card.setAttribute('aria-expanded', 'false');
+            pauseTaskLog(taskKey);
           } else {
             expandedTaskKeys.add(taskKey);
             card.classList.add('expanded');
             card.setAttribute('aria-expanded', 'true');
+            const curTab = taskActiveTabs.get(taskKey) || 'summary';
+            switchTaskTab(taskKey, curTab, card);
           }
         }
 
@@ -4535,7 +5729,15 @@
           const tasks = allTasksByAgent[key] || [];
           const avail = availability[key] || { available: true };
 
-          // Clear container safely
+          // Collect existing task cards by key
+          const existingCards = new Map();
+          const oldCards = container.querySelectorAll('.task-card');
+          oldCards.forEach(function (c) {
+            const k = c.getAttribute('data-task-key');
+            if (k) existingCards.set(k, c);
+          });
+
+          // Remove static elements (banners, sessions, empty) to re-insert at top
           while (container.firstChild) {
             container.removeChild(container.firstChild);
           }
@@ -4598,9 +5800,21 @@
             container.appendChild(emptyEl);
           } else {
             tasks.forEach(function (task) {
-              container.appendChild(createTaskCard(task));
+              const taskKey = (task.repoName || '') + '::' + (task.agent || '') + '::' + (task.task || '');
+              let card = existingCards.get(taskKey);
+              if (card) {
+                updateTaskCard(card, task);
+                existingCards.delete(taskKey);
+              } else {
+                card = createTaskCard(task);
+              }
+              container.appendChild(card);
             });
           }
+
+          existingCards.forEach(function (c, k) {
+            pauseTaskLog(k);
+          });
         });
 
         // Repositories section
@@ -4694,11 +5908,15 @@
         }
       }
 
-      function navigateToTask(repo, task) {
-        window.location.hash = '#task=' + encodeURIComponent(repo) + '/' + encodeURIComponent(task);
+      function navigateToTask(repo, task, tab) {
+        let hash = '#task=' + encodeURIComponent(repo) + '/' + encodeURIComponent(task);
+        if (tab) {
+          hash += '&tab=' + encodeURIComponent(tab);
+        }
+        window.location.hash = hash;
       }
 
-      function activateTaskDeepLink(taskRef) {
+      function activateTaskDeepLink(taskRef, targetTab) {
         if (!taskRef) return;
         let targetRepo = '';
         let targetTask = '';
@@ -4722,6 +5940,9 @@
               if (cKey) expandedTaskKeys.add(cKey);
               card.classList.add('expanded');
               card.setAttribute('aria-expanded', 'true');
+              if (cKey && targetTab) {
+                switchTaskTab(cKey, targetTab, card);
+              }
               card.scrollIntoView({ behavior: 'smooth', block: 'center' });
               break;
             }
@@ -4742,7 +5963,17 @@
           view = 'health';
         } else if (hash.startsWith('task=')) {
           view = 'tasks';
-          taskDeepLink = decodeURIComponent(hash.substring(5).trim());
+          let taskPart = hash.substring(5).trim();
+          let tabPart = null;
+          const ampIdx = taskPart.indexOf('&');
+          if (ampIdx >= 0) {
+            const query = taskPart.substring(ampIdx + 1);
+            taskPart = taskPart.substring(0, ampIdx);
+            const m = query.match(/(?:^|&)tab=([^&]+)/i);
+            if (m) tabPart = decodeURIComponent(m[1]).toLowerCase();
+          }
+          taskDeepLink = decodeURIComponent(taskPart);
+          pendingTaskTabDeepLink = tabPart;
         } else {
           view = 'inbox';
         }
@@ -4771,7 +6002,7 @@
         if (viewHealth) viewHealth.style.display = (view === 'health') ? 'flex' : 'none';
 
         if (view === 'tasks' && pendingTaskDeepLink && lastStateData) {
-          activateTaskDeepLink(pendingTaskDeepLink);
+          activateTaskDeepLink(pendingTaskDeepLink, pendingTaskTabDeepLink);
         }
       }
 
@@ -4819,6 +6050,15 @@
           actionsWrap.setAttribute('data-field', 'actions');
 
           if (item.reason === 'done-unmerged') {
+            const reviewMergeBtn = el('button', 'btn-chat btn-review-merge', 'Review merge');
+            reviewMergeBtn.type = 'button';
+            reviewMergeBtn.title = 'Review merge and check blockers';
+            reviewMergeBtn.addEventListener('click', function (e) {
+              e.stopPropagation();
+              navigateToTask(item.repo || '', item.task || '', 'merge');
+            });
+            actionsWrap.appendChild(reviewMergeBtn);
+
             const mergeCmd = 'trinity merge ' + item.task + ' -Yes';
             const ctrl = createActionControl('merge', 'Merge', mergeCmd, function () {
               requestAction('merge', item.task, repoPath, mergeCmd, true, ctrl.querySelector('.btn-action'));
@@ -4904,6 +6144,15 @@
           }
           while (actionsWrap.firstChild) actionsWrap.removeChild(actionsWrap.firstChild);
           if (item.reason === 'done-unmerged') {
+            const reviewMergeBtn = el('button', 'btn-chat btn-review-merge', 'Review merge');
+            reviewMergeBtn.type = 'button';
+            reviewMergeBtn.title = 'Review merge and check blockers';
+            reviewMergeBtn.addEventListener('click', function (e) {
+              e.stopPropagation();
+              navigateToTask(item.repo || '', item.task || '', 'merge');
+            });
+            actionsWrap.appendChild(reviewMergeBtn);
+
             const mergeCmd = 'trinity merge ' + item.task + ' -Yes';
             const ctrl = createActionControl('merge', 'Merge', mergeCmd, function () {
               requestAction('merge', item.task, repoPath, mergeCmd, true, ctrl.querySelector('.btn-action'));
