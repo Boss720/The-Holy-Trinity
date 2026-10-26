@@ -169,7 +169,7 @@ trinity status
 
 ## Let Claude do the install
 
-You can let Claude Code perform the complete setup automatically. See [docs/claude-install-prompt.md](file:///docs/claude-install-prompt.md).
+You can let Claude Code perform the complete setup automatically. See [docs/claude-install-prompt.md](docs/claude-install-prompt.md).
 
 Open Claude Code and paste the installation prompt from that file. Claude will download the release, verify checksums, run `install.cmd`, configure PATH, resolve doctor warnings, and run `trinity init` in your project.
 
