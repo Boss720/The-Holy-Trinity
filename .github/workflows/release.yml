@@ -18,7 +18,7 @@ jobs:
           git config --global user.name "ci"
           git config --global user.email "ci@example.invalid"
       - name: Run tests
-        run: tests\run-tests.cmd
+        run: .\tests\run-tests.cmd
       - name: Check tag version
         shell: powershell
         run: |
@@ -26,7 +26,7 @@ jobs:
           if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") { throw "tag $env:GITHUB_REF_NAME does not match v$version" }
       - name: Build release
         shell: powershell
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-release.ps1 -OutDir dist -Verify
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-release.ps1 -OutDir dist -Verify
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
