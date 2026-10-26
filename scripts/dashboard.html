@@ -1920,6 +1920,276 @@
       padding-top: 6px;
     }
 
+    /* Header Dispatch Button */
+    .btn-header-dispatch {
+      font-size: 11px;
+      padding: 3px 10px;
+      border-radius: 12px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-weight: 600;
+      white-space: nowrap;
+      transition: all 0.2s ease;
+    }
+    .btn-header-dispatch:disabled {
+      pointer-events: auto;
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    /* Dispatch Modal Dialog */
+    dialog.dispatch-modal {
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      background-color: var(--bg-surface);
+      color: var(--text-main);
+      padding: 0;
+      max-width: 600px;
+      width: calc(100vw - 32px);
+      box-shadow: var(--shadow-lg);
+      margin: auto;
+      overscroll-behavior: contain;
+    }
+    dialog.dispatch-modal::backdrop {
+      background-color: var(--overlay-backdrop);
+      backdrop-filter: blur(1px);
+      overflow: hidden;
+      overscroll-behavior: contain;
+    }
+    .dispatch-modal-content {
+      display: flex;
+      flex-direction: column;
+      padding: 16px;
+      gap: 14px;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-sizing: border-box;
+    }
+    .dispatch-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      border-bottom: 1px solid var(--border-subtle);
+      padding-bottom: 10px;
+    }
+    .dispatch-modal-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-main);
+      margin: 0;
+    }
+    .dispatch-form {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .dispatch-form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .dispatch-label-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .dispatch-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-main);
+    }
+    .dispatch-counter {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    .dispatch-counter.over-limit {
+      color: var(--status-offline);
+      font-weight: 700;
+    }
+    .dispatch-input,
+    .dispatch-select,
+    .dispatch-textarea {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 6px 10px;
+      font-size: 12px;
+      color: var(--text-main);
+      background-color: var(--bg-input);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      outline: none;
+      font-family: inherit;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .dispatch-input:focus,
+    .dispatch-select:focus,
+    .dispatch-textarea:focus {
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 2px rgba(9, 105, 218, 0.2);
+    }
+    .dispatch-textarea {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      resize: vertical;
+      min-height: 110px;
+      line-height: 1.4;
+    }
+    .dispatch-agent-radios {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 2px;
+    }
+    .dispatch-radio-card {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      background-color: var(--bg-subtle);
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.15s ease;
+      user-select: none;
+    }
+    .dispatch-radio-card:hover {
+      background-color: var(--bg-surface-hover);
+      border-color: var(--border-focus);
+    }
+    .dispatch-radio-card input[type="radio"] {
+      margin: 0;
+      cursor: pointer;
+    }
+    .dispatch-radio-card.selected {
+      border-color: var(--border-focus);
+      background-color: var(--badge-running-bg);
+      color: var(--badge-running-text);
+      font-weight: 600;
+    }
+    .avail-chip {
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 10px;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+    .avail-chip.ok {
+      background: var(--status-live-bg);
+      color: var(--status-live);
+    }
+    .avail-chip.warn {
+      background: var(--status-warn-bg);
+      color: var(--status-warn);
+    }
+    .avail-chip.off {
+      background: var(--status-offline-bg);
+      color: var(--status-offline);
+    }
+    .dispatch-field-hint {
+      font-size: 11px;
+      min-height: 14px;
+      line-height: 1.3;
+    }
+    .dispatch-field-hint.hint-error {
+      color: var(--status-offline);
+    }
+    .dispatch-field-hint.hint-success {
+      color: var(--status-live);
+    }
+    .dispatch-field-hint.hint-subtle {
+      color: var(--text-muted);
+    }
+    .dispatch-notice-box {
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: 11px;
+      line-height: 1.4;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .dispatch-notice-box.amber {
+      background-color: var(--status-warn-bg);
+      border: 1px solid var(--status-warn-border);
+      color: var(--status-warn);
+    }
+    .dispatch-notice-box.red {
+      background-color: var(--status-offline-bg);
+      border: 1px solid var(--status-offline);
+      color: var(--status-offline);
+    }
+    .dispatch-error-banner {
+      background-color: var(--status-offline-bg);
+      border: 1px solid var(--status-offline);
+      color: var(--status-offline);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .overlaps-title {
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .dispatch-overlaps-list {
+      margin: 0;
+      padding-left: 18px;
+    }
+    .dispatch-overlaps-list li {
+      margin-bottom: 2px;
+    }
+    .dispatch-cli-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .dispatch-cli-box {
+      background-color: var(--code-bg);
+      color: var(--code-text);
+      border: 1px solid var(--code-border);
+      border-radius: 4px;
+      padding: 6px 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .dispatch-cli-box code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      word-break: break-all;
+      flex: 1;
+    }
+    .dispatch-modal-footer {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      border-top: 1px solid var(--border-subtle);
+      padding-top: 12px;
+      margin-top: 4px;
+    }
+    .confirm-prompt-preview {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: var(--code-bg);
+      color: var(--code-text);
+      padding: 6px 8px;
+      border-radius: 4px;
+      max-height: 100px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      margin: 4px 0 0 0;
+      font-size: 11px;
+    }
+
     /* Job Toasts */
     .job-toasts-container {
       position: fixed;
@@ -3067,6 +3337,7 @@
           </div>
         </div>
         <div class="status-group">
+          <button type="button" id="header-dispatch-btn" class="btn-chat primary btn-header-dispatch" title="Connecting..." disabled>Dispatch</button>
           <div id="data-age-chip" class="data-age-chip" style="display: none;">
             <span id="data-age-spinner" class="data-age-spinner" style="display: none;"></span>
             <span id="data-age-text"></span>
@@ -3364,6 +3635,83 @@
     </div>
   </dialog>
 
+  <!-- Dispatch New Task Modal -->
+  <dialog id="dispatch-modal" class="dispatch-modal" aria-labelledby="dispatch-modal-title">
+    <div class="dispatch-modal-content">
+      <div class="dispatch-modal-header">
+        <h3 id="dispatch-modal-title" class="dispatch-modal-title">Dispatch new task</h3>
+        <button type="button" class="btn-close-dialog" id="dispatch-modal-close" aria-label="Close dialog">&times;</button>
+      </div>
+      <form id="dispatch-form" class="dispatch-form" method="dialog" onsubmit="return false;">
+        <div id="dispatch-error-banner" class="dispatch-error-banner" style="display: none;" role="alert"></div>
+
+        <div class="dispatch-form-group">
+          <label for="dispatch-repo" class="dispatch-label">Target Repo</label>
+          <select id="dispatch-repo" class="dispatch-select"></select>
+        </div>
+
+        <div class="dispatch-form-group">
+          <span class="dispatch-label" id="dispatch-agent-group-label">Agent</span>
+          <div class="dispatch-agent-radios" role="radiogroup" aria-labelledby="dispatch-agent-group-label">
+            <label class="dispatch-radio-card" id="dispatch-agent-card-codex" for="dispatch-agent-codex">
+              <input type="radio" name="dispatch-agent" id="dispatch-agent-codex" value="codex">
+              <span>Codex</span>
+              <span class="avail-chip" id="avail-chip-codex"></span>
+            </label>
+            <label class="dispatch-radio-card" id="dispatch-agent-card-antigravity" for="dispatch-agent-antigravity">
+              <input type="radio" name="dispatch-agent" id="dispatch-agent-antigravity" value="antigravity">
+              <span>Antigravity</span>
+              <span class="avail-chip" id="avail-chip-antigravity"></span>
+            </label>
+            <label class="dispatch-radio-card" id="dispatch-agent-card-claude" for="dispatch-agent-claude">
+              <input type="radio" name="dispatch-agent" id="dispatch-agent-claude" value="claude">
+              <span>Claude (park)</span>
+              <span class="avail-chip" id="avail-chip-claude"></span>
+            </label>
+          </div>
+          <div id="dispatch-agent-notice" class="dispatch-notice-box amber" style="display: none;"></div>
+        </div>
+
+        <div class="dispatch-form-group">
+          <label for="dispatch-task" class="dispatch-label">Task Name</label>
+          <input type="text" id="dispatch-task" class="dispatch-input" placeholder="e.g. gui-wire" maxlength="40" autocomplete="off" spellcheck="false">
+          <div id="dispatch-task-hint" class="dispatch-field-hint"></div>
+        </div>
+
+        <div class="dispatch-form-group">
+          <label for="dispatch-scope" class="dispatch-label">Scope Globs</label>
+          <input type="text" id="dispatch-scope" class="dispatch-input" placeholder="e.g. scripts/*,docs/*" autocomplete="off" spellcheck="false">
+          <div id="dispatch-scope-hint" class="dispatch-field-hint"></div>
+          <div id="dispatch-overlaps-box" class="dispatch-notice-box amber" style="display: none;">
+            <div class="overlaps-title">⚠️ Scope overlaps with running tasks:</div>
+            <ul id="dispatch-overlaps-list" class="dispatch-overlaps-list"></ul>
+          </div>
+        </div>
+
+        <div class="dispatch-form-group">
+          <div class="dispatch-label-row">
+            <label for="dispatch-prompt" class="dispatch-label">Prompt</label>
+            <span id="dispatch-prompt-counter" class="dispatch-counter">0 / 32,768</span>
+          </div>
+          <textarea id="dispatch-prompt" class="dispatch-textarea" placeholder="Detailed instructions for the task..." rows="6" maxlength="32768"></textarea>
+        </div>
+
+        <div class="dispatch-cli-group" id="dispatch-cli-group" style="display: none;">
+          <span class="dispatch-label">Command Preview</span>
+          <div class="dispatch-cli-box">
+            <code id="dispatch-cli-code"></code>
+            <button type="button" id="dispatch-copy-cli" class="btn-copy">Copy CLI</button>
+          </div>
+        </div>
+
+        <div class="dispatch-modal-footer">
+          <button type="button" id="dispatch-cancel-btn" class="btn-chat">Cancel</button>
+          <button type="button" id="dispatch-submit-btn" class="btn-chat primary" disabled>Dispatch Task</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
   <!-- Job Toasts Container -->
   <div id="job-toasts-container" class="job-toasts-container" aria-live="polite"></div>
 
@@ -3499,6 +3847,37 @@
       const confirmDialogCopy = document.getElementById('confirm-dialog-copy');
       const toastsContainer = document.getElementById('job-toasts-container');
 
+      // Dispatch Modal elements
+      const headerDispatchBtn = document.getElementById('header-dispatch-btn');
+      const dispatchModal = document.getElementById('dispatch-modal');
+      const dispatchModalClose = document.getElementById('dispatch-modal-close');
+      const dispatchCancelBtn = document.getElementById('dispatch-cancel-btn');
+      const dispatchSubmitBtn = document.getElementById('dispatch-submit-btn');
+      const dispatchRepo = document.getElementById('dispatch-repo');
+      const dispatchAgentCodex = document.getElementById('dispatch-agent-codex');
+      const dispatchAgentAntigravity = document.getElementById('dispatch-agent-antigravity');
+      const dispatchAgentClaude = document.getElementById('dispatch-agent-claude');
+      const dispatchAgentNotice = document.getElementById('dispatch-agent-notice');
+      const availChipCodex = document.getElementById('avail-chip-codex');
+      const availChipAntigravity = document.getElementById('avail-chip-antigravity');
+      const availChipClaude = document.getElementById('avail-chip-claude');
+      const dispatchTask = document.getElementById('dispatch-task');
+      const dispatchTaskHint = document.getElementById('dispatch-task-hint');
+      const dispatchScope = document.getElementById('dispatch-scope');
+      const dispatchScopeHint = document.getElementById('dispatch-scope-hint');
+      const dispatchOverlapsBox = document.getElementById('dispatch-overlaps-box');
+      const dispatchOverlapsList = document.getElementById('dispatch-overlaps-list');
+      const dispatchPrompt = document.getElementById('dispatch-prompt');
+      const dispatchPromptCounter = document.getElementById('dispatch-prompt-counter');
+      const dispatchCliGroup = document.getElementById('dispatch-cli-group');
+      const dispatchCliCode = document.getElementById('dispatch-cli-code');
+      const dispatchCopyCli = document.getElementById('dispatch-copy-cli');
+      const dispatchErrorBanner = document.getElementById('dispatch-error-banner');
+
+      let currentCheckAbortController = null;
+      let checkDebounceTimer = null;
+      let lastCheckData = null;
+
       let pendingConfirmAction = null;
 
       function closeConfirmDialog() {
@@ -3507,17 +3886,41 @@
           try { confirmDialog.close(); } catch (e) {}
         }
         confirmDialog.removeAttribute('open');
+        const titleEl = document.getElementById('confirm-dialog-title');
+        if (titleEl) titleEl.textContent = 'Confirm Action';
+        if (confirmDialogRun) {
+          confirmDialogRun.textContent = 'Run';
+          confirmDialogRun.className = 'btn-chat primary danger';
+        }
         if (pendingConfirmAction && pendingConfirmAction.originBtn) {
           try { pendingConfirmAction.originBtn.focus(); } catch (e) {}
         }
         pendingConfirmAction = null;
       }
 
-      function openConfirmDialog(action, taskName, repoPath, command, originBtn) {
+      function openConfirmDialog(action, taskName, repoPath, command, originBtn, customOptions) {
         if (!confirmDialog) return;
-        pendingConfirmAction = { action: action, taskName: taskName, repoPath: repoPath, command: command, originBtn: originBtn };
+        pendingConfirmAction = {
+          action: action,
+          taskName: taskName,
+          repoPath: repoPath,
+          command: command,
+          originBtn: originBtn,
+          onConfirm: customOptions ? customOptions.onConfirm : null
+        };
+        const titleEl = document.getElementById('confirm-dialog-title');
+        if (titleEl) {
+          titleEl.textContent = (customOptions && customOptions.title) ? customOptions.title : 'Confirm Action';
+        }
         if (confirmDialogPrompt) {
-          confirmDialogPrompt.textContent = 'Are you sure you want to run "' + action + '" on ' + taskName + '?';
+          while (confirmDialogPrompt.firstChild) confirmDialogPrompt.removeChild(confirmDialogPrompt.firstChild);
+          if (customOptions && customOptions.bodyBuilder) {
+            confirmDialogPrompt.appendChild(customOptions.bodyBuilder());
+          } else if (customOptions && customOptions.bodyText) {
+            confirmDialogPrompt.textContent = customOptions.bodyText;
+          } else {
+            confirmDialogPrompt.textContent = 'Are you sure you want to run "' + action + '" on ' + taskName + '?';
+          }
         }
         if (confirmDialogCmd) {
           confirmDialogCmd.textContent = command;
@@ -3527,6 +3930,10 @@
             e.stopPropagation();
             copyToClipboard(command, confirmDialogCopy, 'Copy cmd');
           };
+        }
+        if (confirmDialogRun) {
+          confirmDialogRun.textContent = (customOptions && customOptions.runText) ? customOptions.runText : 'Run';
+          confirmDialogRun.className = (customOptions && customOptions.runClass) ? customOptions.runClass : 'btn-chat primary danger';
         }
 
         if (typeof confirmDialog.showModal === 'function') {
@@ -3548,8 +3955,694 @@
             const act = pendingConfirmAction.action;
             const task = pendingConfirmAction.taskName;
             const repo = pendingConfirmAction.repoPath;
+            const onConfirm = pendingConfirmAction.onConfirm;
             closeConfirmDialog();
-            sendAction(act, repo, task, true);
+            if (typeof onConfirm === 'function') {
+              onConfirm();
+            } else {
+              sendAction(act, repo, task, true);
+            }
+          }
+        });
+      }
+
+      // Dispatch Controller Logic
+      function isDispatchModalOpen() {
+        return !!(dispatchModal && (dispatchModal.open || dispatchModal.hasAttribute('open')));
+      }
+
+      function openDispatchModal() {
+        if (!dispatchModal) return;
+        if (!areActionsEnabled(lastStateData)) return;
+
+        if (dispatchErrorBanner) {
+          dispatchErrorBanner.style.display = 'none';
+          dispatchErrorBanner.textContent = '';
+        }
+
+        populateDispatchRepos();
+        updateDispatchAvailabilityChips();
+        restoreSavedDispatchAgent();
+        updateDispatchRadioCards();
+
+        if (typeof dispatchModal.showModal === 'function') {
+          dispatchModal.showModal();
+        } else {
+          dispatchModal.setAttribute('open', '');
+        }
+
+        scheduleDispatchCheck();
+
+        if (dispatchTask) {
+          setTimeout(function () {
+            try { dispatchTask.focus(); } catch (e) {}
+          }, 50);
+        }
+      }
+
+      function closeDispatchModal(doClose) {
+        if (!dispatchModal) return;
+        if (doClose && typeof dispatchModal.close === 'function') {
+          try { dispatchModal.close(); } catch (e) {}
+        }
+        dispatchModal.removeAttribute('open');
+
+        if (headerDispatchBtn) {
+          try { headerDispatchBtn.focus(); } catch (e) {}
+        }
+
+        if (dispatchTask) dispatchTask.value = '';
+        if (dispatchScope) dispatchScope.value = '';
+        if (dispatchPrompt) dispatchPrompt.value = '';
+        if (dispatchPromptCounter) {
+          dispatchPromptCounter.textContent = '0 / 32,768';
+          dispatchPromptCounter.className = 'dispatch-counter';
+        }
+        if (dispatchTaskHint) {
+          dispatchTaskHint.textContent = '';
+          dispatchTaskHint.className = 'dispatch-field-hint';
+        }
+        if (dispatchScopeHint) {
+          dispatchScopeHint.textContent = '';
+          dispatchScopeHint.className = 'dispatch-field-hint';
+        }
+        if (dispatchAgentNotice) dispatchAgentNotice.style.display = 'none';
+        if (dispatchOverlapsBox) dispatchOverlapsBox.style.display = 'none';
+        if (dispatchOverlapsList) {
+          while (dispatchOverlapsList.firstChild) dispatchOverlapsList.removeChild(dispatchOverlapsList.firstChild);
+        }
+        if (dispatchCliGroup) dispatchCliGroup.style.display = 'none';
+        if (dispatchErrorBanner) {
+          dispatchErrorBanner.style.display = 'none';
+          dispatchErrorBanner.textContent = '';
+        }
+        if (dispatchSubmitBtn) {
+          dispatchSubmitBtn.disabled = true;
+          dispatchSubmitBtn.textContent = 'Dispatch Task';
+        }
+        lastCheckData = null;
+        if (currentCheckAbortController) {
+          currentCheckAbortController.abort();
+          currentCheckAbortController = null;
+        }
+      }
+
+      function handleDispatchModalDismiss() {
+        const promptVal = (dispatchPrompt ? dispatchPrompt.value : '').trim();
+        if (promptVal.length > 0) {
+          if (!window.confirm('Discard unsaved prompt?')) {
+            return;
+          }
+        }
+        closeDispatchModal(true);
+      }
+
+      function populateDispatchRepos() {
+        if (!dispatchRepo || !lastStateData || !Array.isArray(lastStateData.repos)) return;
+        let savedRepo = null;
+        try { savedRepo = localStorage.getItem('trinity_dash_dispatch_repo'); } catch (e) {}
+
+        const currentVal = dispatchRepo.value;
+        while (dispatchRepo.firstChild) dispatchRepo.removeChild(dispatchRepo.firstChild);
+
+        lastStateData.repos.forEach(function (repo) {
+          const opt = document.createElement('option');
+          opt.value = repo.path || repo.name;
+          opt.textContent = repo.name + (repo.branch ? ' (' + repo.branch + ')' : '');
+          dispatchRepo.appendChild(opt);
+        });
+
+        let target = '';
+        if (currentVal && Array.from(dispatchRepo.options).some(function (o) { return o.value === currentVal; })) {
+          target = currentVal;
+        } else if (savedRepo && Array.from(dispatchRepo.options).some(function (o) { return o.value === savedRepo; })) {
+          target = savedRepo;
+        } else if (currentRepoFilter && currentRepoFilter !== 'all') {
+          const match = lastStateData.repos.find(function (r) { return r.name === currentRepoFilter || r.path === currentRepoFilter; });
+          if (match) target = match.path || match.name;
+        }
+        if (!target && dispatchRepo.options.length > 0) {
+          target = dispatchRepo.options[0].value;
+        }
+        if (target) dispatchRepo.value = target;
+      }
+
+      function updateDispatchAvailabilityChips() {
+        const avail = (lastStateData && lastStateData.availability) ? lastStateData.availability : {};
+        setAvailChip(availChipCodex, avail.codex, false);
+        setAvailChip(availChipAntigravity, avail.antigravity, false);
+        setAvailChip(availChipClaude, avail.claude, true);
+      }
+
+      function setAvailChip(el, info, isClaude) {
+        if (!el) return;
+        if (!info) {
+          el.className = 'avail-chip off';
+          el.textContent = 'off';
+          return;
+        }
+        if (isClaude) {
+          el.className = 'avail-chip ' + (info.available ? 'ok' : 'off');
+          el.textContent = info.available ? 'park' : 'off';
+          el.title = 'Claude park mode (worktree + task file only)';
+        } else if (info.available) {
+          el.className = 'avail-chip ok';
+          el.textContent = 'avail';
+          el.title = info.model || 'Available';
+        } else {
+          el.className = 'avail-chip off';
+          el.textContent = 'unavail';
+          el.title = info.detail || 'Unavailable';
+        }
+      }
+
+      function updateDispatchRadioCards() {
+        const selected = document.querySelector('input[name="dispatch-agent"]:checked');
+        const cards = [
+          { id: 'dispatch-agent-card-codex', radio: dispatchAgentCodex },
+          { id: 'dispatch-agent-card-antigravity', radio: dispatchAgentAntigravity },
+          { id: 'dispatch-agent-card-claude', radio: dispatchAgentClaude }
+        ];
+        cards.forEach(function (c) {
+          const cardEl = document.getElementById(c.id);
+          if (cardEl && c.radio) {
+            if (c.radio === selected || c.radio.checked) {
+              cardEl.classList.add('selected');
+            } else {
+              cardEl.classList.remove('selected');
+            }
+          }
+        });
+      }
+
+      function restoreSavedDispatchAgent() {
+        let saved = null;
+        try { saved = localStorage.getItem('trinity_dash_dispatch_agent'); } catch (e) {}
+        if (!saved) {
+          const avail = (lastStateData && lastStateData.availability) ? lastStateData.availability : {};
+          if (avail.codex && avail.codex.available) saved = 'codex';
+          else if (avail.antigravity && avail.antigravity.available) saved = 'antigravity';
+          else saved = 'antigravity';
+        }
+        const r = document.querySelector('input[name="dispatch-agent"][value="' + saved + '"]');
+        if (r) r.checked = true;
+        else if (dispatchAgentAntigravity) dispatchAgentAntigravity.checked = true;
+      }
+
+      function saveDispatchAgent(agent) {
+        try { localStorage.setItem('trinity_dash_dispatch_agent', agent); } catch (e) {}
+      }
+
+      function saveDispatchRepo(repo) {
+        try { localStorage.setItem('trinity_dash_dispatch_repo', repo); } catch (e) {}
+      }
+
+      function scheduleDispatchCheck() {
+        if (checkDebounceTimer) clearTimeout(checkDebounceTimer);
+        checkDebounceTimer = setTimeout(runDispatchCheck, 300);
+      }
+
+      async function runDispatchCheck() {
+        if (currentCheckAbortController) {
+          currentCheckAbortController.abort();
+        }
+        currentCheckAbortController = new AbortController();
+        const signal = currentCheckAbortController.signal;
+
+        const repo = dispatchRepo ? dispatchRepo.value : '';
+        const selectedRadio = document.querySelector('input[name="dispatch-agent"]:checked');
+        const agent = selectedRadio ? selectedRadio.value : 'antigravity';
+        const task = dispatchTask ? dispatchTask.value.trim() : '';
+        const scope = dispatchScope ? dispatchScope.value.trim() : '';
+
+        if (!repo) return;
+
+        const url = '/api/dispatch/check?repo=' + encodeURIComponent(repo) +
+                    '&agent=' + encodeURIComponent(agent) +
+                    '&task=' + encodeURIComponent(task) +
+                    '&scope=' + encodeURIComponent(scope);
+
+        try {
+          const res = await fetch(url, { signal: signal });
+          if (!res.ok) {
+            if (isSample) {
+              applySampleCheck(repo, agent, task, scope);
+            }
+            return;
+          }
+          const data = await res.json();
+          lastCheckData = data;
+          renderValidationResults(data, agent);
+        } catch (err) {
+          if (err.name === 'AbortError') return;
+          if (isSample) {
+            applySampleCheck(repo, agent, task, scope);
+          }
+        }
+      }
+
+      function applySampleCheck(repo, agent, task, scope) {
+        const repoObj = (lastStateData && Array.isArray(lastStateData.repos))
+          ? lastStateData.repos.find(function (r) { return r.path === repo || r.name === repo; })
+          : null;
+
+        let taskOk = true;
+        let taskReason = '';
+        if (!task) {
+          taskOk = false;
+          taskReason = 'Task name is required';
+        } else if (!/^[a-z0-9][a-z0-9-]*$/.test(task) || task.length > 40) {
+          taskOk = false;
+          taskReason = 'Task name must match ^[a-z0-9][a-z0-9-]*$ (max 40 chars)';
+        } else if (repoObj && repoObj.tasks && repoObj.tasks.some(function (t) { return t.task.toLowerCase() === task.toLowerCase() && t.state !== 'cancelled'; })) {
+          taskOk = false;
+          taskReason = 'Task already exists in repo';
+        }
+
+        let effectiveAgent = agent;
+        let rerouted = false;
+        let agentOk = true;
+        let agentReason = '';
+        const avail = (lastStateData && lastStateData.availability) ? lastStateData.availability : {};
+        const agentAvail = avail[agent];
+
+        if (agent === 'claude') {
+          agentOk = true;
+          agentReason = 'Claude is park-only (worktree + task file, no headless run)';
+        } else if (!agentAvail || !agentAvail.available) {
+          rerouted = true;
+          effectiveAgent = (agent === 'codex') ? 'antigravity' : 'codex';
+          agentReason = 'Unavailable ' + agent + ' -> rerouted to ' + effectiveAgent;
+        }
+
+        let scopeOk = true;
+        let scopeReason = '';
+        const scopeNormalized = [];
+        if (!scope) {
+          scopeOk = true;
+          scopeReason = 'no scope: overlap not checked';
+        } else {
+          const rawGlobs = scope.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+          if (rawGlobs.length === 0) {
+            scopeOk = true;
+            scopeReason = 'no scope: overlap not checked';
+          } else if (rawGlobs.length > 20) {
+            scopeOk = false;
+            scopeReason = 'Maximum 20 scope globs allowed';
+          } else {
+            for (let i = 0; i < rawGlobs.length; i++) {
+              const g = rawGlobs[i];
+              if (g.includes('..') || g.startsWith('/') || g.startsWith('\\') || /^[a-zA-Z]:/.test(g) || g.includes(':')) {
+                scopeOk = false;
+                scopeReason = 'Invalid glob path: ' + g;
+                break;
+              }
+              scopeNormalized.push(g.replace(/\\/g, '/'));
+            }
+          }
+        }
+
+        const overlaps = [];
+        if (scopeOk && scopeNormalized.length > 0 && repoObj && repoObj.tasks) {
+          const activeTasks = repoObj.tasks.filter(function (t) { return t.state === 'running' || t.state === 'working'; });
+          activeTasks.forEach(function (at) {
+            const atGlobs = (at.scope || '').split(',').map(function (s) { return s.trim().replace(/\\/g, '/'); }).filter(Boolean);
+            scopeNormalized.forEach(function (sg) {
+              const sPrefix = sg.split('*')[0];
+              atGlobs.forEach(function (ag) {
+                const aPrefix = ag.split('*')[0];
+                if ((sPrefix && aPrefix && (sPrefix.startsWith(aPrefix) || aPrefix.startsWith(sPrefix))) || sg === ag) {
+                  overlaps.push({ task: at.task, agent: at.agent, state: at.state, glob: ag });
+                }
+              });
+            });
+          });
+        }
+
+        const canDispatch = taskOk && agentOk && scopeOk;
+        const scopeArg = scopeNormalized.length > 0 ? (' -Scope "' + scopeNormalized.join(',') + '"') : '';
+        const command = 'trinity dispatch ' + effectiveAgent + ' ' + (task || '<task>') + scopeArg + ' -PromptFile <file>';
+
+        const mockData = {
+          taskOk: taskOk,
+          taskReason: taskReason,
+          agentOk: agentOk,
+          agentReason: agentReason,
+          effectiveAgent: effectiveAgent,
+          rerouted: rerouted,
+          scopeOk: scopeOk,
+          scopeReason: scopeReason,
+          scopeNormalized: scopeNormalized,
+          overlaps: overlaps,
+          command: command,
+          canDispatch: canDispatch
+        };
+
+        lastCheckData = mockData;
+        renderValidationResults(mockData, agent);
+      }
+
+      function renderValidationResults(data, agent) {
+        if (!data) return;
+
+        if (dispatchTaskHint) {
+          const taskVal = dispatchTask ? dispatchTask.value.trim() : '';
+          if (!taskVal) {
+            dispatchTaskHint.className = 'dispatch-field-hint hint-subtle';
+            dispatchTaskHint.textContent = 'lowercase letters, numbers and hyphens (max 40 chars)';
+          } else if (!data.taskOk) {
+            dispatchTaskHint.className = 'dispatch-field-hint hint-error';
+            dispatchTaskHint.textContent = data.taskReason || 'Invalid task name';
+          } else {
+            dispatchTaskHint.className = 'dispatch-field-hint hint-success';
+            dispatchTaskHint.textContent = '✓ Task name valid';
+          }
+        }
+
+        if (dispatchScopeHint) {
+          if (!data.scopeOk) {
+            dispatchScopeHint.className = 'dispatch-field-hint hint-error';
+            dispatchScopeHint.textContent = data.scopeReason || 'Invalid scope';
+          } else if (data.scopeNormalized && data.scopeNormalized.length > 0) {
+            dispatchScopeHint.className = 'dispatch-field-hint hint-subtle';
+            dispatchScopeHint.textContent = 'Normalized: ' + data.scopeNormalized.join(', ');
+          } else {
+            dispatchScopeHint.className = 'dispatch-field-hint hint-subtle';
+            dispatchScopeHint.textContent = data.scopeReason || 'no scope: overlap not checked';
+          }
+        }
+
+        if (dispatchAgentNotice) {
+          if (data.rerouted) {
+            dispatchAgentNotice.className = 'dispatch-notice-box amber';
+            dispatchAgentNotice.textContent = '⚠️ Agent rerouted to ' + data.effectiveAgent + (data.agentReason ? ': ' + data.agentReason : '');
+            dispatchAgentNotice.style.display = 'block';
+          } else if (agent === 'claude') {
+            dispatchAgentNotice.className = 'dispatch-notice-box amber';
+            dispatchAgentNotice.textContent = 'ℹ️ ' + (data.agentReason || 'Claude is park-only (worktree + task file, no headless run)');
+            dispatchAgentNotice.style.display = 'block';
+          } else if (!data.agentOk) {
+            dispatchAgentNotice.className = 'dispatch-notice-box red';
+            dispatchAgentNotice.textContent = '⚠️ ' + (data.agentReason || 'Agent unavailable');
+            dispatchAgentNotice.style.display = 'block';
+          } else {
+            dispatchAgentNotice.style.display = 'none';
+          }
+        }
+
+        if (dispatchOverlapsBox && dispatchOverlapsList) {
+          while (dispatchOverlapsList.firstChild) dispatchOverlapsList.removeChild(dispatchOverlapsList.firstChild);
+          if (data.overlaps && data.overlaps.length > 0) {
+            data.overlaps.forEach(function (o) {
+              const li = document.createElement('li');
+              const strong = document.createElement('strong');
+              strong.textContent = o.task;
+              li.appendChild(strong);
+              li.appendChild(document.createTextNode(' (' + o.agent + ', ' + o.state + ') on '));
+              const code = document.createElement('code');
+              code.textContent = o.glob;
+              li.appendChild(code);
+              dispatchOverlapsList.appendChild(li);
+            });
+            dispatchOverlapsBox.style.display = 'block';
+          } else {
+            dispatchOverlapsBox.style.display = 'none';
+          }
+        }
+
+        if (dispatchCliGroup && dispatchCliCode) {
+          if (data.command) {
+            dispatchCliCode.textContent = data.command;
+            dispatchCliGroup.style.display = 'flex';
+          } else {
+            dispatchCliGroup.style.display = 'none';
+          }
+        }
+
+        updateDispatchSubmitDisabledState();
+      }
+
+      function updateDispatchSubmitDisabledState() {
+        if (!dispatchSubmitBtn) return;
+        const promptLen = dispatchPrompt ? dispatchPrompt.value.trim().length : 0;
+        const promptRawLen = dispatchPrompt ? dispatchPrompt.value.length : 0;
+        const canDispatch = !!(lastCheckData && lastCheckData.canDispatch);
+        dispatchSubmitBtn.disabled = !(canDispatch && promptLen > 0 && promptRawLen <= 32768);
+      }
+
+      function buildDispatchConfirmContent(effectiveAgent, rerouted, originalAgent, task, scope, prompt) {
+        const container = el('div', 'confirm-dispatch-details');
+        container.style.display = 'flex';
+        container.style.flexDirection = 'column';
+        container.style.gap = '6px';
+
+        const agentRow = el('div');
+        agentRow.appendChild(el('strong', null, 'Agent: '));
+        agentRow.appendChild(document.createTextNode(effectiveAgent));
+        if (rerouted) {
+          const rerouteNote = el('span', null, ' (rerouted from ' + originalAgent + ')');
+          rerouteNote.style.color = 'var(--status-warn)';
+          agentRow.appendChild(rerouteNote);
+        }
+        container.appendChild(agentRow);
+
+        const taskRow = el('div');
+        taskRow.appendChild(el('strong', null, 'Task: '));
+        taskRow.appendChild(document.createTextNode(task));
+        container.appendChild(taskRow);
+
+        const scopeRow = el('div');
+        scopeRow.appendChild(el('strong', null, 'Scope: '));
+        scopeRow.appendChild(document.createTextNode(scope || '(none)'));
+        container.appendChild(scopeRow);
+
+        const promptHeading = el('div');
+        promptHeading.style.marginTop = '4px';
+        promptHeading.appendChild(el('strong', null, 'Prompt (first 200 chars):'));
+        container.appendChild(promptHeading);
+
+        const promptSnippet = prompt.length > 200 ? (prompt.slice(0, 200) + '...') : prompt;
+        const promptPre = el('pre', 'confirm-prompt-preview', promptSnippet);
+        container.appendChild(promptPre);
+
+        return container;
+      }
+
+      function triggerDispatchSubmit() {
+        if (!lastCheckData || !lastCheckData.canDispatch) return;
+        const promptVal = (dispatchPrompt ? dispatchPrompt.value : '').trim();
+        if (!promptVal || promptVal.length > 32768) return;
+
+        const repoPath = dispatchRepo ? dispatchRepo.value : '';
+        const selectedRadio = document.querySelector('input[name="dispatch-agent"]:checked');
+        const originalAgent = selectedRadio ? selectedRadio.value : 'antigravity';
+        const effectiveAgent = lastCheckData.effectiveAgent || originalAgent;
+        const rerouted = !!lastCheckData.rerouted;
+        const task = dispatchTask ? dispatchTask.value.trim() : '';
+        const scope = dispatchScope ? dispatchScope.value.trim() : '';
+
+        openConfirmDialog('dispatch', task, repoPath, lastCheckData.command, dispatchSubmitBtn, {
+          title: 'Confirm Dispatch Task',
+          runText: 'Dispatch',
+          runClass: 'btn-chat primary',
+          bodyBuilder: function () {
+            return buildDispatchConfirmContent(effectiveAgent, rerouted, originalAgent, task, scope, promptVal);
+          },
+          onConfirm: function () {
+            executeDispatchAction(repoPath, originalAgent, task, scope, promptVal);
+          }
+        });
+      }
+
+      async function executeDispatchAction(repoPath, agent, task, scope, prompt) {
+        if (dispatchSubmitBtn) {
+          dispatchSubmitBtn.disabled = true;
+          dispatchSubmitBtn.textContent = 'Dispatching...';
+        }
+        if (dispatchErrorBanner) {
+          dispatchErrorBanner.style.display = 'none';
+          dispatchErrorBanner.textContent = '';
+        }
+
+        const taskKey = (repoPath || '') + '::' + task;
+        activeTaskJobs.add(taskKey);
+        updateActionButtonsDisabledState();
+
+        try {
+          const res = await fetch('/api/action', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Trinity-Token': trinityToken || ''
+            },
+            body: JSON.stringify({
+              action: 'dispatch',
+              repo: repoPath,
+              agent: agent,
+              task: task,
+              scope: scope,
+              prompt: prompt,
+              confirm: true
+            })
+          });
+
+          let resData = null;
+          try { resData = await res.json(); } catch (e) {}
+
+          if (res.status === 202 && resData && resData.job) {
+            createJobToast(resData.job, 'dispatch', task, repoPath, resData.command);
+          } else {
+            activeTaskJobs.delete(taskKey);
+            updateActionButtonsDisabledState();
+            const errorMsg = (resData && resData.error) ? resData.error : ('HTTP ' + res.status + ' ' + (res.statusText || 'Error'));
+            showDispatchError(errorMsg);
+          }
+        } catch (err) {
+          activeTaskJobs.delete(taskKey);
+          updateActionButtonsDisabledState();
+          showDispatchError(err.message || 'Request failed');
+        }
+      }
+
+      function showDispatchError(errorMsg) {
+        if (dispatchErrorBanner) {
+          dispatchErrorBanner.textContent = errorMsg;
+          dispatchErrorBanner.style.display = 'block';
+        }
+        if (dispatchSubmitBtn) {
+          dispatchSubmitBtn.textContent = 'Dispatch Task';
+          updateDispatchSubmitDisabledState();
+        }
+      }
+
+      function onDispatchJobSuccess(repoPath, taskName) {
+        closeDispatchModal(true);
+        retryNavigateToTask(repoPath, taskName);
+      }
+
+      function onDispatchJobFailed(errorMsg) {
+        showDispatchError(errorMsg);
+      }
+
+      function retryNavigateToTask(repoNameOrPath, taskName) {
+        let repoName = repoNameOrPath;
+        if (lastStateData && Array.isArray(lastStateData.repos)) {
+          const r = lastStateData.repos.find(function (x) { return x.path === repoNameOrPath || x.name === repoNameOrPath; });
+          if (r && r.name) repoName = r.name;
+        }
+        navigateToTask(repoName, taskName);
+
+        let attempts = 0;
+        const maxAttempts = 20;
+        const timer = setInterval(function () {
+          attempts++;
+          pollState();
+          const targetTask = (taskName || '').toLowerCase();
+          const cards = document.querySelectorAll('.task-card');
+          let found = false;
+          for (let i = 0; i < cards.length; i++) {
+            const cTask = (cards[i].getAttribute('data-task') || '').toLowerCase();
+            if (cTask === targetTask) {
+              found = true;
+              break;
+            }
+          }
+          if (found || attempts >= maxAttempts) {
+            clearInterval(timer);
+          }
+        }, 500);
+      }
+
+      if (headerDispatchBtn) {
+        headerDispatchBtn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          openDispatchModal();
+        });
+      }
+      if (dispatchModalClose) dispatchModalClose.addEventListener('click', handleDispatchModalDismiss);
+      if (dispatchCancelBtn) dispatchCancelBtn.addEventListener('click', handleDispatchModalDismiss);
+      if (dispatchSubmitBtn) {
+        dispatchSubmitBtn.addEventListener('click', function (e) {
+          e.preventDefault();
+          triggerDispatchSubmit();
+        });
+      }
+      if (dispatchModal) {
+        dispatchModal.addEventListener('cancel', function (e) {
+          const promptVal = (dispatchPrompt ? dispatchPrompt.value : '').trim();
+          if (promptVal.length > 0) {
+            if (!window.confirm('Discard unsaved prompt?')) {
+              e.preventDefault();
+              return;
+            }
+          }
+          closeDispatchModal(false);
+        });
+
+        dispatchModal.addEventListener('keydown', function (e) {
+          if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            if (dispatchSubmitBtn && !dispatchSubmitBtn.disabled) {
+              triggerDispatchSubmit();
+            }
+          }
+          if (e.altKey && (e.key === 'c' || e.key === 'C')) {
+            e.preventDefault();
+            if (lastCheckData && lastCheckData.command && dispatchCopyCli) {
+              copyToClipboard(lastCheckData.command, dispatchCopyCli, 'Copy CLI');
+            }
+          }
+        });
+      }
+
+      if (dispatchRepo) {
+        dispatchRepo.addEventListener('change', function () {
+          saveDispatchRepo(dispatchRepo.value);
+          scheduleDispatchCheck();
+        });
+      }
+
+      [dispatchAgentCodex, dispatchAgentAntigravity, dispatchAgentClaude].forEach(function (radio) {
+        if (radio) {
+          radio.addEventListener('change', function () {
+            const selected = document.querySelector('input[name="dispatch-agent"]:checked');
+            if (selected) {
+              saveDispatchAgent(selected.value);
+              updateDispatchRadioCards();
+              scheduleDispatchCheck();
+            }
+          });
+        }
+      });
+
+      if (dispatchTask) {
+        dispatchTask.addEventListener('input', scheduleDispatchCheck);
+      }
+
+      if (dispatchScope) {
+        dispatchScope.addEventListener('input', scheduleDispatchCheck);
+      }
+
+      if (dispatchPrompt) {
+        dispatchPrompt.addEventListener('input', function () {
+          const rawLen = dispatchPrompt.value.length;
+          if (dispatchPromptCounter) {
+            dispatchPromptCounter.textContent = rawLen.toLocaleString() + ' / 32,768';
+            if (rawLen > 32768) {
+              dispatchPromptCounter.className = 'dispatch-counter over-limit';
+            } else {
+              dispatchPromptCounter.className = 'dispatch-counter';
+            }
+          }
+          updateDispatchSubmitDisabledState();
+        });
+      }
+
+      if (dispatchCopyCli) {
+        dispatchCopyCli.addEventListener('click', function (e) {
+          e.stopPropagation();
+          if (lastCheckData && lastCheckData.command) {
+            copyToClipboard(lastCheckData.command, dispatchCopyCli, 'Copy CLI');
           }
         });
       }
@@ -3611,6 +4704,24 @@
             btn.removeAttribute('aria-disabled');
           }
         });
+
+        if (headerDispatchBtn) {
+          const enabled = areActionsEnabled(lastStateData);
+          if (enabled) {
+            headerDispatchBtn.disabled = false;
+            headerDispatchBtn.removeAttribute('aria-disabled');
+            headerDispatchBtn.title = 'Dispatch new task';
+          } else {
+            headerDispatchBtn.disabled = true;
+            headerDispatchBtn.setAttribute('aria-disabled', 'true');
+            headerDispatchBtn.title = isSample ? 'Actions disabled in sample mode' : 'Actions disabled (missing token or actions disabled on server)';
+          }
+        }
+
+        if (isDispatchModalOpen()) {
+          populateDispatchRepos();
+          updateDispatchAvailabilityChips();
+        }
       }
 
       function copyToClipboard(text, buttonEl, defaultLabel) {
@@ -3847,6 +4958,10 @@
             activeTaskJobs.delete(job.taskKey);
             updateActionButtonsDisabledState();
             pollState();
+
+            if (job.action === 'dispatch') {
+              onDispatchJobSuccess(job.repoPath, job.task);
+            }
           } else if (data.state === 'failed') {
             if (job.timer) clearInterval(job.timer);
             job.timer = null;
@@ -3859,6 +4974,10 @@
             activeTaskJobs.delete(job.taskKey);
             updateActionButtonsDisabledState();
             pollState();
+
+            if (job.action === 'dispatch') {
+              onDispatchJobFailed(data.output || ('Dispatch failed with exit ' + data.exitCode));
+            }
           }
         } catch (err) {
           if (err.message && err.message.includes('404')) {
