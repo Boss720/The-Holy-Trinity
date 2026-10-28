@@ -121,10 +121,121 @@ Run-Case 'dash-api: failed dispatch stops queue removal and model is inherited' 
         $marker=Join-Path $f.Repo 'calls.txt'; $scriptPath=Join-Path $f.Repo 'scripts\trinity.ps1'
         $fake="param([Parameter(ValueFromRemainingArguments=`$true)]`$rest)`r`n[IO.File]::AppendAllText('" + $marker.Replace("'","''") + "', (`$rest -join ' ') + ':' + `$env:TRINITY_CODEX_MODEL + [Environment]::NewLine)`r`nexit 1`r`n"
         [IO.File]::WriteAllText($scriptPath,$fake)
-        $commands=@(); $commands+=,@('dispatch','claude','queued','-PromptFile','prompt.md'); $commands+=,@('queue','remove','queued')
+        $commands=@(); $commands+=,(Get-DispatchCommand 'claude' 'queued' '' 'prompt.md' ''); $commands+=,@('queue','remove','queued')
         $action='$env:TRINITY_CODEX_MODEL=' + (Quote-ActionLiteral 'test-model') + '; ' + (Convert-ActionScript $f.Repo $commands)
         $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($action))
         & (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -NoProfile -EncodedCommand $encoded
         $calls=@(Get-Content $marker); Assert-True ($calls.Count -eq 1 -and $calls[0] -match '^dispatch .*:test-model$') 'failed dispatch removed queue item or lost model'
+    }
+}
+
+Run-Case 'dash-api: resume script emits FeedbackFile flag bare and value quoted' {
+    param($f)
+    & {
+        . (Join-Path $f.Repo 'scripts\dashboard.ps1') -LibraryOnly
+        $file='C:\x\feedback-t-ab12.md'
+        $script=Convert-ActionScript $f.Repo @(,(Get-ResumeCommand 'task-a' $file))
+        Assert-True ($script.Contains(" -FeedbackFile '$file'")) "flag not bare or value not quoted: $script"
+        Assert-True (-not $script.Contains("'-FeedbackFile'")) 'flag was quoted'
+        Assert-True ($script.Contains("'resume' 'task-a' -FeedbackFile")) "resume order wrong: $script"
+    }
+}
+
+Run-Case 'dash-api: user value starting with a dash stays quoted' {
+    param($f)
+    & {
+        . (Join-Path $f.Repo 'scripts\dashboard.ps1') -LibraryOnly
+        $script=Convert-ActionScript $f.Repo @(,(Get-QueueAddCommand 'codex' 'task-a' '-Force' 'C:\p.md'))
+        Assert-True ($script.Contains(" -Scope '-Force' -PromptFile 'C:\p.md'")) "scope value not quoted: $script"
+        Assert-True (-not ($script -match "(^|\s)-Force(\s|$)")) 'bare -Force emitted'
+        $threw=$false; try { New-ActionFlag '-Force; calc' | Out-Null } catch { $threw=$true }
+        Assert-True $threw 'invalid flag name accepted'
+        $script=Convert-ActionScript $f.Repo @(,@('queue','add',(New-ActionFlag '-Yes'),'-Yes'))
+        Assert-True ($script.Contains(" -Yes '-Yes'")) "plain string became a flag: $script"
+    }
+}
+
+Run-Case 'dash-api: settings-save, autopilot and dispatch command lines' {
+    param($f)
+    & {
+        . (Join-Path $f.Repo 'scripts\dashboard.ps1') -LibraryOnly
+        $script=Convert-ActionScript $f.Repo @(,(Get-ConfigSaveCommand 'C:\c\config-1.json'))
+        Assert-True ($script.Contains("'config' 'set' -Json 'C:\c\config-1.json'")) "settings-save line wrong: $script"
+        $script=Convert-ActionScript $f.Repo @(,(Get-AutopilotCommand $true $true))
+        Assert-True ($script.EndsWith("'autopilot' 'on' -Approval")) "autopilot on line wrong: $script"
+        $script=Convert-ActionScript $f.Repo @(,(Get-AutopilotCommand $false $true))
+        Assert-True ($script.EndsWith("'autopilot' 'off'")) "autopilot off line wrong: $script"
+        $script=Convert-ActionScript $f.Repo @((Get-DispatchCommand 'codex' 'task-a' 'src/*' 'C:\p.md' 'main'),@('queue','remove','task-a'))
+        Assert-True ($script.Contains("'dispatch' 'codex' 'task-a' -Scope 'src/*' -PromptFile 'C:\p.md' -Base 'main'; if (-not `$?) { exit 1 }; & ")) "dispatch line wrong: $script"
+        Assert-True ((Get-ModelPrefix 'codex' 'codex' 'm1') -eq '$env:TRINITY_CODEX_MODEL=''m1''; ') 'codex model env wrong'
+        Assert-True ((Get-ModelPrefix 'antigravity' 'antigravity' 'g1') -eq '$env:TRINITY_AGY_MODEL=''g1''; ') 'agy model env wrong'
+        Assert-True ((Get-ModelPrefix 'claude' 'claude' 'x') -eq '') 'claude model not ignored'
+        Assert-True ((Get-ModelPrefix 'antigravity' 'codex' 'm1') -eq '') 'model leaked across reroute'
+    }
+}
+
+Run-Case 'dash-api: start-now checks the slot of the rerouted agent' {
+    param($f)
+    & {
+        . (Join-Path $f.Repo 'scripts\dashboard.ps1') -LibraryOnly
+        $avail=@{ codex=@{available=$false}; antigravity=@{available=$true}; claude=@{available=$true} }
+        $item=[pscustomobject]@{ task='rq'; agent='codex'; scope='src/rq/*'; promptFile='C:\p.md'; base=''; model='m1' }
+        # codex slot is free but codex is rerouted to antigravity, whose slot is full
+        $repo=@{ path=$f.Repo; tasks=@(); slots=@{ codex=@{used=0;max=2}; antigravity=@{used=1;max=1}; claude=@{used=0;max=1} } }
+        $r=Get-StartNowCheck $repo $avail $item 'rq'
+        Assert-True ((-not $r.ok) -and $r.status -eq 409 -and $r.error -eq 'no free slot') "rerouted full slot not rejected: $($r.error)"
+        # codex slot is full but the rerouted agent has room
+        $repo.slots=@{ codex=@{used=2;max=2}; antigravity=@{used=0;max=1}; claude=@{used=0;max=1} }
+        $r=Get-StartNowCheck $repo $avail $item 'rq'
+        Assert-True ($r.ok -and $r.agent -eq 'antigravity' -and $r.itemAgent -eq 'codex') "rerouted free slot rejected: $($r.error)"
+    }
+}
+
+Run-Case 'dash-api: em-dash prompt accepted, non-ASCII scope rejected' {
+    param($f)
+    $process=$null
+    try {
+        $tcp=New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback,0); $tcp.Start(); $port=$tcp.LocalEndpoint.Port; $tcp.Stop()
+        $process=Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -WindowStyle Hidden -PassThru -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"{0}"' -f (Join-Path $f.Repo 'scripts\dashboard.ps1')),'-Port',[string]$port,'-Repos',('"{0}"' -f $f.Repo))
+        $base="http://localhost:$port"; $page=$null; $deadline=(Get-Date).AddSeconds(30)
+        while (-not $page -and (Get-Date) -lt $deadline -and -not $process.HasExited) { try { $page=Invoke-WebRequest "$base/" -UseBasicParsing -TimeoutSec 2 } catch { Start-Sleep -Milliseconds 100 } }
+        if (-not $page -and $process.HasExited) { Skip-Case 'HttpListener is unsupported or blocked in this environment' }
+        Assert-True ([bool]$page) 'server did not start'
+        $token=[regex]::Match($page.Content,'<meta\s+name="trinity-token"\s+content="([^"]+)">').Groups[1].Value
+        $send={ param($path,$body)
+            $req=[Net.HttpWebRequest]::Create("$base$path"); $req.Timeout=30000; $req.Method='POST'; $req.ContentType='application/json'; $req.Headers.Add('Origin',$base); $req.Headers.Add('X-Trinity-Token',$token)
+            $bytes=[Text.Encoding]::UTF8.GetBytes(($body | ConvertTo-Json -Depth 8 -Compress)); $req.ContentLength=$bytes.Length; $stream=$req.GetRequestStream(); $stream.Write($bytes,0,$bytes.Length); $stream.Dispose()
+            try { $res=$req.GetResponse() } catch [Net.WebException] { if (-not $_.Exception.Response) { throw }; $res=$_.Exception.Response }
+            $reader=New-Object IO.StreamReader($res.GetResponseStream()); $result=@{status=[int]$res.StatusCode; text=$reader.ReadToEnd()}; $reader.Dispose(); $res.Dispose(); return $result
+        }
+        $stateOk=$false; for ($i=0; $i -lt 50 -and -not $stateOk; $i++) { try { $stateOk=@((Invoke-WebRequest "$base/api/state" -UseBasicParsing -TimeoutSec 5).Content | ConvertFrom-Json).repos.Count -gt 0 } catch { }; if (-not $stateOk) { Start-Sleep -Milliseconds 200 } }
+        $dash=[string][char]0x2014
+        $reply=& $send '/api/action' @{action='queue-add';repo=$f.Repo;task='em-queue';agent='claude';scope='src/em/*';prompt=("do this $dash then that");confirm=$true}
+        Assert-True ($reply.status -eq 202) "em-dash queue-add rejected: $($reply.status) $($reply.text)"
+        $written=@(Get-ChildItem (Join-Path $f.Repo '.codex-out') -Filter 'prompt-em-queue-*.md')
+        Assert-True ($written.Count -eq 1 -and ([IO.File]::ReadAllText($written[0].FullName) -match $dash)) 'em-dash prompt file missing or mangled'
+        $reply=& $send '/api/action' @{action='dispatch';repo=$f.Repo;task='em-disp';agent='claude';scope='src/emd/*';prompt=("go $dash now");confirm=$true}
+        Assert-True ($reply.status -eq 202) "em-dash dispatch rejected: $($reply.status) $($reply.text)"
+        $bad='src/' + [char]0x2019 + 'x'
+        $reply=& $send '/api/action' @{action='dispatch';repo=$f.Repo;task='bad-disp';agent='claude';scope=$bad;prompt='x';confirm=$true}
+        Assert-True ($reply.status -eq 400 -and $reply.text -match 'Scope must be printable ASCII') "u2019 scope not rejected on dispatch: $($reply.text)"
+        $reply=& $send '/api/action' @{action='queue-add';repo=$f.Repo;task='bad-queue';agent='claude';scope=$bad;prompt='x';confirm=$true}
+        Assert-True ($reply.status -eq 400 -and $reply.text -match 'Scope must be printable ASCII') "u2019 scope not rejected on queue-add: $($reply.text)"
+    } finally { if ($process) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue } }
+}
+
+Run-Case 'dash-api: generated queue-add script binds named parameters end to end' {
+    param($f)
+    & {
+        . (Join-Path $f.Repo 'scripts\dashboard.ps1') -LibraryOnly
+        $promptFile=Join-Path $f.Repo 'e2e-prompt.md'; [IO.File]::WriteAllText($promptFile,'hello')
+        $script=Convert-ActionScript $f.Repo @(,(Get-QueueAddCommand 'claude' 'e2e-task' 'src/e2e/*' $promptFile))
+        $ps=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($script))
+        $out=& $ps -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded 2>&1 | Out-String
+        Assert-True ($LASTEXITCODE -eq 0 -and $out -match 'Queued e2e-task') "queue add failed ($LASTEXITCODE): $out"
+        $list=& $ps -NoProfile -ExecutionPolicy Bypass -File (Join-Path $f.Repo 'scripts\trinity.ps1') queue list -Json | Out-String
+        $item=@((ConvertFrom-Json $list).items)[0]
+        Assert-True ($item.task -eq 'e2e-task' -and $item.agent -eq 'claude' -and $item.scope -eq 'src/e2e/*' -and $item.promptFile -eq $promptFile) "queue item wrong: $list"
     }
 }

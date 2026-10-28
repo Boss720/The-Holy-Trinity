@@ -1232,10 +1232,59 @@ function Quote-ActionLiteral([string]$Value) {
     foreach ($code in @(0x27,0x2018,0x2019,0x201a,0x201b)) { $char=[string][char]$code; $Value=$Value.Replace($char,$char+$char) }
     return "'" + $Value + "'"
 }
+# A command is a list of tokens. A plain string is always a VALUE and is always quoted; only a token made by
+# New-ActionFlag (server code, fixed name) is emitted bare as a parameter name, so user text can never become a flag.
+function New-ActionFlag([string]$Name) {
+    if ($Name -cnotmatch '^-[A-Za-z][A-Za-z0-9]*$') { throw "Invalid action flag: $Name" }
+    return @{ flag=$Name }
+}
+function Convert-ActionToken($Token) {
+    if ($Token -is [System.Collections.IDictionary]) {
+        $name=[string]$Token['flag']
+        if ($Token.Count -eq 1 -and $name -cmatch '^-[A-Za-z][A-Za-z0-9]*$') { return $name }
+        throw 'Invalid action flag token'
+    }
+    return Quote-ActionLiteral ([string]$Token)
+}
 function Convert-ActionScript([string]$RepoPath, $Commands) {
     $scriptPath=Join-Path $RepoPath 'scripts\trinity.ps1'
-    $parts=@(); foreach ($command in $Commands) { $quoted=@($command | ForEach-Object { Quote-ActionLiteral ([string]$_) }); $parts+=('& ' + (Quote-ActionLiteral $scriptPath) + ' ' + ($quoted -join ' ')) }
+    $parts=@(); foreach ($command in $Commands) { $quoted=@($command | ForEach-Object { Convert-ActionToken $_ }); $parts+=('& ' + (Quote-ActionLiteral $scriptPath) + ' ' + ($quoted -join ' ')) }
     return ($parts -join '; if (-not $?) { exit 1 }; ')
+}
+function Get-ResumeCommand([string]$Task, [string]$File) { return ,@('resume',$Task,(New-ActionFlag '-FeedbackFile'),$File) }
+function Get-QueueAddCommand([string]$Agent, [string]$Task, [string]$Scope, [string]$File) { return ,@('queue','add',$Agent,$Task,(New-ActionFlag '-Scope'),$Scope,(New-ActionFlag '-PromptFile'),$File) }
+function Get-ConfigSaveCommand([string]$File) { return ,@('config','set',(New-ActionFlag '-Json'),$File) }
+function Get-AutopilotCommand([bool]$Enabled, [bool]$Approval) {
+    $c=@('autopilot',$(if ($Enabled) { 'on' } else { 'off' })); if ($Enabled -and $Approval) { $c+=,(New-ActionFlag '-Approval') }
+    return ,$c
+}
+function Get-DispatchCommand([string]$Agent, [string]$Task, [string]$Scope, [string]$File, [string]$Base) {
+    $c=@('dispatch',$Agent,$Task)
+    if ($Scope) { $c+=,(New-ActionFlag '-Scope'); $c+=$Scope }
+    if ($File) { $c+=,(New-ActionFlag '-PromptFile'); $c+=$File }
+    if ($Base) { $c+=,(New-ActionFlag '-Base'); $c+=$Base }
+    return ,$c
+}
+# Model env var of the agent that really runs the task; claude has none, and a model picked for another agent is not reused after a reroute.
+function Get-ModelPrefix([string]$Agent, [string]$ItemAgent, [string]$Model) {
+    if (-not $Model -or $Agent -cne $ItemAgent) { return '' }
+    $name=switch -CaseSensitive ($Agent) { 'codex' { 'TRINITY_CODEX_MODEL' }; 'antigravity' { 'TRINITY_AGY_MODEL' }; default { '' } }
+    if (-not $name) { return '' }
+    return '$env:' + $name + '=' + (Quote-ActionLiteral $Model) + '; '
+}
+# Checks a queue item for start-now: dispatch check first, then the slot of the agent that will really run it.
+function Get-StartNowCheck($RepoState, $Availability, $QueueItem, [string]$Task) {
+    $r=@{ ok=$false; status=409; error=''; agent=[string]$QueueItem.agent; itemAgent=[string]$QueueItem.agent; scope=[string]$QueueItem.scope; file=[string]$QueueItem.promptFile; base=[string]$QueueItem.base; model=[string]$QueueItem.model; check=$null }
+    if (-not $r.file.Trim()) { $r.error='no prompt file'; return $r }
+    if ($r.scope -match '[^\x20-\x7e]' -or $r.file -match '[^\x20-\x7e]' -or $r.base -match '[^\x20-\x7e]' -or $r.model -match '[^\x20-\x7e]') { $r.status=400; $r.error='Invalid queue item text'; return $r }
+    $check=Get-DispatchCheck $RepoState $Availability $r.itemAgent $Task $r.scope
+    $r.check=$check
+    if (-not $check.canDispatch) { $r.error=(@($check.taskReason,$check.agentReason,$check.scopeReason) | Where-Object { $_ }) -join '; '; return $r }
+    $r.agent=$check.effectiveAgent
+    $slot=$RepoState.slots.($r.agent)
+    if (-not $slot -or $slot.used -ge $slot.max) { $r.error='no free slot'; return $r }
+    $r.ok=$true
+    return $r
 }
 
 function Start-ActionProcess([string]$Id, [string]$Action, [string]$Task, [string]$RepoPath, [string]$Worktree, [string]$Command, [string]$Agent = '', [string]$Scope = '', [string]$PromptFile = '', [string]$ActionScript = '') {
@@ -1415,7 +1464,8 @@ try {
                     if ($action -eq 'dispatch') {
                         $agentValue=Get-JsonValue $body 'agent' ''; $scopeValue=Get-JsonValue $body 'scope' ''; $promptValue=Get-JsonValue $body 'prompt' ''
                         if (-not $confirm -or $agentValue -isnot [string] -or $scopeValue -isnot [string] -or $promptValue -isnot [string]) { Send-JsonResponse $response 400 @{ error='Dispatch requires confirm:true and string agent, scope and prompt' }; continue }
-                        if ($scopeValue -match '[^\x20-\x7e]' -or $promptValue -match '[^\x20-\x7e]' -or -not $promptValue.Trim() -or [Text.Encoding]::UTF8.GetByteCount($promptValue) -gt 32768) { Send-JsonResponse $response 400 @{ error='Prompt must be non-empty and at most 32 KB UTF-8' }; continue }
+                        if ($scopeValue -match '[^\x20-\x7e]') { Send-JsonResponse $response 400 @{ error='Scope must be printable ASCII (it reaches the command line)' }; continue }
+                        if (-not $promptValue.Trim() -or [Text.Encoding]::UTF8.GetByteCount($promptValue) -gt 32768) { Send-JsonResponse $response 400 @{ error='Prompt must be non-empty and at most 32 KB UTF-8' }; continue }
                         $check=Get-DispatchCheck $repoState $snapshot.availability $agentValue $taskName $scopeValue
                         $dispatchAgent=$check.effectiveAgent
                         if (-not $check.canDispatch) { Send-JsonResponse $response 400 @{ error=(@($check.taskReason,$check.agentReason,$check.scopeReason) | Where-Object { $_ }) -join '; ' }; continue }
@@ -1450,36 +1500,34 @@ try {
                             $feedback=Get-JsonValue $body 'feedback' $null
                             if ($feedback -isnot [string] -or -not $feedback.Trim() -or [Text.Encoding]::UTF8.GetByteCount($feedback) -gt 16384) { Send-JsonResponse $response 400 @{error='Feedback must be 1 to 16384 bytes'}; continue }
                             $file=Join-Path $outDir "feedback-$taskName-$jobId.md"; Write-NewUtf8 $file $feedback
-                            $commands+=,@('resume',$taskName,'-FeedbackFile',$file); $display="trinity resume $taskName -FeedbackFile $(Quote-ProcessArgument $file)"
+                            $commands+=,(Get-ResumeCommand $taskName $file); $display="trinity resume $taskName -FeedbackFile $(Quote-ProcessArgument $file)"
                         }
                         'retry' { $commands+=,@('retry',$taskName); $display="trinity retry $taskName" }
                         'queue-add' {
                             $agentValue=Get-JsonValue $body 'agent' $null; $scopeValue=Get-JsonValue $body 'scope' $null; $promptValue=Get-JsonValue $body 'prompt' $null
-                            if ($agentValue -isnot [string] -or $agentValue -cnotin @('codex','antigravity','claude') -or $scopeValue -isnot [string] -or $promptValue -isnot [string] -or $promptValue -match '[^\x20-\x7e]' -or -not $promptValue.Trim() -or [Text.Encoding]::UTF8.GetByteCount($promptValue) -gt 32768 -or $scopeValue -match '[^\x20-\x7e]' -or $scopeValue -match '[:\\\x00-\x1f\x7f]' -or $scopeValue.Contains('..') -or $scopeValue.StartsWith('/') -or @($scopeValue.Split(',')).Count -gt 20 -or @($repoState.tasks | Where-Object { $_.task -eq $taskName -and $_.state -ne 'cancelled' }).Count -or $queueItem) { Send-JsonResponse $response 400 @{error='Invalid queue item'}; continue }
+                            if ($scopeValue -is [string] -and $scopeValue -match '[^\x20-\x7e]') { Send-JsonResponse $response 400 @{error='Scope must be printable ASCII (it reaches the command line)'}; continue }
+                            if ($agentValue -isnot [string] -or $agentValue -cnotin @('codex','antigravity','claude') -or $scopeValue -isnot [string] -or $promptValue -isnot [string] -or -not $promptValue.Trim() -or [Text.Encoding]::UTF8.GetByteCount($promptValue) -gt 32768 -or $scopeValue -match '[^\x20-\x7e]' -or $scopeValue -match '[:\\\x00-\x1f\x7f]' -or $scopeValue.Contains('..') -or $scopeValue.StartsWith('/') -or @($scopeValue.Split(',')).Count -gt 20 -or @($repoState.tasks | Where-Object { $_.task -eq $taskName -and $_.state -ne 'cancelled' }).Count -or $queueItem) { Send-JsonResponse $response 400 @{error='Invalid queue item'}; continue }
                             $file=Join-Path $outDir "prompt-$taskName-$jobId.md"; Write-NewUtf8 $file $promptValue
-                            $commands+=,@('queue','add',$agentValue,$taskName,'-Scope',$scopeValue,'-PromptFile',$file); $commands+=,@('scheduler','start')
+                            $commands+=,(Get-QueueAddCommand $agentValue $taskName $scopeValue $file); $commands+=,@('scheduler','start')
                             $display="trinity queue add $agentValue $taskName -Scope $(Quote-ProcessArgument $scopeValue) -PromptFile $(Quote-ProcessArgument $file); trinity scheduler start"
                         }
                         'queue-remove' { $commands+=,@('queue','remove',$taskName); $display="trinity queue remove $taskName" }
                         'queue-move' { $index=Get-JsonValue $body 'index' $null; if ($index -isnot [int] -or $index -lt 0) { Send-JsonResponse $response 400 @{error='Invalid index'}; continue }; $commands+=,@('queue','move',$taskName,[string]$index); $display="trinity queue move $taskName $index" }
                         'start-now' {
-                            $agentValue=[string]$queueItem.agent; $slot=$repoState.slots.$agentValue
-                            if (-not $slot -or $slot.used -ge $slot.max) { Send-JsonResponse $response 409 @{error='no free slot'}; continue }
-                            $scopeValue=[string]$queueItem.scope; $file=[string]$queueItem.promptFile
-                            if (-not $file.Trim()) { Send-JsonResponse $response 409 @{error='no prompt file'}; continue }
-                            if ($scopeValue -match '[^\x20-\x7e]' -or $file -match '[^\x20-\x7e]' -or [string]$queueItem.base -match '[^\x20-\x7e]' -or [string]$queueItem.model -match '[^\x20-\x7e]') { Send-JsonResponse $response 400 @{error='Invalid queue item text'}; continue }
-                            $check=Get-DispatchCheck $repoState $snapshot.availability $agentValue $taskName $scopeValue
-                            if (-not $check.canDispatch) { Send-JsonResponse $response 409 @{error=(@($check.taskReason,$check.agentReason,$check.scopeReason) | Where-Object { $_ }) -join '; '}; continue }
-                            $agentValue=$check.effectiveAgent; $dispatchArgs=@('dispatch',$agentValue,$taskName); $display="trinity dispatch $agentValue $taskName"
-                            if ($scopeValue) { $dispatchArgs+=@('-Scope',$scopeValue); $display+=' -Scope ' + (Quote-ProcessArgument $scopeValue) }
-                            if ($file) { $dispatchArgs+=@('-PromptFile',$file); $display+=' -PromptFile ' + (Quote-ProcessArgument $file) }
-                            if ($queueItem.base) { $dispatchArgs+=@('-Base',[string]$queueItem.base); $display+=' -Base ' + (Quote-ProcessArgument ([string]$queueItem.base)) }
+                            $plan=Get-StartNowCheck $repoState $snapshot.availability $queueItem $taskName
+                            if (-not $plan.ok) { Send-JsonResponse $response $plan.status @{error=$plan.error}; continue }
+                            $agentValue=$plan.agent; $dispatchArgs=Get-DispatchCommand $agentValue $taskName $plan.scope $plan.file $plan.base
+                            $display="trinity dispatch $agentValue $taskName"
+                            if ($plan.scope) { $display+=' -Scope ' + (Quote-ProcessArgument $plan.scope) }
+                            $display+=' -PromptFile ' + (Quote-ProcessArgument $plan.file)
+                            if ($plan.base) { $display+=' -Base ' + (Quote-ProcessArgument $plan.base) }
+                            # Dispatch first; the queue item is removed only when dispatch succeeded (Convert-ActionScript stops on failure).
                             $commands+=,$dispatchArgs; $commands+=,@('queue','remove',$taskName); $display+="; trinity queue remove $taskName"
-                            if ($queueItem.model) { $modelPrefix='$env:TRINITY_CODEX_MODEL=' + (Quote-ActionLiteral ([string]$queueItem.model)) + '; '; $display=$modelPrefix+$display }
-
+                            $modelPrefix=Get-ModelPrefix $agentValue $plan.itemAgent $plan.model
+                            if ($modelPrefix) { $display=$modelPrefix+$display }
                         }
-                        'settings-save' { $config=Get-JsonValue $body 'config' $null; if (-not (Test-SettingsPatch $config)) { Send-JsonResponse $response 400 @{error='Invalid settings'}; continue }; $file=Join-Path $outDir "config-$jobId.json"; Write-NewUtf8 $file ($script:JsonSerializer.Serialize($config)); $commands+=,@('config','set','-Json',$file); $display="trinity config set -Json $(Quote-ProcessArgument $file)" }
-                        'autopilot' { $enabled=Get-JsonValue $body 'enabled' $null; if ($enabled -isnot [bool]) { Send-JsonResponse $response 400 @{error='enabled must be a boolean'}; continue }; $mode=if ($enabled) {'on'} else {'off'}; $commands+=,@('autopilot',$mode); $display="trinity autopilot $mode"; if ($enabled) { $commands+=,@('scheduler','start'); $display+='; trinity scheduler start' } }
+                        'settings-save' { $config=Get-JsonValue $body 'config' $null; if (-not (Test-SettingsPatch $config)) { Send-JsonResponse $response 400 @{error='Invalid settings'}; continue }; $file=Join-Path $outDir "config-$jobId.json"; Write-NewUtf8 $file ($script:JsonSerializer.Serialize($config)); $commands+=,(Get-ConfigSaveCommand $file); $display="trinity config set -Json $(Quote-ProcessArgument $file)" }
+                        'autopilot' { $enabled=Get-JsonValue $body 'enabled' $null; if ($enabled -isnot [bool]) { Send-JsonResponse $response 400 @{error='enabled must be a boolean'}; continue }; $approvalValue=(Get-JsonValue $body 'approval' $false) -eq $true; $mode=if ($enabled) {'on'} else {'off'}; $commands+=,(Get-AutopilotCommand $enabled $approvalValue); $display="trinity autopilot $mode"; if ($enabled -and $approvalValue) { $display+=' -Approval' }; if ($enabled) { $commands+=,@('scheduler','start'); $display+='; trinity scheduler start' } }
                         'pause' { $reason=Get-JsonValue $body 'reason' ''; if ($reason -isnot [string] -or $reason.Length -gt 200 -or $reason -match '[\r\n]') { Send-JsonResponse $response 400 @{error='Invalid reason'}; continue }; if (-not $reason) { $reason='user' }; $dir=Join-Path $repoPath '.trinity'; [void][IO.Directory]::CreateDirectory($dir); $temp=Join-Path $dir ("PAUSE-$jobId.tmp"); Write-NewUtf8 $temp ($reason+"`n"); $pausePath=Join-Path $dir 'PAUSE'; if ([IO.File]::Exists($pausePath)) { [IO.File]::Replace($temp,$pausePath,$null) } else { [IO.File]::Move($temp,$pausePath) }; $commands+=,@('scheduler','stop'); $display='trinity scheduler stop' }
                         'unpause' { $commands+=,@('unpause'); $display='trinity unpause' }
                     }
