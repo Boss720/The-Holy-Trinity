@@ -6,6 +6,8 @@ function Fail([string]$msg) {
 }
 
 $script:Utf8 = New-Object Text.UTF8Encoding($false)
+# Optional: a toolkit copy from before seeding has no seed.ps1.
+if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'seed.ps1')) { . (Join-Path $PSScriptRoot 'seed.ps1') }
 
 # Repo paths seen from any checkout (main or worktree).
 function Get-RepoPaths([string]$From) {
@@ -148,6 +150,15 @@ function New-AgentWorktree($Paths, [string]$Agent, [string]$Task, [string]$Scope
         if (Test-Path $wtPath) { Fail "board registration failed ($why); remove $wtPath and branch $branch by hand" }
         Fail "board registration failed: $why (worktree and branch removed)"
     }
+    # Copy gitignored files and run the setup command from trinity-seed.txt. The log stays outside the worktree,
+    # since the runner commits everything in it; a seed problem warns instead of failing the dispatch.
+    if (Get-Command Invoke-WorktreeSeed -ErrorAction SilentlyContinue) { try {
+        if (-not (Test-Path $Paths.Out)) { New-Item -ItemType Directory -Path $Paths.Out | Out-Null }
+        $seed = Invoke-WorktreeSeed -MainPath $Paths.Main -WorktreePath $wtPath -LogPath (Join-Path $Paths.Out "seed-$Task.log")
+        if ($seed.Copied.Count) { Write-Host "Seeded: $($seed.Copied -join ', ')" }
+        if ($null -ne $seed.ExitCode -and $seed.ExitCode -ne 0) { Write-Warning "seed command '$($seed.Command)' exited $($seed.ExitCode); see $($seed.LogPath)" }
+    }
+    catch { Write-Warning "worktree seed skipped: $($_.Exception.Message)" } }
     [pscustomobject]@{ Branch = $branch; Path = $wtPath }
 }
 

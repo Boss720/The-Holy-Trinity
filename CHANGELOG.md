@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Worktree seeding: a committed `trinity-seed.txt` (`copy <path>`, `run <command>`) copies gitignored files such as `.env` into each new worker worktree and runs one setup command; output in `.codex-out\seed-<task>.log` (`scripts/lib/seed.ps1`).
+- Self-test: the dashboard page served by the real server is checked with a real token; extra cases live in `tests/cases/*.ps1`.
+
 ## v0.6.0 - 2026-10-28
 
 ### Added

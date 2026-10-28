@@ -167,6 +167,19 @@ Check agent availability and repository status:
 trinity status
 ```
 
+### Seed worker worktrees
+
+Worker worktrees start from a clean checkout, without gitignored files such as `.env` and without installed dependencies. Commit a `trinity-seed.txt` at the repo root and every `trinity dispatch` copies the listed files from the main checkout into the new worktree and runs one setup command there:
+
+```text
+# lines starting with # are comments
+copy .env
+copy config/*.local.json
+run npm install
+```
+
+Paths are relative to the repo root (no `..`, no absolute paths, never `.git`). Existing files in the worktree are never overwritten. The setup output goes to `.codex-out\seed-<task>.log`; a failing seed prints a warning and the dispatch goes on. Copied files must be gitignored: the runner commits everything else the worker leaves in its worktree.
+
 ## Let Claude do the install
 
 You can let Claude Code perform the complete setup automatically. See [docs/claude-install-prompt.md](docs/claude-install-prompt.md).

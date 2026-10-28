@@ -18,7 +18,7 @@ $fixed = @(
     '.claude/settings.json', '.claude/skills/army/SKILL.md', '.agents/skills/trinity/SKILL.md', '.githooks/pre-commit',
     'scripts/agent-task.ps1', 'scripts/codex.cmd', 'scripts/codex-ask.cmd', 'scripts/codex-review.cmd',
     'scripts/dashboard.ps1', 'scripts/dashboard.html', 'scripts/doctor.ps1', 'scripts/trinity.ps1',
-    'scripts/lib/board.ps1', 'docs/dashboard.md', 'docs/claude-install-prompt.md'
+    'scripts/lib/board.ps1', 'scripts/lib/seed.ps1', 'docs/dashboard.md', 'docs/claude-install-prompt.md'
 )
 $paths = New-Object 'System.Collections.Generic.List[string]'
 foreach ($rel in $fixed) {
