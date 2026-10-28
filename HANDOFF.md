@@ -2,6 +2,27 @@
 
 Update before you stop. Newest entry on top.
 
+## 2026-10-28 23:22 handoff (Claude, current; supersedes the Status list below where they differ)
+- main 3f69566, clean. Merged today: cli-cmds (3f69566, suite 144/144), sched-fix (06b1ad8), sched-core (8d96470), 87d1a03 flaky-test fix, 30e9b71 agy model args.
+- Antigravity workers, Gemini 3.8 Flash High, effort high. Both still running at 23:22 (pids in `.codex-out/pid-<task>.txt`); no commits on their branches yet, no `result-*.md` yet.
+  - `cli-fix` (branch `agent/antigravity/cli-fix`): 5 cli-cmds P2s (scheduler tick mutex/heartbeat, stop during long tick, models.codex fallback, autopilot `-NoApproval`, history dedup).
+  - `sched-fix2` (branch `agent/antigravity/sched-fix2`): 5 sched-fix P2s (conflicts as findings and resume, wrong-shape queue.json archived, started decisions migrated, gate-error handling, gate output to `.codex-out\gate-<task>.txt`).
+  - Next: read `.codex-out/result-<task>.md` and diffstat, then `TRINITY_REVIEWER=claude TRINITY_DISABLE=codex ./trinity.sh merge <task> -Yes`.
+- dash-api (branch `agent/codex/dash-api`, worktree `codex-dash-api`): Sonnet fix in progress, UNCOMMITTED changes in `scripts/dashboard.ps1` and `tests/cases/dash-api.ps1`. Its suite run was still going at last check. Findings being fixed: flags quoted as text (start-now, resume, settings save), verify each verb's command against real trinity.ps1, non-ASCII prompts, slot of effective agent, model env per agent. Next: commit in worktree, check suite, then `merge dash-api -Yes` (Claude reviewer).
+- ui-shell (branch `agent/claude/ui-shell`, 5b7908e, worktree `claude-ui-shell` clean): not merged. Merge after dash-api; may need main merged in first.
+- Prompts ready, not dispatched (they edit shared files, so wait for dash-api and ui-shell): `.codex-out/prompt-ui-polish.md` (Antigravity, `scripts/dashboard.html` only; header tabs built once, click handlers read data-task-key, sample mode never calls live API or POSTs, rename "Review" action button to "Run gate (dry run)") and `.codex-out/prompt-dash-base.md` (Antigravity, dashboard.ps1 + agent-task.ps1 + new tests/cases/dash-base.ps1; base-branch resolver, cold start 59.6 s fix, errors to `.codex-out\dashboard-error.log`).
+- Stale: `.codex-out/prompt-ui-shell-codex.md` (obsolete). Background `btboas749` wait is stopped; restart with `./trinity.sh wait <task> -Timeout 3600` once workers are confirmed alive.
+- Failures this stretch, to log in `docs/failure-log.md` (not yet logged):
+  - Codex usage limit hit (retry 11:30 PM). cli-cmds and sched-fix ended `failed (exit 1)` with uncommitted work. Finished by a Sonnet subagent and by commit-in-worktree.
+  - sched-core gate blocked 4 rounds on new P1s; merged 8d96470.
+  - Flaky Claude-summary dashboard test (87d1a03).
+  - Invalid agy effort accepted after worktree creation (fixed: validate before worktree).
+  - dash-api blocked: flags quoted as text (P1), stale worktree missing commands (fixed by merging main, 849e50f).
+  - Integration check found: 59.6 s cold `/api/state`; tokenless POST returns 403 not 401; tabs unstable under real clicks; sample mode calls live API; duplicate "Review" labels. Its subagent also ran review-task against the real repo by mistake (no merge happened).
+  - `feedback-sched-core-2.md` was rewritten on disk by an unknown process after Codex had received the full version.
+- Blockers: Claude usage was 98% earlier (Claude workers pause until reset). Codex quota out until 11:30 PM; route Codex-type work to Antigravity meanwhile. Always pass `TRINITY_CODEX_EFFORT=high` for Codex workers (config.toml default is `low`).
+- Still to do after merges: live click-through of `trinity dashboard` (screenshots, no real Merge/Start/Save against a real repo), run full suite on main, update AGENTS.md (TRINITY_AGY_MODEL/EFFORT, queue/scheduler/pause/unpause/autopilot/history commands), PLAN.md, and failure-log. Verify the 403-vs-401 behavior against docs/dashboard-gui.md. Clean up stale worktrees (`codex-sched-core` empty, `codex-cli-cmds`, `codex-sched-fix`) if left.
+
 ## Status
 - Completed: Modules 0-4 (dashboard detail + chats; works without Codex), dashboard detail v3 (Antigravity parity), docs/dashboard-gui.md contract (a120a12), cli-wire 4444c50 (merge -DryRun with conflict check, scope guard, running-task guard, TRINITY_CODEX_MODEL/EFFORT, config precedence, trinity config).
 - In flight, wave A (dashboard GUI, see "2026-10-28 wave A" below):
