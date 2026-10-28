@@ -1,10 +1,21 @@
 # Changelog
 
-## Unreleased
+## v0.7.0 - 2026-10-28
 
 ### Added
+- `trinity resume <task> -Feedback "<text>"` (or `-FeedbackFile`, default: the saved merge review): re-runs a done or failed task with the same agent in its existing worktree and branch; earlier output kept as `*.round<N>.*`, round on the board.
+- Runner watchdog: `-DeadlineMinutes` (default 120, env `TRINITY_DEADLINE_MINUTES`) kills a hung worker and marks it `failed (timed out)`; a worker with no log or worktree change shows `running (stalled: no output N min)`; runner liveness checks the exact process, not a reused pid.
+- Base branch: `-Base`, else env `TRINITY_BASE`, else `origin/HEAD`, else `main`; used by dispatch, merge, review, wait, show, cancel. `trinity status` prints `base: <name> (<source>)`.
+- Self-test runs in 4 parallel shards (`tests/run-parallel.ps1`, `run-tests.ps1 -Shard i/N`): about 3 minutes instead of 9.
 - Worktree seeding: a committed `trinity-seed.txt` (`copy <path>`, `run <command>`) copies gitignored files such as `.env` into each new worker worktree and runs one setup command; output in `.codex-out\seed-<task>.log` (`scripts/lib/seed.ps1`).
 - Self-test: the dashboard page served by the real server is checked with a real token; extra cases live in `tests/cases/*.ps1`.
+
+### Changed
+- `trinity merge` reviews again when the base moved during the review, and blocks on review output that is neither findings nor a clear "no findings" answer (empty, crash, usage limit) unless `-Force`. The review is also saved as `.codex-out\review-<task>.md`.
+
+### Fixed
+- `trinity dashboard -Stop` (and start) find an orphan dashboard by its port when the pid file is missing or stale, including HttpListener servers that show as pid 4; any other process on the port is reported and left running.
+- Worktree seed `run` commands keep quoted program paths and arguments.
 
 ## v0.6.0 - 2026-10-28
 
