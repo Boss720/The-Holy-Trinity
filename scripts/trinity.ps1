@@ -659,14 +659,12 @@ switch ($Command) {
         if ($entry.status -notmatch '^(failed|cancelled)\b') { Fail "cannot retry $task in state: $($entry.status)" }
         $retryPrompt = Join-Path $paths.Out "prompt-$task.md"
         $prompt = $null
-        if (Test-Path -LiteralPath $retryPrompt) { $prompt = [IO.File]::ReadAllText($retryPrompt) }
-        else {
-            $taskFile = Join-Path $paths.Out "task-$task.md"
-            if (Test-Path -LiteralPath $taskFile) {
-                $body = [IO.File]::ReadAllText($taskFile)
-                if ($body -match '(?s)\r?\n## Request\r?\n\r?\n(.*)(?:\r\n\r\n|\n\n)## Rules\r?\n') { $prompt = $Matches[1] }
-            }
+        $taskFile = Join-Path $paths.Out "task-$task.md"
+        if (Test-Path -LiteralPath $taskFile) {
+            $body = [IO.File]::ReadAllText($taskFile)
+            if ($body -match '(?s)\r?\n## Request\r?\n\r?\n(.*)(?:\r\n\r\n|\n\n)## Rules\r?\n') { $prompt = $Matches[1] }
         }
+        if (-not "$prompt".Trim() -and (Test-Path -LiteralPath $retryPrompt)) { $prompt = [IO.File]::ReadAllText($retryPrompt) }
         if (-not "$prompt".Trim()) { Fail "missing prompt: need $retryPrompt or a Request in task-$task.md" }
         # Reuse cancel's process-tree shutdown and commit protection before touching old output.
         $cancelArgs = @('cancel', $task)
