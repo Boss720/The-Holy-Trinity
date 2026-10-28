@@ -16,6 +16,8 @@ param(
     [ValidateRange(0, 365000)][int]$OlderThanDays = 7,
     [switch]$Json,
     [switch]$Stop,
+    [string]$Feedback,
+    [string]$FeedbackFile,
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest
 )
 
@@ -468,6 +470,30 @@ function Start-Dispatch([string]$agent, [string]$task, [string]$prompt, [int]$de
     }
 }
 
+# Re-run a finished task in its existing worktree and branch (no new worktree): write the new task file, then
+# start the same runner path as Start-Dispatch, so the deadline and stall watchdog apply.
+function Start-Resume($entry, [string]$task, [string]$taskBody, [int]$round, [int]$deadline = 0) {
+    if ($deadline -le 0 -and $DeadlineMinutes -gt 0) { $deadline = $DeadlineMinutes }
+    $taskFile = Join-Path $paths.Out "task-$task.md"
+    [IO.File]::WriteAllText($taskFile, $taskBody, $script:Utf8)
+    Set-BoardField $paths $task 'round' "$round"
+    Write-Host "Task:     $taskFile"
+    if (-not (Test-HeadlessEntry $entry)) {
+        Set-BoardStatus $paths $task 'waiting for claude session'
+        Write-Host "Open a new Claude Code session on $($entry.worktree) and say: do the task in $taskFile"
+        return
+    }
+    Set-BoardStatus $paths $task 'running'
+    $runnerArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '_run', $task)
+    if ($deadline -gt 0) { $runnerArgs += @('-DeadlineMinutes', "$deadline") }
+    $runner = Start-Process powershell.exe -WindowStyle Hidden -PassThru -ArgumentList $runnerArgs
+    [IO.File]::WriteAllText((Join-Path $paths.Out "pid-$task.txt"), "$($runner.Id)", $script:Utf8)
+    Write-Host "$($entry.agent) resumed headless in background (round $round)."
+    Write-Host "Log:    $(Join-Path $paths.Out "log-$task.txt")"
+    Write-Host "Result: $(Join-Path $paths.Out "result-$task.md")"
+    Write-Host 'Check progress with: trinity status'
+}
+
 # Exact task prefixes keep housekeeping away from similarly named tasks.
 function Get-TaskFiles([string]$task) {
     if (Test-Path -LiteralPath $paths.Out) {
@@ -918,6 +944,72 @@ switch ($Command) {
         Write-Host "Retrying $task with $($entry.agent), scope $Scope, prompt $retryPrompt"
         if ($entry.agent -eq 'claude' -and $entry.mode -eq 'headless') { $Headless = $true }
         Start-Dispatch $entry.agent $task $prompt
+    }
+
+    'resume' {
+        $task = $Rest[0]
+        if (-not $task) { Fail 'usage: trinity resume <task> -Feedback "<text>" | -FeedbackFile <file>' }
+        Assert-TaskName $task
+        $entry = Get-BoardEntry $paths $task
+        if (-not $entry) { Fail "unknown task: $task" }
+        if ($entry.status -match '^(started|running|waiting|merged|cancelled)\b') { Fail "cannot resume $task in state: $($entry.status)" }
+        if (-not $entry.branch -or $entry.branch -eq '-' -or -not $entry.worktree -or $entry.worktree -eq '-') { Fail "cannot resume $($task): it is a tracked chunk with no branch or worktree" }
+        if ((Test-TaskRunnerAlive $paths $task).Alive) { Fail "cannot resume $($task): its runner is still alive" }
+
+        # Feedback: -Feedback and/or -FeedbackFile, else the review that merge saved for this task.
+        $parts = @()
+        if ("$Feedback".Trim()) { $parts += "$Feedback".Trim() }
+        if ($FeedbackFile) {
+            if (-not (Test-Path -LiteralPath $FeedbackFile -PathType Leaf)) { Fail "feedback file not found: $FeedbackFile" }
+            $fileText = [IO.File]::ReadAllText($FeedbackFile)
+            if ($fileText.Trim()) { $parts += $fileText.Trim() }
+        }
+        $reviewFile = Join-Path $paths.Out "review-$task.txt"
+        if (-not $PSBoundParameters.ContainsKey('Feedback') -and -not $PSBoundParameters.ContainsKey('FeedbackFile') -and (Test-Path -LiteralPath $reviewFile)) {
+            $reviewText = [IO.File]::ReadAllText($reviewFile)
+            if ($reviewText.Trim()) { $parts += $reviewText.Trim(); Write-Host "Feedback from $reviewFile" }
+        }
+        if (-not $parts.Count) { Fail "usage: trinity resume $($task) -Feedback `"<text>`" | -FeedbackFile <file> (no feedback given, and no saved review-$($task).txt)" }
+        $feedbackText = ($parts -join "`r`n`r`n") -replace '\r?\n', "`r`n"
+
+        # Same agent, same worktree and branch: all of them must still exist.
+        $registered = @(Get-Git @('-C', $paths.Main, 'worktree', 'list', '--porcelain') | Where-Object { $_ -like 'worktree *' } |
+            ForEach-Object { ($_.Substring(9)) -replace '/', '\' }) -contains $entry.worktree
+        if (-not $registered -or -not (Test-Path -LiteralPath $entry.worktree)) { Fail "cannot resume $($task): worktree $($entry.worktree) is gone; use trinity retry" }
+        if (-not (Get-Git @('-C', $paths.Main, 'rev-parse', '--verify', '--quiet', "refs/heads/$($entry.branch)"))) { Fail "cannot resume $($task): branch $($entry.branch) is gone; use trinity retry" }
+        if (Test-HeadlessEntry $entry) {
+            $avail = Get-AgentAvailability @($entry.agent)
+            if (-not $avail[$entry.agent].available) { Fail "cannot resume $($task): $($entry.agent) unavailable ($($avail[$entry.agent].detail))" }
+        }
+
+        # The original request is found like retry finds it; the feedback is appended as a new section.
+        $taskFile = Join-Path $paths.Out "task-$task.md"
+        $savedPrompt = Join-Path $paths.Out "prompt-$task.md"
+        if (-not (Test-Path -LiteralPath $taskFile)) { Fail "cannot resume $($task): missing $taskFile; use trinity retry" }
+        $body = [IO.File]::ReadAllText($taskFile)
+        $request = [regex]::Match($body, '(?s)\r?\n## Request\r?\n\r?\n(.*)(?:\r\n\r\n|\n\n)## Rules\r?\n')
+        if (-not $request.Success) { Fail "cannot resume $($task): no Request section in $taskFile; use trinity retry" }
+        $prompt = $request.Groups[1].Value
+        if (-not $prompt.Trim() -and (Test-Path -LiteralPath $savedPrompt)) { $prompt = [IO.File]::ReadAllText($savedPrompt) }
+        if (-not $prompt.Trim()) { Fail "missing prompt: need $savedPrompt or a Request in task-$task.md" }
+
+        # Round 1 is the first run; the board keeps the current round. Earlier output is kept as *.round<N>.*.
+        $prevRound = 0
+        if (-not [int]::TryParse("$($entry.round)", [ref]$prevRound) -or $prevRound -lt 1) { $prevRound = 1 }
+        while (@(Get-TaskFiles $task | Where-Object { $_.Name -match "\.round$prevRound\." }).Count) { $prevRound++ }
+        $round = $prevRound + 1
+        $oldFiles = @(Get-TaskFiles $task | Where-Object { $_.Name -match '^(log|result|agy|agyout|claudeout|meta|run|deadline)-' -and $_.Name -notmatch '\.(attempt|round)\d+\.' })
+        foreach ($file in $oldFiles) {
+            $dest = Join-Path $paths.Out ($file.BaseName + ".round$prevRound" + $file.Extension)
+            Move-Item -LiteralPath $file.FullName -Destination $dest -ErrorAction Stop
+            Write-Host "Kept $dest"
+        }
+        $newPrompt = $prompt.TrimEnd() + "`r`n`r`n## Feedback (round $round)`r`n`r`n" + $feedbackText
+        [IO.File]::WriteAllText($savedPrompt, $newPrompt, $script:Utf8)
+        $group = $request.Groups[1]
+        $newBody = $body.Substring(0, $group.Index) + $newPrompt + $body.Substring($group.Index + $group.Length)
+        Write-Host "Resuming $task with $($entry.agent) in $($entry.worktree), round $round, prompt $savedPrompt"
+        Start-Resume $entry $task $newBody $round $DeadlineMinutes
     }
 
     'clean' {
