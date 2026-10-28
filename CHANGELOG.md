@@ -1,8 +1,11 @@
 # Changelog
 
-## Unreleased
+## v0.5.0 - 2026-10-28
 
 ### Added
+- `trinity show <task> [-Json]`: read-only detail of one board task (state, branch, scope, commits ahead, diffstat, result summary, log tail, file paths).
+- `trinity retry <task> [-Force]`: re-dispatch a failed or cancelled task with the same agent, scope and prompt; old log/result files are kept as `*.attempt<N>.*`.
+- `trinity clean [-OlderThanDays 7] [-Yes]`: lists merged/cancelled board tasks older than N days; with `-Yes` moves their files to `.codex-out\archive\<task>\` and drops the board entry (never deletes branches or files).
 - Dashboard GUI step 4: "Dispatch" button and modal (repo, agent with availability, task name, scope, prompt) with live validation, overlap warnings, CLI preview and a confirm step; new `GET /api/dispatch/check` and `dispatch` action.
 - Dashboard GUI step 3: task detail tabs Summary, Diff, Log, Merge check (`#task=<repo>/<task>&tab=diff|log|merge`), live log tail, and a merge dry run with blockers (main dirty, conflicts, scope violations, runner alive) behind a "Review merge" button; new read-only endpoints `/api/task/diff`, `/api/task/log`, `/api/task/merge-check`.
 
