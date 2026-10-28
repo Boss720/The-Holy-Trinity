@@ -135,7 +135,7 @@ function Run-Case([string]$Name, [scriptblock]$Body, [string]$TestCommand = 'exi
     $oldReview = $env:FAKE_REVIEW_OUTPUT
     # Agent selection env: every case starts with all three fakes usable and nothing disabled.
     $savedEnv = @{}
-    foreach ($envName in 'CLAUDE_EXE', 'TRINITY_DISABLE', 'TRINITY_REVIEWER', 'FAKE_CODEX_LOGGED_OUT', 'FAKE_CLAUDE_LOGGED_OUT', 'FAKE_CLAUDE_MODE', 'TRINITY_AGY_HOME', 'FAKE_AGY_TRANSCRIPT') {
+    foreach ($envName in 'CLAUDE_EXE', 'TRINITY_DISABLE', 'TRINITY_REVIEWER', 'FAKE_CODEX_LOGGED_OUT', 'FAKE_CLAUDE_LOGGED_OUT', 'FAKE_CLAUDE_MODE', 'TRINITY_AGY_HOME', 'FAKE_AGY_TRANSCRIPT', 'TRINITY_ORCHESTRATOR', 'CODEX_THREAD_ID', 'CLAUDECODE', 'CLAUDE_CODE_SESSION_ID', 'ANTIGRAVITY_AGENT', 'ANTIGRAVITY_CONVERSATION_ID') {
         $savedEnv[$envName] = [Environment]::GetEnvironmentVariable($envName)
         [Environment]::SetEnvironmentVariable($envName, $null)
     }
@@ -199,6 +199,112 @@ function Set-CliTask($f, [string]$task, [string]$status, [string]$agent = 'codex
     $board = Join-Path $f.Repo '.git\agent-board.md'
     $text = "`r`n## $task`r`n- agent: $agent`r`n- branch: agent/$agent/$task`r`n- worktree: $(Join-Path $f.Worktrees "$agent-$task")`r`n- scope: tests/*`r`n- status: $status`r`n"
     [IO.File]::AppendAllText($board, $text, (New-Object Text.UTF8Encoding($false)))
+}
+
+Run-Case 'orchestrator detection order and status brief' {
+    param($f)
+    $env:CLAUDECODE = '1'
+    $env:CODEX_THREAD_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+    $status = Invoke-Trinity $f @('status', '-Brief')
+    Assert-True ($status.ExitCode -eq 0 -and $status.Output -match '(?m)^agents:.*\r?\norchestrator: codex') "Codex detection failed: $($status.Output)"
+    $env:ANTIGRAVITY_AGENT = '1'
+    $status = Invoke-Trinity $f @('status', '-Brief')
+    Assert-True ($status.Output -match 'orchestrator: antigravity') 'Antigravity did not beat inherited Codex'
+    $env:TRINITY_ORCHESTRATOR = 'claude'
+    $status = Invoke-Trinity $f @('status', '-Brief')
+    Assert-True ($status.Output -match 'orchestrator: claude') 'orchestrator env override failed'
+    $status = Invoke-Trinity $f @('status', '-Brief', '-Agent', 'codex')
+    Assert-True ($status.Output -match 'orchestrator: codex') '-Agent did not beat env override'
+    $env:TRINITY_ORCHESTRATOR = 'invalid'
+    $status = Invoke-Trinity $f @('status', '-Brief')
+    Assert-True ($status.Output -match 'orchestrator: antigravity') 'invalid env override was accepted'
+    $env:ANTIGRAVITY_AGENT = $null; $env:CODEX_THREAD_ID = $null
+    $status = Invoke-Trinity $f @('status', '-Brief')
+    Assert-True ($status.Output -match 'orchestrator: claude') 'Claude detection failed'
+    $env:CLAUDECODE = $null
+    $status = Invoke-Trinity $f @('status', '-Brief')
+    Assert-True ($status.Output -match 'orchestrator: claude') 'default orchestrator changed'
+    $bad = Invoke-Trinity $f @('status', '-Agent', 'invalid')
+    Assert-True ($bad.ExitCode -ne 0) 'invalid -Agent was accepted'
+}
+
+Run-Case 'orchestrator track links sessions preserves start and permits done' {
+    param($f)
+    foreach ($agent in @('codex', 'antigravity')) {
+        $task = "own-$agent"
+        $env:CODEX_THREAD_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+        $env:ANTIGRAVITY_CONVERSATION_ID = '11111111-2222-3333-4444-555555555555'
+        $session = if ($agent -eq 'codex') { $env:CODEX_THREAD_ID } else { $env:ANTIGRAVITY_CONVERSATION_ID }
+        $track = Invoke-Trinity $f @('track', $task, 'doing work', '-Agent', $agent)
+        Assert-True ($track.ExitCode -eq 0) "track failed: $($track.Output)"
+        $board = Get-Content -Raw (Join-Path $f.Repo '.git\agent-board.md')
+        Assert-True ($board -match "- agent: $agent" -and $board -match "- session: $session" -and $board -match '- branch: -') "track fields missing: $board"
+        $metaFile = Join-Path $f.Repo ".codex-out\meta-$task.json"
+        $meta = Get-Content -Raw $metaFile | ConvertFrom-Json
+        Assert-True ($meta.agent -eq $agent -and $meta.sessionId -eq $session -and $meta.started) 'track metadata missing'
+        $meta.started = '2001-01-01T00:00:00'
+        [IO.File]::WriteAllText($metaFile, ($meta | ConvertTo-Json))
+        $again = Invoke-Trinity $f @('track', $task, 'more work', '-Agent', $agent)
+        $meta = Get-Content -Raw $metaFile | ConvertFrom-Json
+        Assert-True ($again.ExitCode -eq 0 -and $meta.started -eq '2001-01-01T00:00:00') 'track reset started'
+        $other = if ($agent -eq 'codex') { 'claude' } else { 'codex' }
+        $refused = Invoke-Trinity $f @('track', $task, 'take over', '-Agent', $other)
+        Assert-True ($refused.ExitCode -ne 0 -and $refused.Output -match "belongs to $agent") 'track stole another agent task'
+        $done = Invoke-Trinity $f @('done', $task, 'finished', '-Agent', $other)
+        Assert-True ($done.ExitCode -eq 0 -and $done.Output -match 'done: finished') "tracked done failed: $($done.Output)"
+    }
+    $env:CODEX_THREAD_ID = 'not-a-guid'
+    $track = Invoke-Trinity $f @('track', 'invalid-session', 'work', '-Agent', 'codex')
+    $meta = Get-Content -Raw (Join-Path $f.Repo '.codex-out\meta-invalid-session.json') | ConvertFrom-Json
+    Assert-True ($track.ExitCode -eq 0 -and -not $meta.sessionId) 'invalid session id was stored'
+}
+
+Run-Case 'orchestrator reviewer avoids author and honors explicit preference' {
+    param($f)
+    $review = Invoke-Trinity $f @('review', '-Agent', 'codex')
+    Assert-True ($review.ExitCode -eq 0 -and $review.Output -match 'reviewer: claude') "Codex reviewed itself: $($review.Output)"
+    $ask = Invoke-Trinity $f @('ask', 'hello', '-Agent', 'codex')
+    Assert-True ($ask.ExitCode -eq 0 -and $ask.Output -match 'asking: claude') "Codex answered itself: $($ask.Output)"
+    $env:TRINITY_REVIEWER = 'codex'
+    $review = Invoke-Trinity $f @('review', '-Agent', 'codex')
+    Assert-True ($review.Output -match 'reviewer: codex') 'explicit reviewer did not win'
+    $env:TRINITY_REVIEWER = $null
+    $env:TRINITY_DISABLE = 'claude,antigravity'
+    $review = Invoke-Trinity $f @('review', '-Agent', 'codex')
+    Assert-True ($review.ExitCode -eq 0 -and $review.Output -match 'reviewer: codex') 'sole available author was not used'
+}
+
+Run-Case 'orchestrator headless Claude commits parses result and refuses done' {
+    param($f)
+    $env:CLAUDECODE = '1'
+    $run = Invoke-Trinity $f @('run', 'claude', 'claude-headless', '-Headless', '-PromptFile', $f.Prompt, '-Timeout', '60')
+    Assert-True ($run.ExitCode -eq 0 -and $run.Output -match 'done \(1 commits\)') "headless Claude failed: $($run.Output)"
+    $result = Get-Content -Raw (Join-Path $f.Repo '.codex-out\result-claude-headless.md')
+    Assert-True ($result.Trim() -eq 'Fake Claude completed the task.') "JSON result not parsed: $result"
+    $meta = Get-Content -Raw (Join-Path $f.Repo '.codex-out\meta-claude-headless.json') | ConvertFrom-Json
+    Assert-True ($meta.agent -eq 'claude' -and $meta.sessionId -eq 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' -and $meta.tokens.total -eq 2 -and $meta.durationSec -eq 0.01 -and $meta.costUsd -eq 0.01 -and $meta.model -eq 'fake-claude') 'Claude metadata missing'
+    $taskFile = Get-Content -Raw (Join-Path $f.Repo '.codex-out\task-claude-headless.md')
+    Assert-True ($taskFile -match 'Do not run git commit' -and $taskFile -notmatch 'then run in your worktree') 'Claude got interactive task rules'
+    $done = Invoke-Trinity $f @('done', 'claude-headless')
+    Assert-True ($done.ExitCode -ne 0 -and $done.Output -match 'its runner marks it done') 'done accepted headless Claude'
+    $committed = Invoke-Git $f.Repo @('show', 'agent/claude/claude-headless:fake-claude.txt')
+    Assert-True ($committed -eq 'fake Claude edit') 'Claude edit was not committed'
+    $interactive = Invoke-Trinity $f @('dispatch', 'claude', 'claude-interactive', '-PromptFile', $f.Prompt)
+    $board = Get-Content -Raw (Join-Path $f.Repo '.git\agent-board.md')
+    Assert-True ($interactive.ExitCode -eq 0 -and $board -match 'waiting for claude session') 'interactive Claude dispatch changed'
+}
+
+Run-Case 'orchestrator fallback uses headless Claude last and done refuses Codex' {
+    param($f)
+    $env:TRINITY_DISABLE = 'codex,antigravity'
+    $run = Invoke-Trinity $f @('run', 'codex', 'claude-fallback', '-PromptFile', $f.Prompt, '-Timeout', '60')
+    Assert-True ($run.ExitCode -eq 0 -and $run.Output -match 'routing claude-fallback to claude' -and $run.Output -match 'done \(1 commits\)') "Claude fallback failed: $($run.Output)"
+    $env:TRINITY_DISABLE = $null
+    Start-CodexTask $f 'codex-done'
+    $done = Invoke-Trinity $f @('done', 'codex-done')
+    Assert-True ($done.ExitCode -ne 0 -and $done.Output -match 'its runner marks it done') 'done accepted dispatched Codex'
+    $wait = Invoke-Trinity $f @('wait', 'codex-done', '-Timeout', '60')
+    Assert-True ($wait.ExitCode -eq 0) "Codex fixture did not finish: $($wait.Output)"
 }
 
 Run-Case 'cli-s5a show text, ASCII JSON, missing branch and unknown task' {
@@ -502,7 +608,7 @@ Run-Case 'failed Antigravity task returns failure' {
 Run-Case 'missing Antigravity CLI with Codex off fails before worktree or board entry' {
     param($f)
     $env:AGY_EXE = Join-Path $f.Root 'missing agy.exe'
-    $env:TRINITY_DISABLE = 'codex'
+    $env:TRINITY_DISABLE = 'codex,claude'
     $env:LOCALAPPDATA = Join-Path $f.Root 'isolated local app data'
     $gitDirectory = Split-Path (Get-Command git).Source -Parent
     $env:PATH = (Join-Path $env:SystemRoot 'System32') + ';' + $gitDirectory
@@ -575,7 +681,7 @@ Run-Case 'no Codex: dispatch codex routes to Antigravity and records run metadat
 
 Run-Case 'no headless worker at all fails with a clear message' {
     param($f)
-    $env:TRINITY_DISABLE = 'codex,antigravity'
+    $env:TRINITY_DISABLE = 'codex,antigravity,claude'
     $dispatch = Invoke-Trinity $f @('dispatch', 'codex', 'task-none', 'test prompt')
     Assert-True ($dispatch.ExitCode -ne 0 -and $dispatch.Output -match 'no headless worker') "unexpected dispatch result: $($dispatch.Output)"
     Assert-True (-not (Test-Path (Join-Path $f.Worktrees 'codex-task-none'))) 'worktree created without a worker'
@@ -998,6 +1104,7 @@ Run-Case 'review and ask use Codex when it is available' {
 Run-Case 'no Codex: review, ask, status and track work' {
     param($f)
     $env:TRINITY_DISABLE = 'codex'
+    $env:TRINITY_REVIEWER = 'claude'
     [IO.File]::WriteAllText((Join-Path $f.Repo 'README.md'), "changed`r`n", [System.Text.UTF8Encoding]::new($false))
     $review = Invoke-Trinity $f @('review')
     Assert-True ($review.ExitCode -eq 0 -and $review.Output -match 'reviewer: claude' -and $review.Output -match 'No findings') "review fallback failed: $($review.Output)"
