@@ -11,6 +11,7 @@ param(
     [switch]$Headless,
     [string]$PromptFile,
     [int]$Timeout = 1800,
+    [int]$DeadlineMinutes = 0,
     [int]$Port = 7777,
     [ValidateRange(0, 365000)][int]$OlderThanDays = 7,
     [switch]$Json,
@@ -53,6 +54,39 @@ function Test-HeadlessEntry($entry) {
     $entry.branch -and $entry.branch -ne '-' -and ($entry.agent -in @('codex', 'antigravity') -or ($entry.agent -eq 'claude' -and $entry.mode -eq 'headless'))
 }
 
+function Test-TaskRunnerAlive($paths, [string]$task) {
+    $pidFile = Join-Path $paths.Out "pid-$task.txt"
+    if (-not (Test-Path -LiteralPath $pidFile)) {
+        return [pscustomobject]@{ Alive = $false; PidReused = $false; Process = $null }
+    }
+    $pidText = ([IO.File]::ReadAllText($pidFile)).Trim()
+    $runnerPid = 0
+    if (-not [int]::TryParse($pidText, [ref]$runnerPid) -or $runnerPid -le 0) {
+        return [pscustomobject]@{ Alive = $false; PidReused = $false; Process = $null }
+    }
+    $proc = Get-Process -Id $runnerPid -ErrorAction SilentlyContinue
+    if (-not $proc) {
+        return [pscustomobject]@{ Alive = $false; PidReused = $false; Process = $null }
+    }
+    if ($proc.ProcessName -notin @('powershell', 'pwsh')) {
+        return [pscustomobject]@{ Alive = $false; PidReused = $true; Process = $proc }
+    }
+    $procStartTime = $null
+    try {
+        $procStartTime = $proc.StartTime
+    }
+    catch {
+        return [pscustomobject]@{ Alive = $false; PidReused = $true; Process = $proc }
+    }
+    # The dispatcher writes the pid file right after starting the runner, so the runner must have started shortly
+    # before that write. A process started later (PID reused, even by another powershell) or long before is not ours.
+    $pidWritten = (Get-Item -LiteralPath $pidFile).LastWriteTime
+    if ($procStartTime -gt $pidWritten.AddSeconds(2) -or $procStartTime -lt $pidWritten.AddSeconds(-60)) {
+        return [pscustomobject]@{ Alive = $false; PidReused = $true; Process = $proc }
+    }
+    return [pscustomobject]@{ Alive = $true; PidReused = $false; Process = $proc }
+}
+
 function Show-Usage {
     Write-Host 'trinity <command> [options]'
     Write-Host ''
@@ -76,6 +110,7 @@ function Show-Usage {
     Write-Host '                                          trinity done login-form added the login form'
     Write-Host '  (dispatch/run) -PromptFile <file>     read the prompt from a file instead of <prompt...>'
     Write-Host '                                          trinity dispatch codex login-form -PromptFile prompt.txt'
+    Write-Host '  (dispatch/run) -DeadlineMinutes <N>   kill runner after N min (default 120, env TRINITY_DEADLINE_MINUTES)'
     Write-Host '  merge <task> [-Yes] [-Force]          review, merge --no-ff, run tests, clean up'
     Write-Host '                                          trinity merge login-form'
     Write-Host '  cancel <task> [-Force]                remove the worktree and branch, mark cancelled'
@@ -316,6 +351,7 @@ function Wait-Task([string]$task, [int]$timeoutSec) {
     if (-not $entry) { Fail "no board entry for $task" }
     $start = Get-Date
     $lastNote = $start
+    $pidReused = $false
     while ($true) {
         $entry = Get-BoardEntry $paths $task
         $status = $entry.status
@@ -325,9 +361,13 @@ function Wait-Task([string]$task, [int]$timeoutSec) {
         # means pending whatever the board says (an agent could write a lookalike status itself).
         $pidFile = Join-Path $paths.Out "pid-$task.txt"
         $runnerAlive = $false
-        if ($headless -and (Test-Path $pidFile)) {
-            $runnerPid = [IO.File]::ReadAllText($pidFile).Trim()
-            $runnerAlive = [bool]($runnerPid -and (Get-Process -Id $runnerPid -ErrorAction SilentlyContinue))
+        if ($headless -and (Test-Path -LiteralPath $pidFile)) {
+            $runnerCheck = Test-TaskRunnerAlive $paths $task
+            $runnerAlive = $runnerCheck.Alive
+            if ($runnerCheck.PidReused) {
+                $pidReused = $true
+                break
+            }
         }
         $runnerDone = -not $runnerAlive -and ((-not $headless) -or ($status -match '^(done \(|done, no commits|failed|merged|cancelled)'))
         if ($runnerDone -and $status -notmatch '^(started|running|waiting)') { break }
@@ -337,6 +377,10 @@ function Wait-Task([string]$task, [int]$timeoutSec) {
             $lastNote = Get-Date
         }
         Start-Sleep -Seconds 5
+    }
+    if ($pidReused) {
+        Write-Host 'runner dead (pid reused)'
+        return 1
     }
     $pending = -not $runnerDone -or ($status -match '^(started|running|waiting)')
     if ($pending) { Write-Host "timeout after $($timeoutSec)s, still: $status" }
@@ -360,7 +404,8 @@ function Wait-Task([string]$task, [int]$timeoutSec) {
 }
 
 # Create worktree + task file for one agent and start it (codex/antigravity) or park it (claude).
-function Start-Dispatch([string]$agent, [string]$task, [string]$prompt) {
+function Start-Dispatch([string]$agent, [string]$task, [string]$prompt, [int]$deadline = 0) {
+    if ($deadline -le 0 -and $DeadlineMinutes -gt 0) { $deadline = $DeadlineMinutes }
     # Pick a worker that can run here now, in the foreground, rather than failing in the hidden runner.
     $requested = $agent
     $agent = Select-Worker $agent $task
@@ -404,7 +449,11 @@ function Start-Dispatch([string]$agent, [string]$task, [string]$prompt) {
         { $isHeadless } {
             if ($agent -eq 'claude') { Set-BoardField $paths $task 'mode' 'headless' }
             Set-BoardStatus $paths $task 'running'
-            $runner = Start-Process powershell.exe -WindowStyle Hidden -PassThru -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '_run', $task
+            $runnerArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '_run', $task)
+            if ($deadline -gt 0) {
+                $runnerArgs += @('-DeadlineMinutes', "$deadline")
+            }
+            $runner = Start-Process powershell.exe -WindowStyle Hidden -PassThru -ArgumentList $runnerArgs
             [IO.File]::WriteAllText((Join-Path $paths.Out "pid-$task.txt"), "$($runner.Id)", $script:Utf8)
             Write-Host "$agent started headless in background."
             Write-Host "Log:    $(Join-Path $paths.Out "log-$task.txt")"
@@ -423,7 +472,7 @@ function Start-Dispatch([string]$agent, [string]$task, [string]$prompt) {
 function Get-TaskFiles([string]$task) {
     if (Test-Path -LiteralPath $paths.Out) {
         Get-ChildItem -LiteralPath $paths.Out -File | Where-Object {
-            $_.Name -match ('^(task|prompt|result|log|agy|agyout|claudeout|meta|pid|run)-' + [regex]::Escape($task) + '\.')
+            $_.Name -match ('^(task|prompt|result|log|agy|agyout|claudeout|meta|pid|run|deadline)-' + [regex]::Escape($task) + '\.')
         }
     }
 }
@@ -511,7 +560,7 @@ switch ($Command) {
             if (@($Rest).Count -lt 3) { Fail 'usage: trinity dispatch <codex|antigravity|claude> <task> <prompt...> (or -PromptFile <file>)' }
             $prompt = ($Rest[2..($Rest.Count - 1)]) -join ' '
         }
-        Start-Dispatch $Rest[0] $Rest[1] $prompt
+        Start-Dispatch $Rest[0] $Rest[1] $prompt $DeadlineMinutes
     }
 
     'run' {
@@ -524,7 +573,7 @@ switch ($Command) {
             if (@($Rest).Count -lt 3) { Fail 'usage: trinity run <codex|antigravity|claude> <task> <prompt...> (or -PromptFile <file>)' }
             $prompt = ($Rest[2..($Rest.Count - 1)]) -join ' '
         }
-        Start-Dispatch $Rest[0] $Rest[1] $prompt
+        Start-Dispatch $Rest[0] $Rest[1] $prompt $DeadlineMinutes
         if ((Get-BoardEntry $paths $Rest[1]).status -match '^waiting for claude session') {
             Write-Host 'claude tasks need a Claude Code session; not waiting.'
             exit 0
@@ -559,12 +608,58 @@ switch ($Command) {
         $log = Join-Path $paths.Out "log-$task.txt"
         $result = Join-Path $paths.Out "result-$task.md"
 
+        $effectiveDeadline = 120
+        if ($env:TRINITY_DEADLINE_MINUTES) {
+            $parsed = 0
+            if ([int]::TryParse($env:TRINITY_DEADLINE_MINUTES, [ref]$parsed) -and $parsed -gt 0) { $effectiveDeadline = $parsed }
+        }
+        if ($DeadlineMinutes -gt 0) {
+            $effectiveDeadline = $DeadlineMinutes
+        }
+
+        $deadlineSeconds = $effectiveDeadline * 60
+        if ($env:TRINITY_DEADLINE_SECONDS) {
+            $parsedSec = 0
+            if ([int]::TryParse($env:TRINITY_DEADLINE_SECONDS, [ref]$parsedSec) -and $parsedSec -gt 0) { $deadlineSeconds = $parsedSec }
+        }
+
+        $stallMinutes = 15
+        if ($env:TRINITY_STALL_MINUTES) {
+            $parsedStall = 0
+            if ([int]::TryParse($env:TRINITY_STALL_MINUTES, [ref]$parsedStall) -and $parsedStall -gt 0) { $stallMinutes = $parsedStall }
+        }
+        $stallSeconds = $stallMinutes * 60
+        if ($env:TRINITY_STALL_SECONDS) {
+            $parsedStallSec = 0
+            if ([int]::TryParse($env:TRINITY_STALL_SECONDS, [ref]$parsedStallSec) -and $parsedStallSec -gt 0) { $stallSeconds = $parsedStallSec }
+        }
+
         # Run through a generated .cmd file: PS 5.1 mangles embedded quotes passed to cmd /c,
         # and cmd gives stdin/stdout redirection that works with spaces in paths.
         # Metadata for the dashboard (docs/dashboard.md): start now, model/session/tokens when the agent ends.
+        $started = Get-Date
+        $deadlineAt = $started.AddSeconds($deadlineSeconds)
+        $deadlineIso = $deadlineAt.ToString('yyyy-MM-ddTHH:mm:ss')
+
         $metaFile = Join-Path $paths.Out "meta-$task.json"
-        $meta = [ordered]@{ agent = $entry.agent; started = (Get-Date -Format 'yyyy-MM-ddTHH:mm:ss') }
-        [IO.File]::WriteAllText($metaFile, ($meta | ConvertTo-Json -Compress), $script:Utf8)
+        $meta = [ordered]@{
+            agent = $entry.agent
+            started = ($started.ToString('yyyy-MM-ddTHH:mm:ss'))
+            deadlineAt = $deadlineIso
+            deadline = $deadlineIso
+        }
+        $metaWritten = $false
+        try {
+            [IO.File]::WriteAllText($metaFile, ($meta | ConvertTo-Json -Compress), $script:Utf8)
+            $metaWritten = $true
+        }
+        catch { }
+        if (-not $metaWritten -or -not (Test-Path -LiteralPath $metaFile)) {
+            try {
+                [IO.File]::WriteAllText((Join-Path $paths.Out "deadline-$task.txt"), $deadlineIso, $script:Utf8)
+            } catch { }
+        }
+
         $agyJson = Join-Path $paths.Out "agyout-$task.json"
         $agyLog = Join-Path $paths.Out "agy-$task.log"
 
@@ -589,7 +684,78 @@ switch ($Command) {
         [IO.File]::WriteAllText($runFile, "@echo off`r`n$cmdLine`r`nexit /b %ERRORLEVEL%`r`n", $script:Utf8)
         $nested = $env:CLAUDECODE
         if ($entry.agent -eq 'claude') { $env:CLAUDECODE = $null }
-        try { & $runFile; $rc = $LASTEXITCODE }
+        $timedOut = $false
+        $rc = 0
+        try {
+            $agentProc = Start-Process -FilePath $env:ComSpec -ArgumentList @('/c', "`"$runFile`"") -PassThru -WindowStyle Hidden
+            $lastLogGrowth = Get-Date
+            $lastLogSize = -1L
+            $isStalled = $false
+            # Antigravity writes its log only when it exits, so changed files in the worktree count as progress too.
+            $treeEvery = [Math]::Max(1, [Math]::Min(30, [int]($stallSeconds / 2)))
+            $lastTreeCheck = [DateTime]::MinValue
+            $lastTreeSig = $null
+            $lastBoardCheck = [DateTime]::MinValue
+
+            while (-not $agentProc.HasExited) {
+                if (((Get-Date) - $lastBoardCheck).TotalSeconds -ge 5) {
+                    $lastBoardCheck = Get-Date
+                    $curEntry = Get-BoardEntry $paths $task
+                    if ($curEntry -and $curEntry.status -match '^cancelled') {
+                        taskkill.exe /PID $agentProc.Id /T /F 2>&1 | Out-Null
+                        exit 0
+                    }
+                }
+
+                $now = Get-Date
+                if (($now - $started).TotalSeconds -ge $deadlineSeconds) {
+                    $timedOut = $true
+                    taskkill.exe /PID $agentProc.Id /T /F 2>&1 | Out-Null
+                    break
+                }
+
+                $currentSize = 0L
+                if (Test-Path -LiteralPath $log) {
+                    try { $currentSize = (Get-Item -LiteralPath $log).Length } catch { }
+                }
+                $treeMoved = $false
+                if (($now - $lastTreeCheck).TotalSeconds -ge $treeEvery) {
+                    $lastTreeCheck = $now
+                    $sig = ''
+                    try {
+                        foreach ($line in @(git -C $entry.worktree status --porcelain --untracked-files=all 2>$null)) {
+                            $rel = ($line.Substring(3) -replace '^"|"$', '') -replace '^.* -> ', ''
+                            $item = Get-Item -LiteralPath (Join-Path $entry.worktree $rel) -ErrorAction SilentlyContinue
+                            $sig += "$line|$(if ($item) { $item.LastWriteTimeUtc.Ticks })`n"
+                        }
+                    } catch { }
+                    if ($null -ne $lastTreeSig -and $sig -ne $lastTreeSig) { $treeMoved = $true }
+                    $lastTreeSig = $sig
+                }
+                if ($currentSize -gt $lastLogSize -or $treeMoved) {
+                    $lastLogSize = $currentSize
+                    $lastLogGrowth = $now
+                    if ($isStalled) {
+                        $isStalled = $false
+                        Set-BoardStatus $paths $task 'running'
+                    }
+                }
+                elseif (-not $isStalled -and (($now - $lastLogGrowth).TotalSeconds -ge $stallSeconds)) {
+                    $isStalled = $true
+                    Set-BoardStatus $paths $task "running (stalled: no output $stallMinutes min)"
+                }
+
+                Start-Sleep -Seconds 1
+            }
+
+            if ($timedOut) {
+                $rc = 124
+            }
+            else {
+                $agentProc.WaitForExit()
+                $rc = $agentProc.ExitCode
+            }
+        }
         finally { $env:CLAUDECODE = $nested }
         if ((Get-BoardEntry $paths $task).status -match '^cancelled') { exit 0 }
 
@@ -655,7 +821,7 @@ switch ($Command) {
         [IO.File]::WriteAllText($metaFile, ($meta | ConvertTo-Json -Compress -Depth 4), $script:Utf8)
 
         # Codex's sandbox keeps .git read-only, so the runner commits for every headless agent; the final summary is the message.
-        if ($rc -eq 0 -and (Get-Git @('-C', $entry.worktree, 'status', '--porcelain'))) {
+        if (-not $timedOut -and $rc -eq 0 -and (Get-Git @('-C', $entry.worktree, 'status', '--porcelain'))) {
             $summary = @(if (Test-Path $result) { [IO.File]::ReadAllLines($result) | Where-Object { $_.Trim() } })
             $subject = "$($task): " + $(if ($summary) { ($summary[0] -replace '\[([^\]]*)\]\([^)]*\)', '$1' -replace '[\[\]`*]', '') } else { 'Codex changes' })
             if ($subject.Length -gt 72) { $subject = $subject.Substring(0, 69) + '...' }
@@ -667,7 +833,8 @@ switch ($Command) {
         }
 
         $n = [int](Get-Git @('-C', $paths.Main, 'rev-list', '--count', "main..$($entry.branch)"))
-        if ($rc -eq 0 -and $n -gt 0) { $status = "done ($n commits)" }
+        if ($timedOut) { $status = "failed (timed out after $effectiveDeadline min)" }
+        elseif ($rc -eq 0 -and $n -gt 0) { $status = "done ($n commits)" }
         elseif ($rc -eq 0) { $status = 'done, no commits' }
         else { $status = "failed (exit $rc)" }
         Set-BoardStatus $paths $task $status
@@ -738,7 +905,7 @@ switch ($Command) {
         if ($Force) { $cancelArgs += '-Force' }
         & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath @cancelArgs
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-        $oldFiles = @(Get-TaskFiles $task | Where-Object { $_.Name -match '^(log|result|agy|agyout|claudeout|meta|run)-' -and $_.Name -notmatch '\.attempt\d+\.' })
+        $oldFiles = @(Get-TaskFiles $task | Where-Object { $_.Name -match '^(log|result|agy|agyout|claudeout|meta|run|deadline)-' -and $_.Name -notmatch '\.attempt\d+\.' })
         $attempt = 1
         while (@(Get-TaskFiles $task | Where-Object { $_.Name -match "\.attempt$attempt\." }).Count) { $attempt++ }
         foreach ($file in $oldFiles) {
@@ -796,13 +963,16 @@ switch ($Command) {
         # Mark first so a runner that is still finishing never overwrites it, then stop the runner and its agent.
         Set-BoardStatus $paths $task 'cancelled'
         $pidFile = Join-Path $paths.Out "pid-$task.txt"
-        if (Test-Path $pidFile) {
-            $runnerPid = [IO.File]::ReadAllText($pidFile).Trim()
-            if ($runnerPid -and (Get-Process -Id $runnerPid -ErrorAction SilentlyContinue)) {
-                taskkill.exe /PID $runnerPid /T /F | Out-Null
-                Write-Host "Stopped runner process tree $runnerPid."
+        if (Test-Path -LiteralPath $pidFile) {
+            $runnerCheck = Test-TaskRunnerAlive $paths $task
+            if ($runnerCheck.Alive) {
+                taskkill.exe /PID $runnerCheck.Process.Id /T /F 2>&1 | Out-Null
+                Write-Host "Stopped runner process tree $($runnerCheck.Process.Id)."
             }
-            Remove-Item $pidFile
+            elseif ($runnerCheck.PidReused) {
+                Write-Host 'runner dead (pid reused)'
+            }
+            Remove-Item -LiteralPath $pidFile -ErrorAction SilentlyContinue
         }
         $registered = @(Get-Git @('-C', $paths.Main, 'worktree', 'list', '--porcelain') | Where-Object { $_ -like 'worktree *' } |
             ForEach-Object { ($_.Substring(9)) -replace '/', '\' }) -contains $entry.worktree

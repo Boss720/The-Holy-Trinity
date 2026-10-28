@@ -19,6 +19,14 @@ if ($arguments -match '^\s*review(?:\s|$)') {
 
 if ($arguments -notmatch '^\s*exec(?:\s|$)') { exit 2 }
 if ($mode -eq 'fail') { exit 3 }
+if ($mode -eq 'hang') { while ($true) { Start-Sleep -Seconds 10 } }
+if ($mode -eq 'stall-then-resume') {
+    [Console]::WriteLine('initial output')
+    [Console]::Out.Flush()
+    Start-Sleep -Seconds 5
+    [Console]::WriteLine('resumed output')
+    [Console]::Out.Flush()
+}
 
 $workingDirectory = $null
 $resultPath = $null
@@ -29,6 +37,12 @@ elseif ($arguments -match '(?:^|\s)-o\s+(\S+)') { $resultPath = $Matches[1] }
 if (-not $workingDirectory -or -not $resultPath) { exit 2 }
 
 $null = [Console]::In.ReadToEnd()
+if ($mode -eq 'quiet-edits') {
+    # Like Antigravity: no output until exit, but files keep changing.
+    # Inside a new folder: git status lists only the folder unless asked for every untracked file.
+    New-Item -ItemType Directory -Path (Join-Path $workingDirectory 'progress') -Force | Out-Null
+    for ($i = 0; $i -lt 8; $i++) { [IO.File]::WriteAllText((Join-Path $workingDirectory 'progress\fake-progress.txt'), "step $i", [System.Text.UTF8Encoding]::new($false)); Start-Sleep -Seconds 1 }
+}
 if ($mode -ne 'nochange') {
     [IO.File]::WriteAllText((Join-Path $workingDirectory 'fake-output.txt'), 'fake codex output' + "`r`n", [System.Text.UTF8Encoding]::new($false))
 }
