@@ -19,6 +19,14 @@ if ($arguments -match '^\s*review(?:\s|$)') {
 
 if ($arguments -notmatch '^\s*exec(?:\s|$)') { exit 2 }
 if ($mode -eq 'fail') { exit 3 }
+if ($mode -eq 'hang') { while ($true) { Start-Sleep -Seconds 10 } }
+if ($mode -eq 'stall-then-resume') {
+    [Console]::WriteLine('initial output')
+    [Console]::Out.Flush()
+    Start-Sleep -Seconds 5
+    [Console]::WriteLine('resumed output')
+    [Console]::Out.Flush()
+}
 
 $workingDirectory = $null
 $resultPath = $null

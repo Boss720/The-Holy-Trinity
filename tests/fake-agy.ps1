@@ -26,6 +26,14 @@ if ($modeIndex -ge 0 -and $args[$modeIndex + 1] -eq 'plan') {
 
 if ($mode -eq 'fail') { exit 4 }
 if ($mode -eq 'slow') { Start-Sleep -Seconds 120 }
+if ($mode -eq 'hang') { while ($true) { Start-Sleep -Seconds 10 } }
+if ($mode -eq 'stall-then-resume') {
+    [Console]::Error.WriteLine('initial output')
+    [Console]::Error.Flush()
+    Start-Sleep -Seconds 5
+    [Console]::Error.WriteLine('resumed output')
+    [Console]::Error.Flush()
+}
 
 [IO.File]::WriteAllText((Join-Path (Get-Location).Path 'agy-output.txt'), 'fake agy output' + "`r`n", $utf8)
 if ($mode -eq 'narrate') {
