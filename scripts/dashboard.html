@@ -3877,6 +3877,7 @@
       let currentCheckAbortController = null;
       let checkDebounceTimer = null;
       let lastCheckData = null;
+      let isDispatchPending = false;
 
       let pendingConfirmAction = null;
 
@@ -3975,6 +3976,8 @@
         if (!dispatchModal) return;
         if (!areActionsEnabled(lastStateData)) return;
 
+        isDispatchPending = false;
+
         if (dispatchErrorBanner) {
           dispatchErrorBanner.style.display = 'none';
           dispatchErrorBanner.textContent = '';
@@ -4006,6 +4009,7 @@
           try { dispatchModal.close(); } catch (e) {}
         }
         dispatchModal.removeAttribute('open');
+        isDispatchPending = false;
 
         if (headerDispatchBtn) {
           try { headerDispatchBtn.focus(); } catch (e) {}
@@ -4040,6 +4044,7 @@
           dispatchSubmitBtn.disabled = true;
           dispatchSubmitBtn.textContent = 'Dispatch Task';
         }
+        isDispatchPending = false;
         lastCheckData = null;
         if (currentCheckAbortController) {
           currentCheckAbortController.abort();
@@ -4157,7 +4162,26 @@
         try { localStorage.setItem('trinity_dash_dispatch_repo', repo); } catch (e) {}
       }
 
+      function getDispatchValidationKey() {
+        const repo = dispatchRepo ? dispatchRepo.value : '';
+        const selectedRadio = document.querySelector('input[name="dispatch-agent"]:checked');
+        const agent = selectedRadio ? selectedRadio.value : 'antigravity';
+        const task = dispatchTask ? dispatchTask.value.trim() : '';
+        const scope = dispatchScope ? dispatchScope.value.trim() : '';
+        return repo + '|' + agent + '|' + task + '|' + scope;
+      }
+
+      function invalidateDispatchValidation() {
+        lastCheckData = null;
+        if (currentCheckAbortController) {
+          currentCheckAbortController.abort();
+          currentCheckAbortController = null;
+        }
+        updateDispatchSubmitDisabledState();
+      }
+
       function scheduleDispatchCheck() {
+        invalidateDispatchValidation();
         if (checkDebounceTimer) clearTimeout(checkDebounceTimer);
         checkDebounceTimer = setTimeout(runDispatchCheck, 300);
       }
@@ -4174,6 +4198,7 @@
         const agent = selectedRadio ? selectedRadio.value : 'antigravity';
         const task = dispatchTask ? dispatchTask.value.trim() : '';
         const scope = dispatchScope ? dispatchScope.value.trim() : '';
+        const requestKey = repo + '|' + agent + '|' + task + '|' + scope;
 
         if (!repo) return;
 
@@ -4184,6 +4209,7 @@
 
         try {
           const res = await fetch(url, { signal: signal });
+          if (requestKey !== getDispatchValidationKey()) return;
           if (!res.ok) {
             if (isSample) {
               applySampleCheck(repo, agent, task, scope);
@@ -4191,10 +4217,12 @@
             return;
           }
           const data = await res.json();
+          if (requestKey !== getDispatchValidationKey()) return;
           lastCheckData = data;
           renderValidationResults(data, agent);
         } catch (err) {
           if (err.name === 'AbortError') return;
+          if (requestKey !== getDispatchValidationKey()) return;
           if (isSample) {
             applySampleCheck(repo, agent, task, scope);
           }
@@ -4202,6 +4230,8 @@
       }
 
       function applySampleCheck(repo, agent, task, scope) {
+        const expectedKey = repo + '|' + agent + '|' + task + '|' + scope;
+        if (expectedKey !== getDispatchValidationKey()) return;
         const repoObj = (lastStateData && Array.isArray(lastStateData.repos))
           ? lastStateData.repos.find(function (r) { return r.path === repo || r.name === repo; })
           : null;
@@ -4298,6 +4328,8 @@
           canDispatch: canDispatch
         };
 
+        const expectedKeyEnd = repo + '|' + agent + '|' + task + '|' + scope;
+        if (expectedKeyEnd !== getDispatchValidationKey()) return;
         lastCheckData = mockData;
         renderValidationResults(mockData, agent);
       }
@@ -4384,6 +4416,10 @@
 
       function updateDispatchSubmitDisabledState() {
         if (!dispatchSubmitBtn) return;
+        if (isDispatchPending) {
+          dispatchSubmitBtn.disabled = true;
+          return;
+        }
         const promptLen = dispatchPrompt ? dispatchPrompt.value.trim().length : 0;
         const promptRawLen = dispatchPrompt ? dispatchPrompt.value.length : 0;
         const canDispatch = !!(lastCheckData && lastCheckData.canDispatch);
@@ -4429,6 +4465,7 @@
       }
 
       function triggerDispatchSubmit() {
+        if (isDispatchPending) return;
         if (!lastCheckData || !lastCheckData.canDispatch) return;
         const promptVal = (dispatchPrompt ? dispatchPrompt.value : '').trim();
         if (!promptVal || promptVal.length > 32768) return;
@@ -4455,6 +4492,9 @@
       }
 
       async function executeDispatchAction(repoPath, agent, task, scope, prompt) {
+        if (isDispatchPending) return;
+        isDispatchPending = true;
+
         if (dispatchSubmitBtn) {
           dispatchSubmitBtn.disabled = true;
           dispatchSubmitBtn.textContent = 'Dispatching...';
@@ -4505,6 +4545,7 @@
       }
 
       function showDispatchError(errorMsg) {
+        isDispatchPending = false;
         if (dispatchErrorBanner) {
           dispatchErrorBanner.textContent = errorMsg;
           dispatchErrorBanner.style.display = 'block';
@@ -4516,11 +4557,13 @@
       }
 
       function onDispatchJobSuccess(repoPath, taskName) {
+        isDispatchPending = false;
         closeDispatchModal(true);
         retryNavigateToTask(repoPath, taskName);
       }
 
       function onDispatchJobFailed(errorMsg) {
+        isDispatchPending = false;
         showDispatchError(errorMsg);
       }
 
@@ -4598,6 +4641,7 @@
       if (dispatchRepo) {
         dispatchRepo.addEventListener('change', function () {
           saveDispatchRepo(dispatchRepo.value);
+          invalidateDispatchValidation();
           scheduleDispatchCheck();
         });
       }
@@ -4609,6 +4653,7 @@
             if (selected) {
               saveDispatchAgent(selected.value);
               updateDispatchRadioCards();
+              invalidateDispatchValidation();
               scheduleDispatchCheck();
             }
           });
@@ -4616,11 +4661,17 @@
       });
 
       if (dispatchTask) {
-        dispatchTask.addEventListener('input', scheduleDispatchCheck);
+        dispatchTask.addEventListener('input', function () {
+          invalidateDispatchValidation();
+          scheduleDispatchCheck();
+        });
       }
 
       if (dispatchScope) {
-        dispatchScope.addEventListener('input', scheduleDispatchCheck);
+        dispatchScope.addEventListener('input', function () {
+          invalidateDispatchValidation();
+          scheduleDispatchCheck();
+        });
       }
 
       if (dispatchPrompt) {
@@ -4989,6 +5040,9 @@
             activeJobs.delete(jobId);
             activeTaskJobs.delete(job.taskKey);
             updateActionButtonsDisabledState();
+            if (job.action === 'dispatch') {
+              onDispatchJobFailed('Job not found (404)');
+            }
           }
         } finally {
           if (job) job.inFlight = false;
@@ -7241,7 +7295,7 @@
       }
 
       function activateTaskDeepLink(taskRef, targetTab) {
-        if (!taskRef) return;
+        if (!taskRef) return false;
         let targetRepo = '';
         let targetTask = '';
         const slashIdx = taskRef.indexOf('/');
@@ -7252,6 +7306,7 @@
           targetTask = taskRef.trim();
         }
 
+        let found = false;
         const cards = document.querySelectorAll('.task-card');
         for (let i = 0; i < cards.length; i++) {
           const card = cards[i];
@@ -7268,10 +7323,12 @@
                 switchTaskTab(cKey, targetTab, card);
               }
               card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              found = true;
               break;
             }
           }
         }
+        return found;
       }
 
       function applyViewFromHash() {
@@ -7328,8 +7385,10 @@
 
         // Apply a deep link once per hash; every state render calls this, and re-applying would undo the user's tab choice.
         if (view === 'tasks' && pendingTaskDeepLink && lastStateData && appliedDeepLinkHash !== hash) {
-          appliedDeepLinkHash = hash;
-          activateTaskDeepLink(pendingTaskDeepLink, pendingTaskTabDeepLink);
+          const activated = activateTaskDeepLink(pendingTaskDeepLink, pendingTaskTabDeepLink);
+          if (activated) {
+            appliedDeepLinkHash = hash;
+          }
         }
       }
 
