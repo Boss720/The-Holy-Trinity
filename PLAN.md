@@ -25,7 +25,7 @@ Per-module checklist. Owner = claude | codex | antigravity.
 - [x] Only the runner can finish a headless task (done refused, live runner pid = pending) - claude
 - [ ] Windows notification seen on screen (code runs without error; not visually confirmed) - user
 - [x] Release install: `install.cmd`, `trinity doctor`, `build-release.ps1`, release/CI workflows, INSTALL.md, Claude install prompt; fresh-extract walkthrough passed - claude + codex + antigravity (tasks installer, release-pack, install-docs)
-- [ ] Cut release v0.4.0 (CHANGELOG heading, tag, push) and confirm the first GitHub Actions run - user
+- [x] Cut release v0.4.0 (CHANGELOG heading, tag, push) and confirm the first GitHub Actions run - user (v0.4.0-v0.6.0 tagged and pushed; GitHub release v0.6.0 has zip + .sha256, checked 2026-10-28)
 
 ## Module 3: Dashboard (see `docs/dashboard.md`)
 - [x] Spec + JSON contract (`docs/dashboard.md`) - claude
