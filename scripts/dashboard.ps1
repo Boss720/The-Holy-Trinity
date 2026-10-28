@@ -664,7 +664,9 @@ function Get-TextLines([string]$Path, [int]$Limit, [switch]$Tail) {
 }
 
 function Get-TaskState([string]$Status, [bool]$RunnerAlive) {
+    if ($Status -match '\(stalled') { return 'stalled' }
     if ($RunnerAlive -or $Status -match '^(started|running|working)(\s|:|$)') { return 'running' }
+    if ($Status -match '^ready') { return 'ready' }
     if ($Status -match '^failed') { return 'failed' }
     if ($Status -match '^merged') { return 'merged' }
     if ($Status -match '^cancelled') { return 'cancelled' }
@@ -990,12 +992,14 @@ function Get-DashboardState {
             $reason = $null
             if ($task.state -eq 'failed') { $reason = 'failed' }
             elseif ($task.state -eq 'done') { $reason = 'done-unmerged' }
+            elseif ($task.state -eq 'ready') { $reason = 'ready' }
+            elseif ($task.state -eq 'stalled') { $reason = 'stalled' }
             elseif ($task.state -eq 'running' -and -not $task.runnerAlive) { $reason = 'runner-dead' }
             if ($reason) {
                 $detail = if ($task.status) { [string]$task.status } else { [string]$task.result }
                 $since = ''
                 if ($task.updated) { try { $since = ([datetime]::Parse($task.updated)).ToString("yyyy-MM-dd'T'HH:mm:ssK") } catch { } }
-                $attention.Add([pscustomobject]@{ repo=$repo.name; repoPath=$repo.path; task=$task.task; agent=$task.agent; reason=$reason; detail=$detail; since=$since })
+                $attention.Add([pscustomobject]@{ repo=$repo.name; repoPath=$repo.path; task=$task.task; agent=$task.agent; kind=$reason; reason=$reason; detail=$detail; since=$since })
             }
         }
     }
@@ -1142,7 +1146,7 @@ function Start-ActionProcess([string]$Id, [string]$Action, [string]$Task, [strin
     }
     $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     # trinity.ps1 finds its repo root from its own path, so the review must run the worktree's copy to see the task branch.
-    if ($Action -eq 'review-task') { $reviewScript = Join-Path $Worktree 'scripts\trinity.ps1'; if (-not (Test-Path -LiteralPath $reviewScript -PathType Leaf)) { $reviewScript = Join-Path $RepoPath 'scripts\trinity.ps1' }; $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$reviewScript,'review','--base','main'); $cwd=$Worktree }
+    if ($Action -eq 'review-task') { $reviewScript = Join-Path $RepoPath 'scripts\trinity.ps1'; $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$reviewScript,'merge',$Task,'-DryRun'); $cwd=$RepoPath }
     elseif ($Action -eq 'dispatch') { $dispatchScript=Join-Path $RepoPath 'scripts\trinity.ps1'; if (-not (Test-Path -LiteralPath $dispatchScript -PathType Leaf)) { $dispatchScript=Join-Path $PSScriptRoot 'trinity.ps1' }; $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$dispatchScript,'dispatch',$Agent,$Task,'-Scope',$Scope,'-PromptFile',$PromptFile); $cwd=$RepoPath }
     elseif ($Action -eq 'cancel') { $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $RepoPath 'scripts\trinity.ps1'),'cancel',$Task); $cwd=$RepoPath }
     else { $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $RepoPath 'scripts\trinity.ps1'),'merge',$Task,'-Yes'); $cwd=$RepoPath }
@@ -1330,7 +1334,7 @@ try {
                     if (@($running | Where-Object { [string]::Equals($_.repo,$repoPath,[StringComparison]::OrdinalIgnoreCase) -and $_.task -eq $taskName }).Count) { Add-ActionLog $action $repoPath $taskName '409'; $actionLogged=$true; Send-JsonResponse $response 409 @{ error='An action is already running for this task' }; continue }
                     if ($running.Count -ge 4) { Add-ActionLog $action $repoPath $taskName '429'; $actionLogged=$true; Send-JsonResponse $response 429 @{ error='Too many running actions' }; continue }
                     $idBytes = New-Object byte[] 6; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($idBytes); $jobId=([BitConverter]::ToString($idBytes) -replace '-','').ToLowerInvariant()
-                    $display = switch ($action) { 'cancel' { "trinity cancel $taskName" }; 'merge' { "trinity merge $taskName -Yes" }; 'review-task' { "trinity review --base main" }; 'open-folder' { "explorer.exe `"$worktree`"" } }
+                    $display = switch ($action) { 'cancel' { "trinity cancel $taskName" }; 'merge' { "trinity merge $taskName -Yes" }; 'review-task' { "trinity merge $taskName -DryRun" }; 'open-folder' { "explorer.exe `"$worktree`"" } }
                     if ($action -eq 'dispatch') {
                         $promptDir=Join-Path $repoPath '.codex-out'
                         [void][IO.Directory]::CreateDirectory($promptDir)
@@ -1364,6 +1368,21 @@ try {
             }
             elseif ($context.Request.HttpMethod -ne 'GET') {
                 $response.StatusCode = 404
+            }
+            elseif ($context.Request.Url.AbsolutePath.StartsWith('/ui/')) {
+                $name = $context.Request.Url.AbsolutePath.Substring(4)
+                if ($name -cnotmatch '^[a-z0-9-]+\.(js|css)$') { $response.StatusCode = 404 }
+                else {
+                    $uiPath = Join-Path (Join-Path $PSScriptRoot 'dashboard-ui') $name
+                    if (-not (Test-Path -LiteralPath $uiPath -PathType Leaf)) { $response.StatusCode = 404 }
+                    else {
+                        $bytes = [IO.File]::ReadAllBytes($uiPath)
+                        $response.ContentType = if ($name.EndsWith('.js')) { 'application/javascript; charset=utf-8' } else { 'text/css; charset=utf-8' }
+                        $response.Headers['Cache-Control'] = 'no-cache'
+                        $response.ContentLength64 = $bytes.Length
+                        $response.OutputStream.Write($bytes, 0, $bytes.Length)
+                    }
+                }
             }
             elseif ($context.Request.Url.AbsolutePath -eq '/api/state') {
                 $requestStarted = [datetime]::UtcNow
