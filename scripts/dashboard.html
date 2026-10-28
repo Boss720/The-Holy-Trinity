@@ -85,6 +85,14 @@
       --badge-other-text: #57606a;
       --badge-other-border: #d0d7de;
 
+      --badge-ready-bg: #d2f4ea;
+      --badge-ready-text: #0a7a63;
+      --badge-ready-border: #3fc0a4;
+
+      --badge-stalled-bg: #fff1e5;
+      --badge-stalled-text: #bc4c00;
+      --badge-stalled-border: #f0a060;
+
       /* Progress track */
       --track-bg: #e1e4e8;
       --track-fill: #1a7f37;
@@ -166,6 +174,14 @@
         --badge-other-bg: rgba(110, 118, 129, 0.15);
         --badge-other-text: #8b949e;
         --badge-other-border: rgba(110, 118, 129, 0.4);
+
+        --badge-ready-bg: rgba(45, 190, 160, 0.15);
+        --badge-ready-text: #2dd4bf;
+        --badge-ready-border: rgba(45, 190, 160, 0.4);
+
+        --badge-stalled-bg: rgba(240, 136, 62, 0.15);
+        --badge-stalled-text: #ffa657;
+        --badge-stalled-border: rgba(240, 136, 62, 0.4);
 
         --track-bg: #1e2634;
         --track-fill: #238636;
@@ -1909,6 +1925,7 @@
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       font-size: 11px;
       word-break: break-all;
+      white-space: pre-wrap;
       flex: 1;
     }
 
@@ -3323,7 +3340,334 @@
         margin-top: 2px;
       }
     }
+
+    /* ==========================================
+       GUI shell: new states, header controls, drawer tabs, wizard
+       ========================================== */
+    .state-badge.state-ready {
+      background-color: var(--badge-ready-bg);
+      color: var(--badge-ready-text);
+      border-color: var(--badge-ready-border);
+    }
+
+    .state-badge.state-stalled {
+      background-color: var(--badge-stalled-bg);
+      color: var(--badge-stalled-text);
+      border-color: var(--badge-stalled-border);
+    }
+
+    .reason-chip.reason-ready {
+      background-color: var(--badge-ready-bg);
+      color: var(--badge-ready-text);
+      border-color: var(--badge-ready-border);
+    }
+
+    .reason-chip.reason-stalled {
+      background-color: var(--badge-stalled-bg);
+      color: var(--badge-stalled-text);
+      border-color: var(--badge-stalled-border);
+    }
+
+    .reason-chip.reason-limit {
+      background-color: var(--badge-failed-bg);
+      color: var(--badge-failed-text);
+      border-color: var(--badge-failed-border);
+    }
+
+    .action-control .btn-action.resume,
+    .action-control .btn-action.unpause {
+      background-color: var(--badge-ready-bg);
+      color: var(--badge-ready-text);
+    }
+
+    .action-control .btn-action.retry {
+      background-color: var(--badge-stalled-bg);
+      color: var(--badge-stalled-text);
+    }
+
+    .action-control .btn-action.resume:hover:not(:disabled),
+    .action-control .btn-action.unpause:hover:not(:disabled),
+    .action-control .btn-action.retry:hover:not(:disabled) {
+      filter: brightness(0.95);
+    }
+
+    .act-wrap {
+      display: inline-flex;
+    }
+
+    .act-wrap[data-reason] {
+      cursor: not-allowed;
+    }
+
+    /* Header controls */
+    .header-ctl-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .slots-chip {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 12px;
+      border: 1px solid var(--border-color);
+      background-color: var(--bg-subtle);
+      color: var(--text-secondary);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      white-space: nowrap;
+    }
+
+    .slots-chip .slot-full {
+      color: var(--status-warn);
+      font-weight: 700;
+    }
+
+    .btn-chat[aria-pressed="true"] {
+      background-color: var(--badge-ready-bg);
+      color: var(--badge-ready-text);
+      border-color: var(--badge-ready-border);
+    }
+
+    /* Add-on views */
+    .addon-view {
+      display: none;
+      flex-direction: column;
+      gap: 14px;
+      min-width: 0;
+    }
+
+    .view-bar {
+      flex-wrap: wrap;
+    }
+
+    /* Task action bar host (above the drawer tabs) */
+    .task-action-host:empty {
+      display: none;
+    }
+
+    .task-action-host .task-action-bar {
+      border-bottom: 1px solid var(--border-subtle);
+      margin-bottom: 0;
+    }
+
+    /* Review tab */
+    .review-summary-row {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    .review-findings {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .review-finding {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      padding: 4px 8px;
+      background-color: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 4px;
+      font-size: 12px;
+    }
+
+    .review-finding-title {
+      flex: 1;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .review-finding-loc {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      color: var(--text-muted);
+      overflow-wrap: anywhere;
+    }
+
+    .sev-chip {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 3px;
+      border: 1px solid currentColor;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      white-space: nowrap;
+    }
+
+    .sev-chip.sev-p0 {
+      background-color: var(--badge-failed-bg);
+      color: var(--badge-failed-text);
+      border-color: var(--badge-failed-border);
+    }
+
+    .sev-chip.sev-p1 {
+      background-color: var(--badge-stalled-bg);
+      color: var(--badge-stalled-text);
+      border-color: var(--badge-stalled-border);
+    }
+
+    .sev-chip.sev-p2 {
+      background-color: var(--badge-waiting-bg);
+      color: var(--badge-waiting-text);
+      border-color: var(--badge-waiting-border);
+    }
+
+    .sev-chip.sev-p3 {
+      background-color: var(--badge-other-bg);
+      color: var(--badge-other-text);
+      border-color: var(--badge-other-border);
+    }
+
+    .unparsed-warning {
+      padding: 6px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      background-color: var(--status-warn-bg);
+      color: var(--status-warn);
+      border: 1px solid var(--status-warn-border);
+    }
+
+    .review-raw summary {
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      padding: 2px 0;
+    }
+
+    .review-resume-box {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    .review-resume-box textarea {
+      width: 100%;
+      min-height: 90px;
+      padding: 6px 10px;
+      font-size: 12px;
+      line-height: 1.4;
+      color: var(--text-main);
+      background-color: var(--bg-input);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      resize: vertical;
+    }
+
+    .review-resume-box textarea:focus {
+      outline: none;
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 2px rgba(9, 105, 218, 0.2);
+    }
+
+    .review-resume-actions {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    /* Files tab */
+    .scope-file-row {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      padding: 2px 0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+    }
+
+    .scope-file-row .scope-file-name {
+      flex: 1;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .scope-chip {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 3px;
+      border: 1px solid currentColor;
+      white-space: nowrap;
+    }
+
+    .scope-chip.in-scope {
+      background-color: var(--badge-done-bg);
+      color: var(--badge-done-text);
+      border-color: var(--badge-done-border);
+    }
+
+    .scope-chip.out-scope {
+      background-color: var(--badge-failed-bg);
+      color: var(--badge-failed-text);
+      border-color: var(--badge-failed-border);
+    }
+
+    .scope-chip.no-scope {
+      background-color: var(--badge-other-bg);
+      color: var(--badge-other-text);
+      border-color: var(--badge-other-border);
+    }
+
+    .scope-file-row.is-out .scope-file-name {
+      color: var(--badge-failed-text);
+    }
+
+    /* Wizard additions */
+    .dispatch-mode-radios {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .dispatch-field-note {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .dispatch-glob-preview {
+      list-style: none;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 2px;
+    }
+
+    .dispatch-glob-preview li {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      border: 1px solid var(--border-color);
+      background-color: var(--bg-subtle);
+      font-size: 11px;
+    }
+
+    .dispatch-glob-preview li code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .dispatch-glob-preview li.has-overlap {
+      border-color: var(--status-warn-border);
+      background-color: var(--status-warn-bg);
+      color: var(--status-warn);
+    }
   </style>
+  <!-- Optional screen modules (served by dashboard.ps1 from scripts/dashboard-ui); a 404 is harmless -->
+  <link rel="stylesheet" href="/ui/board.css">
 </head>
 <body>
   <div class="container">
@@ -3337,6 +3681,11 @@
           </div>
         </div>
         <div class="status-group">
+          <div class="header-ctl-group">
+            <span id="slots-chip" class="slots-chip" style="display: none;" title="Agent slots in use across repos"></span>
+            <button type="button" id="header-stop-all-btn" class="btn-chat danger" title="Connecting..." disabled>Stop all</button>
+            <button type="button" id="header-notify-btn" class="btn-chat" aria-pressed="false" title="Desktop notifications when a task finishes or needs you">Notifications: off</button>
+          </div>
           <button type="button" id="header-dispatch-btn" class="btn-chat primary btn-header-dispatch" title="Connecting..." disabled>Dispatch</button>
           <div id="data-age-chip" class="data-age-chip" style="display: none;">
             <span id="data-age-spinner" class="data-age-spinner" style="display: none;"></span>
@@ -3651,6 +4000,21 @@
         </div>
 
         <div class="dispatch-form-group">
+          <span class="dispatch-label" id="dispatch-mode-group-label">When</span>
+          <div class="dispatch-mode-radios" role="radiogroup" aria-labelledby="dispatch-mode-group-label">
+            <label class="dispatch-radio-card selected" id="dispatch-mode-card-start" for="dispatch-mode-start">
+              <input type="radio" name="dispatch-mode" id="dispatch-mode-start" value="start" checked>
+              <span>Start now</span>
+            </label>
+            <label class="dispatch-radio-card" id="dispatch-mode-card-queue" for="dispatch-mode-queue">
+              <input type="radio" name="dispatch-mode" id="dispatch-mode-queue" value="queue">
+              <span>Add to queue</span>
+            </label>
+          </div>
+          <div id="dispatch-mode-note" class="dispatch-field-note"></div>
+        </div>
+
+        <div class="dispatch-form-group">
           <span class="dispatch-label" id="dispatch-agent-group-label">Agent</span>
           <div class="dispatch-agent-radios" role="radiogroup" aria-labelledby="dispatch-agent-group-label">
             <label class="dispatch-radio-card" id="dispatch-agent-card-codex" for="dispatch-agent-codex">
@@ -3682,10 +4046,16 @@
           <label for="dispatch-scope" class="dispatch-label">Scope Globs</label>
           <input type="text" id="dispatch-scope" class="dispatch-input" placeholder="e.g. scripts/*,docs/*" autocomplete="off" spellcheck="false">
           <div id="dispatch-scope-hint" class="dispatch-field-hint"></div>
+          <ul id="dispatch-glob-preview" class="dispatch-glob-preview" aria-label="Scope glob preview"></ul>
           <div id="dispatch-overlaps-box" class="dispatch-notice-box amber" style="display: none;">
             <div class="overlaps-title">⚠️ Scope overlaps with running tasks:</div>
             <ul id="dispatch-overlaps-list" class="dispatch-overlaps-list"></ul>
           </div>
+        </div>
+
+        <div class="dispatch-form-group">
+          <label for="dispatch-model" class="dispatch-label">Model <span class="dispatch-field-note">(optional)</span></label>
+          <input type="text" id="dispatch-model" class="dispatch-input" placeholder="agent default" autocomplete="off" spellcheck="false" maxlength="80">
         </div>
 
         <div class="dispatch-form-group">
@@ -3733,6 +4103,12 @@
       const taskLogState = new Map();
       const diffInFlight = new Set();
       const mergeCheckInFlight = new Set();
+      const reviewInFlight = new Set();
+      const reviewCache = new Map(); // repoPath::task -> last /api/task/review reply
+      const resumeDrafts = new Map(); // repoPath::task -> unsent resume feedback text
+      const stateListeners = []; // window.Trinity.onState callbacks
+      const viewRegistry = []; // header view tabs: { id, tab, container, display, render, order }
+      let pendingResumeFocus = null; // { repo, task } -> focus the resume textarea once the card opens
       let hideFinished = false;
 
       // Chat drawer state
@@ -3835,6 +4211,12 @@
         return hasValidToken && !!(state && state.server && state.server.actionsEnabled === true);
       }
 
+      // Action controls are drawn in sample mode too (so every UI path can be previewed offline);
+      // postAction() refuses to send anything there.
+      function actionsUiEnabled(state) {
+        return isSample || areActionsEnabled(state);
+      }
+
       const activeJobs = new Map(); // jobId -> jobRecord
       const activeTaskJobs = new Set(); // Set of taskRefKeys (repoPath + '::' + task)
 
@@ -3873,6 +4255,16 @@
       const dispatchCliCode = document.getElementById('dispatch-cli-code');
       const dispatchCopyCli = document.getElementById('dispatch-copy-cli');
       const dispatchErrorBanner = document.getElementById('dispatch-error-banner');
+      const dispatchModeStart = document.getElementById('dispatch-mode-start');
+      const dispatchModeQueue = document.getElementById('dispatch-mode-queue');
+      const dispatchModeNote = document.getElementById('dispatch-mode-note');
+      const dispatchModel = document.getElementById('dispatch-model');
+      const dispatchGlobPreview = document.getElementById('dispatch-glob-preview');
+
+      // Header controls
+      const slotsChip = document.getElementById('slots-chip');
+      const headerStopAllBtn = document.getElementById('header-stop-all-btn');
+      const headerNotifyBtn = document.getElementById('header-notify-btn');
 
       let currentCheckAbortController = null;
       let checkDebounceTimer = null;
@@ -3893,21 +4285,32 @@
           confirmDialogRun.textContent = 'Run';
           confirmDialogRun.className = 'btn-chat primary danger';
         }
-        if (pendingConfirmAction && pendingConfirmAction.originBtn) {
-          try { pendingConfirmAction.originBtn.focus(); } catch (e) {}
+        const closed = pendingConfirmAction;
+        if (closed && closed.originBtn) {
+          try { closed.originBtn.focus(); } catch (e) {}
         }
         pendingConfirmAction = null;
+        // Dismissed without running (the Run handler clears onCancel first).
+        if (closed && typeof closed.onCancel === 'function') {
+          try { closed.onCancel(); } catch (e) {}
+        }
       }
 
       function openConfirmDialog(action, taskName, repoPath, command, originBtn, customOptions) {
         if (!confirmDialog) return;
+        if (pendingConfirmAction && typeof pendingConfirmAction.onCancel === 'function') {
+          const superseded = pendingConfirmAction;
+          pendingConfirmAction = null;
+          try { superseded.onCancel(); } catch (e) {}
+        }
         pendingConfirmAction = {
           action: action,
           taskName: taskName,
           repoPath: repoPath,
           command: command,
           originBtn: originBtn,
-          onConfirm: customOptions ? customOptions.onConfirm : null
+          onConfirm: customOptions ? customOptions.onConfirm : null,
+          onCancel: customOptions ? customOptions.onCancel : null
         };
         const titleEl = document.getElementById('confirm-dialog-title');
         if (titleEl) {
@@ -3957,6 +4360,7 @@
             const task = pendingConfirmAction.taskName;
             const repo = pendingConfirmAction.repoPath;
             const onConfirm = pendingConfirmAction.onConfirm;
+            pendingConfirmAction.onCancel = null;
             closeConfirmDialog();
             if (typeof onConfirm === 'function') {
               onConfirm();
@@ -3972,9 +4376,55 @@
         return !!(dispatchModal && (dispatchModal.open || dispatchModal.hasAttribute('open')));
       }
 
-      function openDispatchModal() {
+      function getDispatchMode() {
+        return (dispatchModeQueue && dispatchModeQueue.checked) ? 'queue' : 'start';
+      }
+
+      function setDispatchMode(mode) {
+        const queue = mode === 'queue';
+        if (dispatchModeQueue) dispatchModeQueue.checked = queue;
+        if (dispatchModeStart) dispatchModeStart.checked = !queue;
+        const cardStart = document.getElementById('dispatch-mode-card-start');
+        const cardQueue = document.getElementById('dispatch-mode-card-queue');
+        if (cardStart) cardStart.classList.toggle('selected', !queue);
+        if (cardQueue) cardQueue.classList.toggle('selected', queue);
+        if (dispatchModeNote) {
+          dispatchModeNote.textContent = queue
+            ? 'The scheduler starts it when a slot is free and its scope does not overlap a running task.'
+            : 'Creates the worktree and starts the agent right away.';
+        }
+        if (dispatchSubmitBtn && !isDispatchPending) {
+          dispatchSubmitBtn.textContent = queue ? 'Add to queue' : 'Dispatch Task';
+        }
+        try { localStorage.setItem('trinity_dash_dispatch_mode', queue ? 'queue' : 'start'); } catch (e) {}
+      }
+
+      function applyDispatchPrefill(prefill) {
+        if (!prefill) return;
+        if (prefill.repo && dispatchRepo) {
+          const want = String(prefill.repo);
+          const opt = Array.from(dispatchRepo.options).find(function (o) {
+            return o.value === want || o.textContent === want || o.textContent.indexOf(want + ' (') === 0;
+          });
+          if (opt) dispatchRepo.value = opt.value;
+        }
+        if (prefill.agent) {
+          const r = document.querySelector('input[name="dispatch-agent"][value="' + String(prefill.agent).toLowerCase() + '"]');
+          if (r) r.checked = true;
+        }
+        if (typeof prefill.task === 'string' && dispatchTask) dispatchTask.value = prefill.task;
+        if (typeof prefill.scope === 'string' && dispatchScope) dispatchScope.value = prefill.scope;
+        if (typeof prefill.model === 'string' && dispatchModel) dispatchModel.value = prefill.model;
+        if (typeof prefill.prompt === 'string' && dispatchPrompt) {
+          dispatchPrompt.value = prefill.prompt;
+          dispatchPrompt.dispatchEvent(new Event('input'));
+        }
+        if (prefill.mode === 'queue' || prefill.mode === 'start') setDispatchMode(prefill.mode);
+      }
+
+      function openDispatchModal(prefill) {
         if (!dispatchModal) return;
-        if (!areActionsEnabled(lastStateData)) return;
+        if (!actionsUiEnabled(lastStateData)) return;
 
         isDispatchPending = false;
 
@@ -3986,10 +4436,14 @@
         populateDispatchRepos();
         updateDispatchAvailabilityChips();
         restoreSavedDispatchAgent();
+        let savedMode = 'start';
+        try { savedMode = localStorage.getItem('trinity_dash_dispatch_mode') === 'queue' ? 'queue' : 'start'; } catch (e) {}
+        setDispatchMode(savedMode);
+        applyDispatchPrefill(prefill);
         updateDispatchRadioCards();
 
         if (typeof dispatchModal.showModal === 'function') {
-          dispatchModal.showModal();
+          if (!isDispatchModalOpen()) dispatchModal.showModal();
         } else {
           dispatchModal.setAttribute('open', '');
         }
@@ -3998,7 +4452,7 @@
 
         if (dispatchTask) {
           setTimeout(function () {
-            try { dispatchTask.focus(); } catch (e) {}
+            try { (prefill && prefill.task && dispatchPrompt && !prefill.prompt ? dispatchPrompt : dispatchTask).focus(); } catch (e) {}
           }, 50);
         }
       }
@@ -4040,9 +4494,13 @@
           dispatchErrorBanner.style.display = 'none';
           dispatchErrorBanner.textContent = '';
         }
+        if (dispatchModel) dispatchModel.value = '';
+        if (dispatchGlobPreview) {
+          while (dispatchGlobPreview.firstChild) dispatchGlobPreview.removeChild(dispatchGlobPreview.firstChild);
+        }
         if (dispatchSubmitBtn) {
           dispatchSubmitBtn.disabled = true;
-          dispatchSubmitBtn.textContent = 'Dispatch Task';
+          dispatchSubmitBtn.textContent = getDispatchMode() === 'queue' ? 'Add to queue' : 'Dispatch Task';
         }
         isDispatchPending = false;
         lastCheckData = null;
@@ -4402,9 +4860,26 @@
           }
         }
 
+        if (dispatchGlobPreview) {
+          while (dispatchGlobPreview.firstChild) dispatchGlobPreview.removeChild(dispatchGlobPreview.firstChild);
+          const globs = Array.isArray(data.scopeNormalized) ? data.scopeNormalized : [];
+          const overlapList = Array.isArray(data.overlaps) ? data.overlaps : [];
+          globs.forEach(function (g) {
+            const li = document.createElement('li');
+            li.appendChild(el('code', '', g));
+            const hits = overlapList.filter(function (o) { return overlapMatchesGlob(g, o && o.glob); });
+            if (hits.length > 0) {
+              li.classList.add('has-overlap');
+              li.appendChild(el('span', '', 'overlaps ' + hits.map(function (o) { return o.task; }).join(', ')));
+            }
+            dispatchGlobPreview.appendChild(li);
+          });
+        }
+
+        const previewCmd = dispatchCommandPreview(data);
         if (dispatchCliGroup && dispatchCliCode) {
-          if (data.command) {
-            dispatchCliCode.textContent = data.command;
+          if (previewCmd) {
+            dispatchCliCode.textContent = previewCmd;
             dispatchCliGroup.style.display = 'flex';
           } else {
             dispatchCliGroup.style.display = 'none';
@@ -4412,6 +4887,30 @@
         }
 
         updateDispatchSubmitDisabledState();
+      }
+
+      // Same prefix rule as the sample check: two globs overlap when one literal prefix starts the other.
+      function overlapMatchesGlob(ownGlob, otherGlob) {
+        if (!ownGlob || !otherGlob) return false;
+        const a = String(ownGlob).split('*')[0];
+        const b = String(otherGlob).split('*')[0];
+        return ownGlob === otherGlob || (!!a && !!b && (a.indexOf(b) === 0 || b.indexOf(a) === 0));
+      }
+
+      // CLI line(s) the current wizard mode will run (shown in the preview box and the confirm dialog).
+      function dispatchCommandPreview(data) {
+        if (!data) return '';
+        if (getDispatchMode() === 'queue') {
+          const selected = document.querySelector('input[name="dispatch-agent"]:checked');
+          const agent = data.effectiveAgent || (selected ? selected.value : 'antigravity');
+          const task = dispatchTask ? dispatchTask.value.trim() : '';
+          const globs = Array.isArray(data.scopeNormalized) ? data.scopeNormalized : [];
+          return 'trinity queue add ' + agent + ' ' + (task || '<task>') +
+            (globs.length > 0 ? ' -Scope "' + globs.join(',') + '"' : '') +
+            ' -PromptFile .codex-out\\prompt-' + (task || '<task>') + '.md' +
+            '\ntrinity scheduler start';
+        }
+        return data.command || '';
       }
 
       function updateDispatchSubmitDisabledState() {
@@ -4477,69 +4976,49 @@
         const rerouted = !!lastCheckData.rerouted;
         const task = dispatchTask ? dispatchTask.value.trim() : '';
         const scope = dispatchScope ? dispatchScope.value.trim() : '';
+        const model = dispatchModel ? dispatchModel.value.trim() : '';
+        const mode = getDispatchMode();
 
-        openConfirmDialog('dispatch', task, repoPath, lastCheckData.command, dispatchSubmitBtn, {
-          title: 'Confirm Dispatch Task',
-          runText: 'Dispatch',
+        openConfirmDialog(mode === 'queue' ? 'queue-add' : 'dispatch', task, repoPath, dispatchCommandPreview(lastCheckData), dispatchSubmitBtn, {
+          title: mode === 'queue' ? 'Confirm Add to Queue' : 'Confirm Dispatch Task',
+          runText: mode === 'queue' ? 'Add to queue' : 'Dispatch',
           runClass: 'btn-chat primary',
           bodyBuilder: function () {
             return buildDispatchConfirmContent(effectiveAgent, rerouted, originalAgent, task, scope, promptVal);
           },
           onConfirm: function () {
-            executeDispatchAction(repoPath, originalAgent, task, scope, promptVal);
+            executeDispatchAction(repoPath, originalAgent, task, scope, promptVal, mode, model);
           }
         });
       }
 
-      async function executeDispatchAction(repoPath, agent, task, scope, prompt) {
+      async function executeDispatchAction(repoPath, agent, task, scope, prompt, mode, model) {
         if (isDispatchPending) return;
         isDispatchPending = true;
 
         if (dispatchSubmitBtn) {
           dispatchSubmitBtn.disabled = true;
-          dispatchSubmitBtn.textContent = 'Dispatching...';
+          dispatchSubmitBtn.textContent = mode === 'queue' ? 'Adding...' : 'Dispatching...';
         }
         if (dispatchErrorBanner) {
           dispatchErrorBanner.style.display = 'none';
           dispatchErrorBanner.textContent = '';
         }
 
-        const taskKey = (repoPath || '') + '::' + task;
-        activeTaskJobs.add(taskKey);
-        updateActionButtonsDisabledState();
+        const body = {
+          action: mode === 'queue' ? 'queue-add' : 'dispatch',
+          repo: repoPath,
+          agent: agent,
+          task: task,
+          scope: scope,
+          prompt: prompt,
+          confirm: true
+        };
+        if (model) body.model = model;
 
         try {
-          const res = await fetch('/api/action', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Trinity-Token': trinityToken || ''
-            },
-            body: JSON.stringify({
-              action: 'dispatch',
-              repo: repoPath,
-              agent: agent,
-              task: task,
-              scope: scope,
-              prompt: prompt,
-              confirm: true
-            })
-          });
-
-          let resData = null;
-          try { resData = await res.json(); } catch (e) {}
-
-          if (res.status === 202 && resData && resData.job) {
-            createJobToast(resData.job, 'dispatch', task, repoPath, resData.command);
-          } else {
-            activeTaskJobs.delete(taskKey);
-            updateActionButtonsDisabledState();
-            const errorMsg = (resData && resData.error) ? resData.error : ('HTTP ' + res.status + ' ' + (res.statusText || 'Error'));
-            showDispatchError(errorMsg);
-          }
+          await postAction(body);
         } catch (err) {
-          activeTaskJobs.delete(taskKey);
-          updateActionButtonsDisabledState();
           showDispatchError(err.message || 'Request failed');
         }
       }
@@ -4551,7 +5030,7 @@
           dispatchErrorBanner.style.display = 'block';
         }
         if (dispatchSubmitBtn) {
-          dispatchSubmitBtn.textContent = 'Dispatch Task';
+          dispatchSubmitBtn.textContent = getDispatchMode() === 'queue' ? 'Add to queue' : 'Dispatch Task';
           updateDispatchSubmitDisabledState();
         }
       }
@@ -4560,6 +5039,13 @@
         isDispatchPending = false;
         closeDispatchModal(true);
         retryNavigateToTask(repoPath, taskName);
+      }
+
+      // A queued task is not a board task yet: just close the wizard and refresh so the queue shows it.
+      function onQueueAddJobSuccess() {
+        isDispatchPending = false;
+        closeDispatchModal(true);
+        pollState();
       }
 
       function onDispatchJobFailed(errorMsg) {
@@ -4631,8 +5117,8 @@
           }
           if (e.altKey && (e.key === 'c' || e.key === 'C')) {
             e.preventDefault();
-            if (lastCheckData && lastCheckData.command && dispatchCopyCli) {
-              copyToClipboard(lastCheckData.command, dispatchCopyCli, 'Copy CLI');
+            if (lastCheckData && dispatchCommandPreview(lastCheckData) && dispatchCopyCli) {
+              copyToClipboard(dispatchCommandPreview(lastCheckData), dispatchCopyCli, 'Copy CLI');
             }
           }
         });
@@ -4692,11 +5178,22 @@
       if (dispatchCopyCli) {
         dispatchCopyCli.addEventListener('click', function (e) {
           e.stopPropagation();
-          if (lastCheckData && lastCheckData.command) {
-            copyToClipboard(lastCheckData.command, dispatchCopyCli, 'Copy CLI');
+          if (lastCheckData && dispatchCommandPreview(lastCheckData)) {
+            copyToClipboard(dispatchCommandPreview(lastCheckData), dispatchCopyCli, 'Copy CLI');
           }
         });
       }
+
+      [dispatchModeStart, dispatchModeQueue].forEach(function (radio) {
+        if (!radio) return;
+        radio.addEventListener('change', function () {
+          setDispatchMode(getDispatchMode());
+          if (lastCheckData) {
+            const selected = document.querySelector('input[name="dispatch-agent"]:checked');
+            renderValidationResults(lastCheckData, selected ? selected.value : 'antigravity');
+          }
+        });
+      });
 
       if (confirmDialog) {
         confirmDialog.addEventListener('keydown', function (e) {
@@ -4748,8 +5245,10 @@
         allActionButtons.forEach(function (btn) {
           const taskKey = btn.getAttribute('data-task-key');
           const isRunning = taskKey && activeTaskJobs.has(taskKey);
-          btn.disabled = !!isRunning;
-          if (isRunning) {
+          // Buttons the task state rules out stay disabled (their reason is the wrapper tooltip).
+          const ruledOut = btn.hasAttribute('data-reason-disabled');
+          btn.disabled = !!isRunning || ruledOut;
+          if (isRunning || ruledOut) {
             btn.setAttribute('aria-disabled', 'true');
           } else {
             btn.removeAttribute('aria-disabled');
@@ -4757,8 +5256,12 @@
         });
 
         if (headerDispatchBtn) {
-          const enabled = areActionsEnabled(lastStateData);
-          if (enabled) {
+          const enabled = actionsUiEnabled(lastStateData);
+          if (enabled && isSample) {
+            headerDispatchBtn.disabled = false;
+            headerDispatchBtn.removeAttribute('aria-disabled');
+            headerDispatchBtn.title = 'Sample mode: the wizard is a preview, nothing is sent';
+          } else if (enabled) {
             headerDispatchBtn.disabled = false;
             headerDispatchBtn.removeAttribute('aria-disabled');
             headerDispatchBtn.title = 'Dispatch new task';
@@ -4806,7 +5309,9 @@
         }).catch(fallbackCopy);
       }
 
-      function createActionControl(actionName, label, command, onClickAction, isDestructive, taskRefKey) {
+      // disabledReason (optional): the task state rules this action out; the button is disabled and the
+      // reason is the tooltip of the whole control (a disabled button itself shows no tooltip).
+      function createActionControl(actionName, label, command, onClickAction, isDestructive, taskRefKey, disabledReason) {
         const group = el('div', 'action-control action-' + actionName);
         group.setAttribute('data-action', actionName);
 
@@ -4817,6 +5322,13 @@
         if (taskRefKey && activeTaskJobs.has(taskRefKey)) {
           actionBtn.disabled = true;
           actionBtn.setAttribute('aria-disabled', 'true');
+        }
+        if (disabledReason) {
+          actionBtn.disabled = true;
+          actionBtn.setAttribute('aria-disabled', 'true');
+          actionBtn.setAttribute('data-reason-disabled', '1');
+          group.title = disabledReason;
+          group.setAttribute('data-reason', disabledReason);
         }
         actionBtn.addEventListener('click', function (e) {
           e.stopPropagation();
@@ -4847,10 +5359,19 @@
         }
       }
 
-      async function sendAction(action, repoPath, taskName, confirm) {
-        const taskKey = (repoPath || '') + '::' + taskName;
+      // The one place that POSTs /api/action and starts job tracking. Resolves { job, command, done }
+      // on 202 (done = promise of the finished job { state, exitCode, output }); rejects with an Error
+      // (err.status = HTTP status when the server refused). No toast on failure: callers decide.
+      async function postAction(body) {
+        const action = body.action;
+        const repoPath = body.repo || '';
+        const taskName = body.task || '';
+        const taskKey = repoPath + '::' + taskName;
+        if (isSample) {
+          throw new Error('Sample mode: actions are not sent');
+        }
         if (activeTaskJobs.has(taskKey)) {
-          return;
+          throw new Error('Another action is already running for ' + (taskName || repoPath || 'this item'));
         }
 
         activeTaskJobs.add(taskKey);
@@ -4863,12 +5384,7 @@
               'Content-Type': 'application/json',
               'X-Trinity-Token': trinityToken || ''
             },
-            body: JSON.stringify({
-              action: action,
-              repo: repoPath,
-              task: taskName,
-              confirm: !!confirm
-            })
+            body: JSON.stringify(body)
           });
 
           let resData = null;
@@ -4877,18 +5393,29 @@
           } catch (e) {}
 
           if (res.status === 202 && resData && resData.job) {
-            createJobToast(resData.job, action, taskName, repoPath, resData.command);
-          } else {
-            activeTaskJobs.delete(taskKey);
-            updateActionButtonsDisabledState();
-            const errorMsg = (resData && resData.error) ? resData.error : ('HTTP ' + res.status + ' ' + (res.statusText || 'Error'));
-            showErrorToast(action, taskName, errorMsg, res.status);
+            const rec = createJobToast(resData.job, action, taskName, repoPath, resData.command);
+            return { job: resData.job, command: resData.command || '', done: rec ? rec.done : Promise.resolve(null) };
           }
+          const errorMsg = (resData && resData.error) ? resData.error : ('HTTP ' + res.status + ' ' + (res.statusText || 'Error'));
+          const failure = new Error(errorMsg);
+          failure.status = res.status;
+          throw failure;
         } catch (err) {
           activeTaskJobs.delete(taskKey);
           updateActionButtonsDisabledState();
-          showErrorToast(action, taskName, err.message || 'Request failed');
+          throw err;
         }
+      }
+
+      function sendAction(action, repoPath, taskName, confirm) {
+        const taskKey = (repoPath || '') + '::' + taskName;
+        if (activeTaskJobs.has(taskKey)) {
+          return Promise.resolve(null);
+        }
+        return postAction({ action: action, repo: repoPath, task: taskName, confirm: !!confirm }).catch(function (err) {
+          showErrorToast(action, taskName, err.message || 'Request failed', err.status);
+          return null;
+        });
       }
 
       function showErrorToast(action, taskName, errorMsg, statusCode) {
@@ -4963,8 +5490,11 @@
           stateBadge: stateBadge,
           outputEl: outputEl,
           inFlight: false,
-          timer: null
+          timer: null,
+          resolveDone: null,
+          done: null
         };
+        jobRecord.done = new Promise(function (resolve) { jobRecord.resolveDone = resolve; });
         activeJobs.set(jobId, jobRecord);
 
         jobRecord.timer = setInterval(function () {
@@ -4972,6 +5502,19 @@
         }, 1000);
 
         pollJob(jobId);
+        return jobRecord;
+      }
+
+      // Called once per finished job (done, failed or lost): settles Trinity.action().done and refreshes
+      // the views a job result changes.
+      function finishJob(job, state, data) {
+        if (typeof job.resolveDone === 'function') {
+          job.resolveDone({ state: state, exitCode: data && typeof data.exitCode === 'number' ? data.exitCode : null, output: (data && data.output) || '' });
+          job.resolveDone = null;
+        }
+        if (job.action === 'review-task') {
+          invalidateTaskReview(job.repoPath, job.task);
+        }
       }
 
       async function pollJob(jobId) {
@@ -5009,9 +5552,12 @@
             activeTaskJobs.delete(job.taskKey);
             updateActionButtonsDisabledState();
             pollState();
+            finishJob(job, 'done', data);
 
             if (job.action === 'dispatch') {
               onDispatchJobSuccess(job.repoPath, job.task);
+            } else if (job.action === 'queue-add') {
+              onQueueAddJobSuccess();
             }
           } else if (data.state === 'failed') {
             if (job.timer) clearInterval(job.timer);
@@ -5025,9 +5571,10 @@
             activeTaskJobs.delete(job.taskKey);
             updateActionButtonsDisabledState();
             pollState();
+            finishJob(job, 'failed', data);
 
-            if (job.action === 'dispatch') {
-              onDispatchJobFailed(data.output || ('Dispatch failed with exit ' + data.exitCode));
+            if (job.action === 'dispatch' || job.action === 'queue-add') {
+              onDispatchJobFailed(data.output || ((job.action === 'queue-add' ? 'Queue add' : 'Dispatch') + ' failed with exit ' + data.exitCode));
             }
           }
         } catch (err) {
@@ -5040,7 +5587,8 @@
             activeJobs.delete(jobId);
             activeTaskJobs.delete(job.taskKey);
             updateActionButtonsDisabledState();
-            if (job.action === 'dispatch') {
+            finishJob(job, 'failed', null);
+            if (job.action === 'dispatch' || job.action === 'queue-add') {
               onDispatchJobFailed('Job not found (404)');
             }
           }
@@ -5525,7 +6073,7 @@
         }
         if (!card) return;
 
-        const validTabs = ['summary', 'diff', 'log', 'merge'];
+        const validTabs = ['summary', 'diff', 'log', 'review', 'files', 'merge'];
         if (validTabs.indexOf(tabId) === -1) tabId = 'summary';
 
         const oldTab = taskActiveTabs.get(taskKey) || 'summary';
@@ -5554,6 +6102,10 @@
           loadTaskDiff(taskKey, card);
         } else if (tabId === 'log') {
           activateTaskLog(taskKey, card);
+        } else if (tabId === 'review') {
+          loadTaskReview(taskKey, card);
+        } else if (tabId === 'files') {
+          if (card._task) renderTaskFiles(card.querySelector('.task-tab-panel[data-tab-id="files"]'), card._task);
         } else if (tabId === 'merge') {
           loadTaskMergeCheck(taskKey, card);
         }
@@ -6007,6 +6559,478 @@
         }
       }
 
+      // ==========================================
+      // GUI shell: Review tab, Files tab, task action bar
+      // ==========================================
+
+      const RESUMABLE_STATES = ['done', 'failed', 'stalled', 'ready'];
+
+      function findTaskByRef(repoPathOrName, taskName) {
+        const repos = (lastStateData && Array.isArray(lastStateData.repos)) ? lastStateData.repos : [];
+        for (let i = 0; i < repos.length; i++) {
+          const r = repos[i];
+          if (r.path !== repoPathOrName && r.name !== repoPathOrName) continue;
+          const tasks = Array.isArray(r.tasks) ? r.tasks : [];
+          for (let j = 0; j < tasks.length; j++) {
+            if (tasks[j].task === taskName) return Object.assign({}, tasks[j], { repoName: r.name, repoPath: r.path });
+          }
+        }
+        return null;
+      }
+
+      function findRepo(repoPathOrName) {
+        const repos = (lastStateData && Array.isArray(lastStateData.repos)) ? lastStateData.repos : [];
+        for (let i = 0; i < repos.length; i++) {
+          if (repos[i].path === repoPathOrName || repos[i].name === repoPathOrName) return repos[i];
+        }
+        return null;
+      }
+
+      function findTaskCard(repoPath, taskName) {
+        const cards = document.querySelectorAll('.task-card');
+        for (let i = 0; i < cards.length; i++) {
+          if (cards[i].getAttribute('data-repo-path') === repoPath && cards[i].getAttribute('data-task-name') === taskName) return cards[i];
+        }
+        return null;
+      }
+
+      // Plain-text version of the review for the Resume textarea (server limit is 16 KB).
+      function findingsToFeedback(data) {
+        if (!data) return '';
+        const findings = Array.isArray(data.findings) ? data.findings : [];
+        const lines = [];
+        if (findings.length > 0) {
+          lines.push('Fix these review findings:');
+          findings.forEach(function (f) {
+            const loc = f.file ? ' (' + f.file + (f.line ? ':' + f.line : '') + ')' : '';
+            lines.push('- [' + (f.severity || 'P2') + '] ' + (f.title || '') + loc);
+          });
+        } else if (typeof data.text === 'string' && data.text.trim()) {
+          lines.push('Address this review:');
+          lines.push(data.text.trim());
+        }
+        let text = lines.join('\n');
+        if (text.length > 15000) text = text.slice(0, 15000) + '\n...';
+        return text;
+      }
+
+      function invalidateTaskReview(repoPath, taskName) {
+        reviewCache.delete((repoPath || '') + '::' + taskName);
+        const card = findTaskCard(repoPath || '', taskName);
+        if (!card) return;
+        const panel = card.querySelector('.task-tab-panel[data-tab-id="review"]');
+        if (!panel) return;
+        panel.removeAttribute('data-loaded');
+        const taskKey = card.getAttribute('data-task-key');
+        if (taskActiveTabs.get(taskKey) === 'review' && card.classList.contains('expanded')) {
+          loadTaskReview(taskKey, card, true);
+        }
+      }
+
+      async function loadTaskReview(taskKey, card, force) {
+        if (!card) return;
+        const panel = card.querySelector('.task-tab-panel[data-tab-id="review"]');
+        const body = panel ? panel.querySelector('.review-body') : null;
+        if (!body) return;
+        if (reviewInFlight.has(taskKey)) return;
+        if (!force && panel.getAttribute('data-loaded') === 'true') return;
+
+        reviewInFlight.add(taskKey);
+        if (!body.hasChildNodes() || force) {
+          while (body.firstChild) body.removeChild(body.firstChild);
+          body.appendChild(el('div', 'mono-empty', 'Loading review...'));
+        }
+
+        const repoPath = card.getAttribute('data-repo-path') || '';
+        const taskName = card.getAttribute('data-task-name') || '';
+
+        try {
+          let data = null;
+          if (isSample) {
+            const samples = lastStateData && lastStateData.sampleReviews;
+            data = (samples && samples[taskName]) ? samples[taskName] : { missing: true };
+          } else {
+            const url = '/api/task/review?repo=' + encodeURIComponent(repoPath) + '&task=' + encodeURIComponent(taskName);
+            const res = await fetch(url, { cache: 'no-store' });
+            if (res.status === 404) {
+              data = { missing: true };
+            } else if (!res.ok) {
+              let errText = 'Review failed (' + res.status + ')';
+              try {
+                const errJson = await res.json();
+                if (errJson && errJson.error) errText = errJson.error;
+              } catch (e) {}
+              renderTabError(body, errText);
+              return;
+            } else {
+              data = await res.json();
+            }
+          }
+          reviewCache.set(repoPath + '::' + taskName, data);
+          renderTaskReview(body, data, taskKey, card, repoPath, taskName);
+          panel.setAttribute('data-loaded', 'true');
+          prefillResumeFromReview(card, data);
+        } catch (err) {
+          renderTabError(body, err.message || 'Network error fetching review');
+        } finally {
+          reviewInFlight.delete(taskKey);
+        }
+      }
+
+      function renderTaskReview(body, data, taskKey, card, repoPath, taskName) {
+        while (body.firstChild) body.removeChild(body.firstChild);
+
+        const findings = Array.isArray(data.findings) ? data.findings : [];
+        const hasText = typeof data.text === 'string' && data.text.trim() !== '';
+
+        const head = el('div', 'review-summary-row');
+        const refreshBtn = el('button', 'btn-chat', 'Reload review');
+        refreshBtn.type = 'button';
+        refreshBtn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          loadTaskReview(taskKey, card, true);
+        });
+
+        if (data.missing || (!hasText && findings.length === 0)) {
+          head.appendChild(el('span', '', 'No review recorded yet (review-' + taskName + '.md). Run Review from the action bar.'));
+          head.appendChild(refreshBtn);
+          body.appendChild(head);
+          return;
+        }
+
+        ['P0', 'P1', 'P2', 'P3'].forEach(function (sev) {
+          const n = findings.filter(function (f) { return (f.severity || '').toUpperCase() === sev; }).length;
+          if (n > 0) head.appendChild(el('span', 'sev-chip sev-' + sev.toLowerCase(), sev + ' x' + n));
+        });
+        if (findings.length === 0 && data.parsed !== false) {
+          head.appendChild(el('span', '', 'No findings'));
+        }
+        if (data.at) head.appendChild(el('span', '', 'reviewed ' + formatRelativeTime(data.at)));
+        head.appendChild(refreshBtn);
+        body.appendChild(head);
+
+        if (data.parsed === false) {
+          body.appendChild(el('div', 'unparsed-warning', 'unparsed: the review text could not be split into findings; read the raw text below.'));
+        }
+
+        if (findings.length > 0) {
+          const list = el('div', 'review-findings');
+          findings.forEach(function (f) {
+            const sev = String(f.severity || 'P3').toUpperCase();
+            const row = el('div', 'review-finding');
+            row.appendChild(el('span', 'sev-chip sev-' + sev.toLowerCase(), sev));
+            row.appendChild(el('span', 'review-finding-title', f.title || '(untitled)'));
+            if (f.file) row.appendChild(el('span', 'review-finding-loc', f.file + (f.line ? ':' + f.line : '')));
+            list.appendChild(row);
+          });
+          body.appendChild(list);
+        }
+
+        if (hasText) {
+          const raw = document.createElement('details');
+          raw.className = 'review-raw';
+          if (data.parsed === false) raw.open = true;
+          raw.appendChild(el('summary', '', 'Raw review text (review-' + taskName + '.md)'));
+          raw.appendChild(el('pre', 'mono-block', data.text));
+          body.appendChild(raw);
+        }
+      }
+
+      // ---- Resume with feedback (lives in the Review tab so a typed draft survives polls) ----
+
+      function buildResumeBox(card) {
+        const box = el('div', 'review-resume-box');
+        box.appendChild(el('div', 'drawer-label', 'Resume with feedback'));
+
+        const ta = document.createElement('textarea');
+        ta.className = 'resume-feedback';
+        ta.rows = 5;
+        ta.maxLength = 16000;
+        ta.placeholder = 'What should the agent fix? Prefilled from the review findings when there are any.';
+        ta.setAttribute('aria-label', 'Resume feedback');
+        box.appendChild(ta);
+
+        const actions = el('div', 'review-resume-actions');
+        const wrap = el('span', 'act-wrap');
+        const btn = el('button', 'btn-chat primary resume-submit', 'Resume');
+        btn.type = 'button';
+        wrap.appendChild(btn);
+        actions.appendChild(wrap);
+        const counter = el('span', 'dispatch-counter', '0 / 16,000');
+        actions.appendChild(counter);
+        box.appendChild(actions);
+
+        ta.addEventListener('click', function (e) { e.stopPropagation(); });
+        ta.addEventListener('input', function () {
+          ta.setAttribute('data-dirty', '1');
+          const t = card._task;
+          if (t) resumeDrafts.set(getRepoPathForTask(t) + '::' + t.task, ta.value);
+          refreshResumeBox(card);
+        });
+        btn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          const t = card._task;
+          if (!t) return;
+          submitResume(t, ta.value, btn);
+        });
+        return box;
+      }
+
+      function refreshResumeBox(card) {
+        const box = card.querySelector('.review-resume-box');
+        const t = card._task;
+        if (!box || !t) return;
+        const ta = box.querySelector('textarea');
+        const btn = box.querySelector('.resume-submit');
+        const wrap = box.querySelector('.act-wrap');
+        const counter = box.querySelector('.dispatch-counter');
+        if (counter) counter.textContent = ta.value.length.toLocaleString() + ' / 16,000';
+        let reason = '';
+        if (RESUMABLE_STATES.indexOf(t.state) === -1) {
+          reason = 'Resume needs a done, failed, stalled or ready task (this one is ' + (t.state || 'unknown') + ')';
+        } else if (!ta.value.trim()) {
+          reason = 'Write some feedback first';
+        } else if (activeTaskJobs.has(getRepoPathForTask(t) + '::' + t.task)) {
+          reason = 'Another action is running for this task';
+        }
+        btn.disabled = !!reason;
+        if (reason) wrap.setAttribute('data-reason', reason); else wrap.removeAttribute('data-reason');
+        wrap.title = reason;
+        ta.disabled = RESUMABLE_STATES.indexOf(t.state) === -1;
+      }
+
+      function prefillResumeFromReview(card, data) {
+        const ta = card.querySelector('.review-resume-box textarea');
+        if (!ta || ta.getAttribute('data-dirty') === '1') return;
+        const text = findingsToFeedback(data);
+        if (text) ta.value = text;
+        refreshResumeBox(card);
+      }
+
+      function focusResumeBox(card) {
+        const ta = card ? card.querySelector('.review-resume-box textarea') : null;
+        if (!ta) return;
+        try {
+          ta.scrollIntoView({ block: 'nearest' });
+          ta.focus();
+          ta.setSelectionRange(ta.value.length, ta.value.length);
+        } catch (e) {}
+      }
+
+      function submitResume(task, feedback, originBtn) {
+        const text = String(feedback || '').trim();
+        if (!text) {
+          showToast('Write some feedback before resuming', 'warn');
+          return Promise.resolve(null);
+        }
+        const repoPath = getRepoPathForTask(task);
+        return runAction({
+          action: 'resume',
+          repo: repoPath,
+          task: task.task,
+          feedback: text,
+          confirm: true,
+          title: 'Confirm Resume',
+          confirmText: 'Resume ' + task.task + ' with ' + text.length.toLocaleString() + ' characters of feedback?',
+          originBtn: originBtn
+        }).then(function (res) {
+          resumeDrafts.delete(repoPath + '::' + task.task);
+          const card = findTaskCard(repoPath, task.task);
+          const ta = card ? card.querySelector('.review-resume-box textarea') : null;
+          if (ta) {
+            ta.removeAttribute('data-dirty');
+          }
+          return res;
+        }).catch(function () { return null; });
+      }
+
+      // ---- Files tab: files touched vs scope globs ----
+
+      function globToRegExp(glob) {
+        let g = String(glob).trim().replace(/\\/g, '/').replace(/^\.\//, '');
+        if (g.length > 0 && g.charAt(g.length - 1) === '/') g += '**';
+        let re = '';
+        for (let i = 0; i < g.length; i++) {
+          const c = g.charAt(i);
+          if (c === '*') {
+            if (g.charAt(i + 1) === '*') { re += '.*'; i++; } else { re += '[^/]*'; }
+          } else {
+            re += c.replace(/[.+^${}()|[\]\\?]/g, '\\$&');
+          }
+        }
+        return new RegExp('^' + re + '$');
+      }
+
+      function parseScopeGlobs(scope) {
+        if (!scope || scope === '-') return [];
+        return String(scope).split(',').map(function (s) { return s.trim(); }).filter(function (s) { return s && s !== '-'; });
+      }
+
+      function renderTaskFiles(panel, task) {
+        if (!panel) return;
+        while (panel.firstChild) panel.removeChild(panel.firstChild);
+
+        const globs = parseScopeGlobs(task.scope);
+        const matchers = globs.map(globToRegExp);
+        const files = (Array.isArray(task.filesTouched) ? task.filesTouched : []).filter(function (f) {
+          return typeof f === 'string' && f.trim() !== '';
+        });
+
+        const section = el('div', 'drawer-section');
+        section.appendChild(el('div', 'drawer-label', 'Files touched vs scope'));
+        section.appendChild(el('div', 'task-scope-row', 'scope: ' + (globs.length > 0 ? globs.join(', ') : '(none set)')));
+
+        if (files.length === 0) {
+          section.appendChild(el('div', 'mono-empty', '(no touched files recorded)'));
+          panel.appendChild(section);
+          return;
+        }
+
+        let outCount = 0;
+        const box = el('div', 'files-touched-box');
+        files.forEach(function (f) {
+          const norm = f.trim().replace(/\\/g, '/').replace(/^\.\//, '');
+          let chipClass = 'scope-chip no-scope';
+          let chipText = 'no scope';
+          let isOut = false;
+          if (matchers.length > 0) {
+            const inScope = matchers.some(function (re) { return re.test(norm); });
+            chipClass = 'scope-chip ' + (inScope ? 'in-scope' : 'out-scope');
+            chipText = inScope ? 'in scope' : 'out of scope';
+            isOut = !inScope;
+          }
+          if (isOut) outCount++;
+          const row = el('div', 'scope-file-row' + (isOut ? ' is-out' : ''));
+          row.appendChild(el('span', chipClass, chipText));
+          row.appendChild(el('span', 'scope-file-name', f));
+          box.appendChild(row);
+        });
+
+        const summary = el('div', 'review-summary-row');
+        summary.appendChild(el('span', '', files.length + (files.length === 1 ? ' file' : ' files') + (files.length >= 20 ? ' (first 20)' : '')));
+        if (matchers.length > 0) {
+          summary.appendChild(el('span', 'scope-chip ' + (outCount > 0 ? 'out-scope' : 'in-scope'), outCount > 0 ? outCount + ' out of scope' : 'all in scope'));
+        }
+        section.appendChild(summary);
+        section.appendChild(box);
+        panel.appendChild(section);
+      }
+
+      // ---- Action bar (above the drawer tabs) ----
+
+      function runReviewTask(task, originBtn) {
+        const repoPath = getRepoPathForTask(task);
+        return runAction({ action: 'review-task', repo: repoPath, task: task.task, confirm: false, originBtn: originBtn }).then(function (res) {
+          openTaskInternal(repoPath, task.task, 'review');
+          return res;
+        }).catch(function () { return null; });
+      }
+
+      function renderTaskActionBar(host, task, card) {
+        if (!host) return;
+        const ui = actionsUiEnabled(lastStateData);
+        const sig = [task.state, task.branch || '', task.worktree || '', ui ? '1' : '0'].join('|');
+        if (host._sig === sig) return;
+        host._sig = sig;
+        while (host.firstChild) host.removeChild(host.firstChild);
+        if (!ui) return;
+
+        const bar = el('div', 'task-action-bar');
+        const repoPath = getRepoPathForTask(task);
+        const taskRefKey = repoPath + '::' + task.task;
+        const state = task.state || '';
+        const resumable = RESUMABLE_STATES.indexOf(state) !== -1;
+        const stateReason = function (needs) { return needs + ' (this task is ' + (state || 'unknown') + ')'; };
+
+        const resumeCmd = 'trinity resume ' + task.task + ' -FeedbackFile .codex-out\\feedback-' + task.task + '-<job>.md';
+        const resumeCtrl = createActionControl('resume', 'Resume with feedback', resumeCmd, function () {
+          openTaskInternal(repoPath, task.task, 'review', { focusResume: true });
+        }, false, taskRefKey, resumable ? '' : stateReason('Resume needs a done, failed, stalled or ready task'));
+        bar.appendChild(resumeCtrl);
+
+        const retryCmd = 'trinity retry ' + task.task;
+        const retryCtrl = createActionControl('retry', 'Retry', retryCmd, function () {
+          runAction({ action: 'retry', repo: repoPath, task: task.task, confirm: true, title: 'Confirm Retry', originBtn: retryCtrl.querySelector('.btn-action') }).catch(function () {});
+        }, true, taskRefKey, resumable ? '' : stateReason('Retry needs a done, failed, stalled or ready task'));
+        bar.appendChild(retryCtrl);
+
+        const hasBranch = !!(task.branch && task.branch !== '-');
+        const reviewCmd = 'trinity merge ' + task.task + ' -DryRun';
+        const reviewCtrl = createActionControl('review', 'Review', reviewCmd, function () {
+          runReviewTask(task, reviewCtrl.querySelector('.btn-action'));
+        }, false, taskRefKey, hasBranch ? '' : 'This task has no branch to review');
+        bar.appendChild(reviewCtrl);
+
+        const mergeable = state === 'done' || state === 'ready';
+        if (mergeable) {
+          const reviewMergeBtn = el('button', 'btn-chat btn-review-merge', 'Review merge');
+          reviewMergeBtn.type = 'button';
+          reviewMergeBtn.title = 'Review merge and check blockers';
+          reviewMergeBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            switchTaskTab(card.getAttribute('data-task-key'), 'merge', card);
+          });
+          bar.appendChild(reviewMergeBtn);
+        }
+        const mergeCmd = 'trinity merge ' + task.task + ' -Yes';
+        const mergeCtrl = createActionControl('merge', 'Merge', mergeCmd, function () {
+          requestAction('merge', task.task, repoPath, mergeCmd, true, mergeCtrl.querySelector('.btn-action'));
+        }, true, taskRefKey, mergeable ? '' : stateReason('Merge needs a done or ready task'));
+        bar.appendChild(mergeCtrl);
+
+        const cancelCmd = 'trinity cancel ' + task.task;
+        const cancelOk = state !== 'merged' && state !== 'cancelled';
+        const cancelCtrl = createActionControl('cancel', 'Cancel', cancelCmd, function () {
+          requestAction('cancel', task.task, repoPath, cancelCmd, true, cancelCtrl.querySelector('.btn-action'));
+        }, true, taskRefKey, cancelOk ? '' : 'Task is already ' + state);
+        bar.appendChild(cancelCtrl);
+
+        const hasWorktree = !!(task.worktree && task.worktree !== '-');
+        const folderCmd = 'explorer.exe "' + (task.worktree || '') + '"';
+        const folderCtrl = createActionControl('folder', 'Open folder', folderCmd, function () {
+          requestAction('open-folder', task.task, repoPath, folderCmd, false, folderCtrl.querySelector('.btn-action'));
+        }, false, taskRefKey, hasWorktree ? '' : 'This task has no worktree');
+        bar.appendChild(folderCtrl);
+
+        if (hasBranch) {
+          const copyBranchBtn = el('button', 'btn-chat', 'Copy branch');
+          copyBranchBtn.type = 'button';
+          copyBranchBtn.title = 'Copy branch: ' + task.branch;
+          copyBranchBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            copyToClipboard(task.branch, copyBranchBtn, 'Copy branch');
+          });
+          bar.appendChild(copyBranchBtn);
+        }
+
+        host.appendChild(bar);
+        updateActionButtonsDisabledState();
+      }
+
+      // Per-poll refresh of the drawer pieces that depend on the task object.
+      function refreshTaskDrawerExtras(card, task) {
+        renderTaskActionBar(card.querySelector('.task-action-host'), task, card);
+
+        const panelFiles = card.querySelector('.task-tab-panel[data-tab-id="files"]');
+        if (panelFiles) {
+          const filesSig = (task.scope || '') + '||' + (Array.isArray(task.filesTouched) ? task.filesTouched.join('|') : '');
+          if (panelFiles._sig !== filesSig) {
+            panelFiles._sig = filesSig;
+            renderTaskFiles(panelFiles, task);
+          }
+        }
+
+        const ta = card.querySelector('.review-resume-box textarea');
+        if (ta) {
+          const draft = resumeDrafts.get(getRepoPathForTask(task) + '::' + task.task);
+          if (draft && ta.getAttribute('data-dirty') !== '1' && !ta.value) {
+            ta.value = draft;
+            ta.setAttribute('data-dirty', '1');
+          }
+          refreshResumeBox(card);
+        }
+      }
+
       async function loadTaskMergeCheck(taskKey, card, force) {
         if (!card) return;
         const panel = card.querySelector('.task-tab-panel[data-tab-id="merge"]');
@@ -6178,7 +7202,7 @@
 
         // Only tasks merge can take: finished, on an agent branch, with commits ahead of main.
         const statusText = (task.status || '').trim().toLowerCase();
-        const mergeable = statusText.startsWith('done') && typeof task.commits === 'number' && task.commits > 0 &&
+        const mergeable = (statusText.startsWith('done') || statusText.startsWith('ready')) && typeof task.commits === 'number' && task.commits > 0 &&
           typeof task.branch === 'string' && task.branch.indexOf('agent/') === 0;
         if (mergeable) {
           const mergeCmd = 'trinity merge ' + task.task + ' -Yes';
@@ -6351,74 +7375,6 @@
         while (panelSummary.firstChild) panelSummary.removeChild(panelSummary.firstChild);
 
         const taskKey = card.getAttribute('data-task-key');
-
-        // Action bar (Merge, Review, Cancel, Open folder, Copy branch)
-        if (areActionsEnabled(lastStateData)) {
-          const actionBar = el('div', 'task-action-bar');
-          const repoPath = getRepoPathForTask(task);
-          const taskRefKey = (repoPath || '') + '::' + task.task;
-
-          // Review merge and Merge on done-unmerged
-          if (task.state === 'done') {
-            const reviewMergeBtn = el('button', 'btn-chat btn-review-merge', 'Review merge');
-            reviewMergeBtn.type = 'button';
-            reviewMergeBtn.title = 'Review merge and check blockers';
-            reviewMergeBtn.addEventListener('click', function (e) {
-              e.stopPropagation();
-              switchTaskTab(taskKey, 'merge', card);
-            });
-            actionBar.appendChild(reviewMergeBtn);
-
-            const mergeCmd = 'trinity merge ' + task.task + ' -Yes';
-            const ctrl = createActionControl('merge', 'Merge', mergeCmd, function () {
-              requestAction('merge', task.task, repoPath, mergeCmd, true, ctrl.querySelector('.btn-action'));
-            }, true, taskRefKey);
-            actionBar.appendChild(ctrl);
-          }
-
-          // Review (has branch)
-          if (task.branch && task.branch !== '-') {
-            const reviewCmd = 'cd /d "' + repoPath + '.worktrees\\' + task.agent + '-' + task.task + '" && trinity review --base main';
-            const ctrl = createActionControl('review', 'Review', reviewCmd, function () {
-              requestAction('review-task', task.task, repoPath, reviewCmd, false, ctrl.querySelector('.btn-action'));
-            }, false, taskRefKey);
-            actionBar.appendChild(ctrl);
-          }
-
-          // Cancel (not done, merged, or cancelled)
-          if (task.state !== 'done' && task.state !== 'merged' && task.state !== 'cancelled') {
-            const cancelCmd = 'trinity cancel ' + task.task;
-            const ctrl = createActionControl('cancel', 'Cancel', cancelCmd, function () {
-              requestAction('cancel', task.task, repoPath, cancelCmd, true, ctrl.querySelector('.btn-action'));
-            }, true, taskRefKey);
-            actionBar.appendChild(ctrl);
-          }
-
-          // Open folder (has worktree)
-          if (task.worktree && task.worktree !== '-') {
-            const folderCmd = 'explorer.exe "' + task.worktree + '"';
-            const ctrl = createActionControl('folder', 'Open folder', folderCmd, function () {
-              requestAction('open-folder', task.task, repoPath, folderCmd, false, ctrl.querySelector('.btn-action'));
-            }, false, taskRefKey);
-            actionBar.appendChild(ctrl);
-          }
-
-          // Copy branch (has branch)
-          if (task.branch && task.branch !== '-') {
-            const copyBranchBtn = el('button', 'btn-chat', 'Copy branch');
-            copyBranchBtn.type = 'button';
-            copyBranchBtn.title = 'Copy branch: ' + task.branch;
-            copyBranchBtn.addEventListener('click', function (e) {
-              e.stopPropagation();
-              copyToClipboard(task.branch, copyBranchBtn, 'Copy branch');
-            });
-            actionBar.appendChild(copyBranchBtn);
-          }
-
-          if (actionBar.childNodes.length > 0) {
-            panelSummary.appendChild(actionBar);
-          }
-        }
 
         // Action header with Open Chat button if task has chat
         if (task.chat) {
@@ -6654,6 +7610,7 @@
 
         const repoPath = getRepoPathForTask(task);
         card.setAttribute('data-repo-path', repoPath || '');
+        card._task = task;
 
         const isExpanded = card.classList.contains('expanded');
         const cardHeader = card.querySelector('.task-card-header');
@@ -6664,6 +7621,21 @@
         const panelSummary = card.querySelector('.task-tab-panel[data-tab-id="summary"]');
         if (panelSummary) {
           renderTaskSummary(panelSummary, task, card);
+        }
+
+        refreshTaskDrawerExtras(card, task);
+
+        const panelReview = card.querySelector('.task-tab-panel[data-tab-id="review"]');
+        if (panelReview) {
+          const reviewFingerprint = (task.state || '') + '::' + (task.updated || '');
+          const lastReviewFingerprint = panelReview.getAttribute('data-review-fingerprint');
+          if (lastReviewFingerprint && lastReviewFingerprint !== reviewFingerprint) {
+            panelReview.removeAttribute('data-loaded');
+            if (taskActiveTabs.get(taskKey) === 'review' && isExpanded) {
+              loadTaskReview(taskKey, card, true);
+            }
+          }
+          panelReview.setAttribute('data-review-fingerprint', reviewFingerprint);
         }
 
         const panelDiff = card.querySelector('.task-tab-panel[data-tab-id="diff"]');
@@ -6734,6 +7706,11 @@
         // Expandable drawer with Step 3 Tabs
         const drawer = el('div', 'task-card-drawer');
         const activeTab = taskActiveTabs.get(taskKey) || 'summary';
+        card._task = task;
+
+        // Action bar sits above the tabs so it is visible on every tab
+        const actionHost = el('div', 'task-action-host');
+        drawer.appendChild(actionHost);
 
         // Tablist
         const tablist = el('div', 'task-drawer-tabs');
@@ -6744,6 +7721,8 @@
           { id: 'summary', label: 'Summary' },
           { id: 'diff', label: 'Diff' },
           { id: 'log', label: 'Log' },
+          { id: 'review', label: 'Review' },
+          { id: 'files', label: 'Files' },
           { id: 'merge', label: 'Merge check' }
         ];
 
@@ -6794,14 +7773,30 @@
         panelMerge.setAttribute('role', 'tabpanel');
         if (activeTab !== 'merge') panelMerge.style.display = 'none';
 
+        const panelReview = el('div', 'task-tab-panel' + (activeTab === 'review' ? ' active' : ''));
+        panelReview.setAttribute('data-tab-id', 'review');
+        panelReview.setAttribute('role', 'tabpanel');
+        panelReview.setAttribute('data-review-fingerprint', (task.state || '') + '::' + (task.updated || ''));
+        if (activeTab !== 'review') panelReview.style.display = 'none';
+        panelReview.appendChild(el('div', 'review-body'));
+        panelReview.appendChild(buildResumeBox(card));
+
+        const panelFiles = el('div', 'task-tab-panel' + (activeTab === 'files' ? ' active' : ''));
+        panelFiles.setAttribute('data-tab-id', 'files');
+        panelFiles.setAttribute('role', 'tabpanel');
+        if (activeTab !== 'files') panelFiles.style.display = 'none';
+
         renderTaskSummary(panelSummary, task, card);
 
         drawer.appendChild(panelSummary);
         drawer.appendChild(panelDiff);
         drawer.appendChild(panelLog);
+        drawer.appendChild(panelReview);
+        drawer.appendChild(panelFiles);
         drawer.appendChild(panelMerge);
 
         card.appendChild(drawer);
+        refreshTaskDrawerExtras(card, task);
 
         if (isExpanded && activeTab !== 'summary') {
           switchTaskTab(taskKey, activeTab, card);
@@ -7323,6 +8318,10 @@
                 switchTaskTab(cKey, targetTab, card);
               }
               card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              if (pendingResumeFocus && pendingResumeFocus.task.toLowerCase() === cTask.toLowerCase()) {
+                pendingResumeFocus = null;
+                setTimeout(function () { focusResumeBox(card); }, 0);
+              }
               found = true;
               break;
             }
@@ -7331,17 +8330,91 @@
         return found;
       }
 
+      // ---- Header view registry: the built-in tabs plus tabs modules add with Trinity.addView ----
+      // Tab order: overview, board, inbox, tasks, health, history; any other id goes last, in the order added.
+      const VIEW_ORDER = ['overview', 'board', 'inbox', 'tasks', 'health', 'history'];
+
+      function findView(id) {
+        for (let i = 0; i < viewRegistry.length; i++) {
+          if (viewRegistry[i].id === id) return viewRegistry[i];
+        }
+        return null;
+      }
+
+      function sortedViews() {
+        return viewRegistry.map(function (v, i) { return { v: v, i: i }; }).sort(function (a, b) {
+          const ra = VIEW_ORDER.indexOf(a.v.id) === -1 ? VIEW_ORDER.length : VIEW_ORDER.indexOf(a.v.id);
+          const rb = VIEW_ORDER.indexOf(b.v.id) === -1 ? VIEW_ORDER.length : VIEW_ORDER.indexOf(b.v.id);
+          return ra - rb || a.i - b.i;
+        }).map(function (x) { return x.v; });
+      }
+
+      function registerView(id, tab, container, display, render) {
+        const view = { id: id, tab: tab, container: container, display: display, render: render || null };
+        viewRegistry.push(view);
+        return view;
+      }
+
+      function renderAddonView(view) {
+        if (!view || typeof view.render !== 'function' || !lastStateData) return;
+        try {
+          view.render(view.container, lastStateData);
+        } catch (err) {
+          if (window.console && console.error) console.error('Trinity view "' + view.id + '" failed to render', err);
+        }
+      }
+
+      function addView(id, label, render) {
+        id = String(id || '').toLowerCase();
+        if (!/^[a-z0-9-]+$/.test(id)) throw new Error('addView: id must match ^[a-z0-9-]+$');
+        let view = findView(id);
+        if (view) {
+          if (typeof render === 'function') view.render = render;
+          const labelEl = view.tab.querySelector('span');
+          if (labelEl && label) labelEl.textContent = label;
+          return view.container;
+        }
+
+        const tab = document.createElement('a');
+        tab.href = '#' + id;
+        tab.id = 'tab-' + id;
+        tab.className = 'view-tab';
+        tab.setAttribute('role', 'tab');
+        tab.setAttribute('aria-selected', 'false');
+        tab.appendChild(el('span', '', label || id));
+        const badge = el('span', 'tab-badge', '0');
+        badge.id = 'tab-badge-' + id;
+        badge.style.display = 'none';
+        tab.appendChild(badge);
+
+        const container = document.createElement('div');
+        container.id = 'view-' + id;
+        container.className = 'addon-view';
+        container.style.display = 'none';
+        const host = viewInbox ? viewInbox.parentNode : document.body;
+        host.appendChild(container);
+
+        view = registerView(id, tab, container, 'flex', typeof render === 'function' ? render : null);
+        const nav = tabInbox ? tabInbox.parentNode : null;
+        if (nav) {
+          sortedViews().forEach(function (v) { nav.appendChild(v.tab); });
+        }
+        applyViewFromHash();
+        return container;
+      }
+
+      function defaultViewId() {
+        const first = sortedViews()[0];
+        return first ? first.id : 'inbox';
+      }
+
       function applyViewFromHash() {
         const hash = (window.location.hash || '').replace(/^#/, '').trim();
-        let view = 'inbox';
+        let view = defaultViewId();
         let taskDeepLink = null;
 
-        if (!hash || hash === 'inbox') {
-          view = 'inbox';
-        } else if (hash === 'tasks') {
-          view = 'tasks';
-        } else if (hash === 'health') {
-          view = 'health';
+        if (hash && findView(hash)) {
+          view = hash;
         } else if (hash.startsWith('task=')) {
           view = 'tasks';
           let taskPart = hash.substring(5).trim();
@@ -7355,33 +8428,22 @@
           }
           taskDeepLink = decodeURIComponent(taskPart);
           pendingTaskTabDeepLink = tabPart;
-        } else {
-          view = 'inbox';
         }
 
         currentView = view;
         pendingTaskDeepLink = taskDeepLink;
         if (!taskDeepLink) appliedDeepLinkHash = null;
 
-        // Update tabs active state
-        const tabs = { inbox: tabInbox, tasks: tabTasks, health: tabHealth };
-        ['inbox', 'tasks', 'health'].forEach(function (v) {
-          const tab = tabs[v];
-          if (tab) {
-            if (v === view) {
-              tab.classList.add('active');
-              tab.setAttribute('aria-selected', 'true');
-            } else {
-              tab.classList.remove('active');
-              tab.setAttribute('aria-selected', 'false');
-            }
-          }
+        // Update tab active state and toggle the view containers
+        viewRegistry.forEach(function (v) {
+          const active = v.id === view;
+          v.tab.classList.toggle('active', active);
+          v.tab.setAttribute('aria-selected', active ? 'true' : 'false');
+          v.container.style.display = active ? v.display : 'none';
         });
 
-        // Toggle view containers
-        if (viewInbox) viewInbox.style.display = (view === 'inbox') ? 'flex' : 'none';
-        if (viewTasks) viewTasks.style.display = (view === 'tasks') ? 'flex' : 'none';
-        if (viewHealth) viewHealth.style.display = (view === 'health') ? 'flex' : 'none';
+        // Module views draw on show and on every poll while shown
+        renderAddonView(findView(view));
 
         // Apply a deep link once per hash; every state render calls this, and re-applying would undo the user's tab choice.
         if (view === 'tasks' && pendingTaskDeepLink && lastStateData && appliedDeepLinkHash !== hash) {
@@ -7416,7 +8478,7 @@
         agentTag.setAttribute('data-field', 'agent');
         left.appendChild(agentTag);
 
-        const taskTitle = el('span', 'inbox-task-link', (item.repo ? item.repo + ' / ' : '') + item.task);
+        const taskTitle = el('span', 'inbox-task-link', (item.repo ? item.repo + ' / ' : '') + (item.task || 'autopilot'));
         taskTitle.setAttribute('data-field', 'title');
         left.appendChild(taskTitle);
 
@@ -7429,35 +8491,10 @@
         row.appendChild(left);
 
 
-        if (areActionsEnabled(lastStateData)) {
-          const repoPath = getRepoPathForAttention(item);
-          const taskRefKey = (repoPath || '') + '::' + item.task;
+        if (actionsUiEnabled(lastStateData)) {
           const actionsWrap = el('div', 'inbox-item-actions');
           actionsWrap.setAttribute('data-field', 'actions');
-
-          if (item.reason === 'done-unmerged') {
-            const reviewMergeBtn = el('button', 'btn-chat btn-review-merge', 'Review merge');
-            reviewMergeBtn.type = 'button';
-            reviewMergeBtn.title = 'Review merge and check blockers';
-            reviewMergeBtn.addEventListener('click', function (e) {
-              e.stopPropagation();
-              navigateToTask(item.repo || '', item.task || '', 'merge');
-            });
-            actionsWrap.appendChild(reviewMergeBtn);
-
-            const mergeCmd = 'trinity merge ' + item.task + ' -Yes';
-            const ctrl = createActionControl('merge', 'Merge', mergeCmd, function () {
-              requestAction('merge', item.task, repoPath, mergeCmd, true, ctrl.querySelector('.btn-action'));
-            }, true, taskRefKey);
-            actionsWrap.appendChild(ctrl);
-          } else if (item.reason === 'failed' || item.reason === 'runner-dead') {
-            const cancelCmd = 'trinity cancel ' + item.task;
-            const ctrl = createActionControl('cancel', 'Cancel', cancelCmd, function () {
-              requestAction('cancel', item.task, repoPath, cancelCmd, true, ctrl.querySelector('.btn-action'));
-            }, true, taskRefKey);
-            actionsWrap.appendChild(ctrl);
-          }
-
+          buildAttentionActions(actionsWrap, item);
           if (actionsWrap.childNodes.length > 0) {
             row.appendChild(actionsWrap);
           }
@@ -7473,6 +8510,15 @@
         row.appendChild(right);
 
         function onClick() {
+          if (!item.task) {
+            // Repo-level item (limit): the overview/board screens own it
+            if (window.TrinityBoard && typeof window.TrinityBoard.openAutopilot === 'function') {
+              window.TrinityBoard.openAutopilot(getRepoPathForAttention(item));
+            } else if (findView('overview')) {
+              window.location.hash = '#overview';
+            }
+            return;
+          }
           navigateToTask(item.repo || '', item.task || '');
         }
         row.addEventListener('click', onClick);
@@ -7506,7 +8552,7 @@
 
         const taskTitle = row.querySelector('[data-field="title"]');
         if (taskTitle) {
-          taskTitle.textContent = (item.repo ? item.repo + ' / ' : '') + item.task;
+          taskTitle.textContent = (item.repo ? item.repo + ' / ' : '') + (item.task || 'autopilot');
         }
 
         const detail = row.querySelector('[data-field="detail"]');
@@ -7515,9 +8561,7 @@
         }
 
         let actionsWrap = row.querySelector('[data-field="actions"]');
-        if (areActionsEnabled(lastStateData)) {
-          const repoPath = getRepoPathForAttention(item);
-          const taskRefKey = (repoPath || '') + '::' + item.task;
+        if (actionsUiEnabled(lastStateData)) {
           if (!actionsWrap) {
             actionsWrap = el('div', 'inbox-item-actions');
             actionsWrap.setAttribute('data-field', 'actions');
@@ -7528,28 +8572,11 @@
               row.appendChild(actionsWrap);
             }
           }
-          while (actionsWrap.firstChild) actionsWrap.removeChild(actionsWrap.firstChild);
-          if (item.reason === 'done-unmerged') {
-            const reviewMergeBtn = el('button', 'btn-chat btn-review-merge', 'Review merge');
-            reviewMergeBtn.type = 'button';
-            reviewMergeBtn.title = 'Review merge and check blockers';
-            reviewMergeBtn.addEventListener('click', function (e) {
-              e.stopPropagation();
-              navigateToTask(item.repo || '', item.task || '', 'merge');
-            });
-            actionsWrap.appendChild(reviewMergeBtn);
-
-            const mergeCmd = 'trinity merge ' + item.task + ' -Yes';
-            const ctrl = createActionControl('merge', 'Merge', mergeCmd, function () {
-              requestAction('merge', item.task, repoPath, mergeCmd, true, ctrl.querySelector('.btn-action'));
-            }, true, taskRefKey);
-            actionsWrap.appendChild(ctrl);
-          } else if (item.reason === 'failed' || item.reason === 'runner-dead') {
-            const cancelCmd = 'trinity cancel ' + item.task;
-            const ctrl = createActionControl('cancel', 'Cancel', cancelCmd, function () {
-              requestAction('cancel', item.task, repoPath, cancelCmd, true, ctrl.querySelector('.btn-action'));
-            }, true, taskRefKey);
-            actionsWrap.appendChild(ctrl);
+          // Rebuild only when the item changed, so a button under the cursor is not swapped every poll
+          const actionsSig = (item.reason || '') + '|' + (item.repo || '') + '|' + (item.task || '');
+          if (actionsWrap._sig !== actionsSig) {
+            actionsWrap._sig = actionsSig;
+            buildAttentionActions(actionsWrap, item);
           }
         } else if (actionsWrap && actionsWrap.parentNode) {
           actionsWrap.parentNode.removeChild(actionsWrap);
@@ -8233,6 +9260,8 @@
           refreshTime.textContent = 'Updated ' + timeStr;
 
           renderDashboard(data);
+          try { updateHeaderControls(data); notifyAfterPoll(data); } catch (e) { if (window.console) console.error(e); }
+          fireStateListeners(data);
 
           // Success: reset error backoff to 3s
           statePollErrorDelay = 3000;
@@ -8303,7 +9332,525 @@
         }
       });
 
+      // ==========================================
+      // GUI shell: window.Trinity (contract: docs/dashboard-gui.md section 4)
+      // ==========================================
+
+      function showToast(text, kind) {
+        if (!toastsContainer) return;
+        const cls = kind === 'error' ? 'toast-error' : (kind === 'warn' ? 'toast-warn' : 'toast-done');
+        const toast = el('div', 'job-toast ' + cls);
+        toast.setAttribute('role', 'status');
+        const header = el('div', 'toast-header');
+        header.appendChild(el('span', 'toast-title', String(text)));
+        const dismissBtn = el('button', 'btn-toast-dismiss', '×');
+        dismissBtn.type = 'button';
+        dismissBtn.setAttribute('aria-label', 'Dismiss toast');
+        function remove() { if (toast.parentNode) toast.parentNode.removeChild(toast); }
+        dismissBtn.addEventListener('click', remove);
+        header.appendChild(dismissBtn);
+        toast.appendChild(header);
+        toastsContainer.appendChild(toast);
+        setTimeout(remove, kind === 'error' ? 12000 : 6000);
+      }
+
+      // The CLI line(s) an action will run, for the confirm dialog (the server's reply carries the real one).
+      function previewActionCommand(body) {
+        const t = body.task || '';
+        switch (body.action) {
+          case 'resume': return 'trinity resume ' + t + ' -FeedbackFile .codex-out\\feedback-' + t + '-<job>.md';
+          case 'retry': return 'trinity retry ' + t;
+          case 'review-task': return 'trinity merge ' + t + ' -DryRun';
+          case 'merge': return 'trinity merge ' + t + ' -Yes';
+          case 'cancel': return 'trinity cancel ' + t;
+          case 'queue-add': return 'trinity queue add ' + (body.agent || '<agent>') + ' ' + t + (body.scope ? ' -Scope "' + body.scope + '"' : '') + ' -PromptFile .codex-out\\prompt-' + t + '.md\ntrinity scheduler start';
+          case 'queue-remove': return 'trinity queue remove ' + t;
+          case 'queue-move': return 'trinity queue move ' + t + ' ' + body.index;
+          case 'start-now': return 'trinity queue remove ' + t + '\ntrinity dispatch <agent> ' + t + ' -Scope <scope> -PromptFile <file>';
+          case 'settings-save': return 'trinity config set -Json .codex-out\\config-<job>.json';
+          case 'autopilot': return body.enabled ? 'trinity autopilot on\ntrinity scheduler start' : 'trinity autopilot off';
+          case 'pause': return 'trinity pause "' + (body.reason || 'user') + '"\ntrinity scheduler stop';
+          case 'unpause': return 'trinity unpause';
+          case 'dispatch': return 'trinity dispatch ' + (body.agent || '<agent>') + ' ' + t + (body.scope ? ' -Scope "' + body.scope + '"' : '') + ' -PromptFile <file>';
+          default: return 'trinity ' + String(body.action || '') + (t ? ' ' + t : '');
+        }
+      }
+
+      // Promise<boolean>: the existing confirm dialog showing exactly `command`. false when dismissed.
+      function confirmCommand(title, command, opts) {
+        opts = opts || {};
+        return new Promise(function (resolve) {
+          if (!confirmDialog) { resolve(false); return; }
+          openConfirmDialog('custom', '', '', String(command || ''), opts.originBtn || null, {
+            title: title || 'Confirm Action',
+            bodyText: opts.body || 'This runs the command below.',
+            runText: opts.runText || 'Run',
+            runClass: opts.runClass || 'btn-chat primary danger',
+            onConfirm: function () { resolve(true); },
+            onCancel: function () { resolve(false); }
+          });
+        });
+      }
+
+      // Trinity.action(body): confirm dialog when body.confirm, then postAction. Extra non-wire keys
+      // (preview, title, confirmText, originBtn) tune the dialog and are not sent to the server.
+      function runAction(input) {
+        const body = Object.assign({}, input || {});
+        const meta = { preview: body.preview, title: body.title, confirmText: body.confirmText, originBtn: body.originBtn };
+        delete body.preview;
+        delete body.title;
+        delete body.confirmText;
+        delete body.originBtn;
+        if (!body.action) return Promise.reject(new Error('action is required'));
+        if (typeof body.task !== 'string') body.task = '';
+        body.repo = body.repo || '';
+
+        function start() {
+          return postAction(body).catch(function (err) {
+            showErrorToast(body.action, body.task, err.message || 'Request failed', err.status);
+            throw err;
+          });
+        }
+        if (!body.confirm) return start();
+        return confirmCommand(meta.title || ('Confirm ' + body.action), meta.preview || previewActionCommand(body), {
+          body: meta.confirmText,
+          originBtn: meta.originBtn
+        }).then(function (ok) {
+          if (!ok) {
+            const cancelled = new Error('Cancelled');
+            cancelled.cancelled = true;
+            throw cancelled;
+          }
+          return start();
+        });
+      }
+
+      // Opens the task drawer (a task card in the Tasks view) on a tab: log|diff|review|files|chat (default summary).
+      function openTaskInternal(repoPath, taskName, tab, opts) {
+        opts = opts || {};
+        const repo = findRepo(repoPath);
+        const repoName = repo ? repo.name : repoPath;
+        tab = tab ? String(tab).toLowerCase() : '';
+        const task = findTaskByRef(repoPath, taskName);
+
+        // Make sure a filter does not hide the card
+        let needRender = false;
+        if (currentRepoFilter !== 'all' && currentRepoFilter !== repoName) {
+          currentRepoFilter = 'all';
+          if (repoFilterSelect) repoFilterSelect.value = 'all';
+          needRender = true;
+        }
+        if (hideFinished && task && (task.state === 'merged' || task.state === 'cancelled')) {
+          hideFinished = false;
+          if (hideFinishedCheckbox) hideFinishedCheckbox.checked = false;
+          needRender = true;
+        }
+        if (needRender) {
+          savePreferences();
+          if (lastStateData) renderDashboard(lastStateData);
+        }
+
+        if (opts.focusResume) pendingResumeFocus = { repo: repoName, task: taskName };
+        const wireTab = (tab && tab !== 'chat') ? tab : '';
+        const hash = '#task=' + encodeURIComponent(repoName) + '/' + encodeURIComponent(taskName) +
+          (wireTab ? '&tab=' + encodeURIComponent(wireTab) : '');
+        appliedDeepLinkHash = null;
+        if (window.location.hash !== hash) window.location.hash = hash;
+        applyViewFromHash();
+
+        if (tab === 'chat' && task && task.chat) {
+          openChatDrawer(task.chat, {
+            title: task.task || 'Task chat',
+            agent: task.agent || 'antigravity',
+            model: task.model || '',
+            isRunningOrActive: task.state === 'running'
+          });
+        }
+      }
+
+      function openWizard(prefill) {
+        if (!actionsUiEnabled(lastStateData)) {
+          showToast('Actions are disabled (missing token or actions off on the server)', 'warn');
+          return;
+        }
+        openDispatchModal(prefill || {});
+      }
+
+      function onStateSubscribe(cb) {
+        if (typeof cb !== 'function') return function () {};
+        stateListeners.push(cb);
+        return function () {
+          const i = stateListeners.indexOf(cb);
+          if (i >= 0) stateListeners.splice(i, 1);
+        };
+      }
+
+      function fireStateListeners(state) {
+        stateListeners.slice().forEach(function (cb) {
+          try { cb(state); } catch (err) {
+            if (window.console && console.error) console.error('Trinity.onState listener failed', err);
+          }
+        });
+      }
+
+      // ---- Needs-attention one-click fixes ----
+
+      function buildAttentionActions(wrap, item) {
+        while (wrap.firstChild) wrap.removeChild(wrap.firstChild);
+        const kind = item.reason;
+        const repoPath = getRepoPathForAttention(item);
+        const taskName = item.task || '';
+        const key = repoPath + '::' + taskName;
+        const taskObj = findTaskByRef(repoPath, taskName) || { task: taskName, repoPath: repoPath };
+
+        function resumeCtrl() {
+          const ctrl = createActionControl('resume', 'Resume', 'trinity resume ' + taskName + ' -FeedbackFile .codex-out\\feedback-' + taskName + '-<job>.md', function () {
+            // Opens the Review tab with the feedback box focused instead of resuming blind
+            openTaskInternal(repoPath, taskName, 'review', { focusResume: true });
+          }, false, key);
+          return ctrl;
+        }
+        function retryCtrl() {
+          const ctrl = createActionControl('retry', 'Retry', 'trinity retry ' + taskName, function () {
+            runAction({ action: 'retry', repo: repoPath, task: taskName, confirm: true, title: 'Confirm Retry', originBtn: ctrl.querySelector('.btn-action') }).catch(function () {});
+          }, true, key);
+          return ctrl;
+        }
+        function cancelCtrl() {
+          const cmd = 'trinity cancel ' + taskName;
+          const ctrl = createActionControl('cancel', 'Cancel', cmd, function () {
+            requestAction('cancel', taskName, repoPath, cmd, true, ctrl.querySelector('.btn-action'));
+          }, true, key);
+          return ctrl;
+        }
+        function reviewCtrl() {
+          const ctrl = createActionControl('review', 'Review', 'trinity merge ' + taskName + ' -DryRun', function () {
+            runReviewTask(taskObj, ctrl.querySelector('.btn-action'));
+          }, false, key);
+          return ctrl;
+        }
+        function mergeCtrl() {
+          const cmd = 'trinity merge ' + taskName + ' -Yes';
+          const ctrl = createActionControl('merge', 'Merge', cmd, function () {
+            requestAction('merge', taskName, repoPath, cmd, true, ctrl.querySelector('.btn-action'));
+          }, true, key);
+          return ctrl;
+        }
+
+        if (kind === 'failed') {
+          wrap.appendChild(resumeCtrl());
+          wrap.appendChild(retryCtrl());
+          wrap.appendChild(cancelCtrl());
+        } else if (kind === 'stalled') {
+          wrap.appendChild(resumeCtrl());
+          wrap.appendChild(cancelCtrl());
+        } else if (kind === 'runner-dead') {
+          wrap.appendChild(cancelCtrl());
+        } else if (kind === 'done-unmerged') {
+          wrap.appendChild(reviewCtrl());
+          wrap.appendChild(mergeCtrl());
+        } else if (kind === 'ready') {
+          wrap.appendChild(mergeCtrl());
+        } else if (kind === 'limit') {
+          const unpause = createActionControl('unpause', 'Unpause', 'trinity unpause', function () {
+            runAction({ action: 'unpause', repo: repoPath, task: '', confirm: true, title: 'Confirm Unpause', originBtn: unpause.querySelector('.btn-action') }).catch(function () {});
+          }, true, key);
+          wrap.appendChild(unpause);
+
+          const open = el('button', 'btn-chat', 'Open autopilot');
+          open.type = 'button';
+          open.title = 'Open the autopilot panel for this repo';
+          open.addEventListener('click', function (e) {
+            e.stopPropagation();
+            if (window.TrinityBoard && typeof window.TrinityBoard.openAutopilot === 'function') {
+              window.TrinityBoard.openAutopilot(repoPath);
+            } else {
+              showToast('The autopilot panel is not loaded (board module missing)', 'warn');
+            }
+          });
+          wrap.appendChild(open);
+        }
+      }
+
+      // ---- Header: slots chip, Stop all ----
+
+      const SLOT_AGENTS = ['codex', 'antigravity', 'claude'];
+
+      function updateSlotsChip(state) {
+        if (!slotsChip) return;
+        const totals = {};
+        SLOT_AGENTS.forEach(function (a) { totals[a] = { used: 0, max: 0 }; });
+        let any = false;
+        const perRepo = [];
+        ((state && state.repos) || []).forEach(function (r) {
+          if (!r || !r.slots) return;
+          const parts = [];
+          SLOT_AGENTS.forEach(function (a) {
+            const s = r.slots[a];
+            if (!s) return;
+            any = true;
+            totals[a].used += Number(s.used) || 0;
+            totals[a].max += Number(s.max) || 0;
+            parts.push(a + ' ' + (Number(s.used) || 0) + '/' + (Number(s.max) || 0));
+          });
+          perRepo.push(r.name + ': ' + parts.join(', '));
+        });
+        if (!any) {
+          slotsChip.style.display = 'none';
+          return;
+        }
+        while (slotsChip.firstChild) slotsChip.removeChild(slotsChip.firstChild);
+        SLOT_AGENTS.forEach(function (a, i) {
+          if (i > 0) slotsChip.appendChild(document.createTextNode(', '));
+          const t = totals[a];
+          const part = el('span', t.max > 0 && t.used >= t.max ? 'slot-full' : '', a + ' ' + t.used + '/' + t.max);
+          slotsChip.appendChild(part);
+        });
+        slotsChip.title = 'Agent slots in use / allowed\n' + perRepo.join('\n');
+        slotsChip.style.display = 'inline-block';
+      }
+
+      function reposToStop(state) {
+        return ((state && state.repos) || []).filter(function (r) {
+          const ap = r.autopilot || {};
+          const sc = r.scheduler || {};
+          return (ap.enabled || sc.alive) && !ap.paused;
+        });
+      }
+
+      function updateStopAllButton(state) {
+        if (!headerStopAllBtn) return;
+        const targets = reposToStop(state);
+        if (!actionsUiEnabled(state)) {
+          headerStopAllBtn.disabled = true;
+          headerStopAllBtn.title = 'Actions disabled (missing token or actions off on the server)';
+        } else if (targets.length === 0) {
+          headerStopAllBtn.disabled = true;
+          headerStopAllBtn.title = 'Nothing to stop: no repo has autopilot on or a live scheduler (or all are paused)';
+        } else {
+          headerStopAllBtn.disabled = false;
+          headerStopAllBtn.title = 'Pause autopilot and the scheduler in ' + targets.length + (targets.length === 1 ? ' repo' : ' repos');
+        }
+      }
+
+      function stopAll() {
+        const targets = reposToStop(lastStateData);
+        if (targets.length === 0) return;
+        const lines = targets.map(function (r) {
+          return 'cd /d "' + r.path + '" && trinity pause "user: stop all"';
+        });
+        confirmCommand('Stop all autopilot', lines.join('\n'), {
+          body: 'Pause ' + targets.length + (targets.length === 1 ? ' repo' : ' repos') + ': ' + targets.map(function (r) { return r.name; }).join(', ') + '. Running tasks keep going; nothing new starts until you unpause.',
+          runText: 'Stop all',
+          originBtn: headerStopAllBtn
+        }).then(function (ok) {
+          if (!ok) return;
+          return Promise.all(targets.map(function (r) {
+            return runAction({ action: 'pause', repo: r.path, task: '', reason: 'user: stop all', confirm: false }).then(function () { return true; }, function () { return false; });
+          })).then(function (results) {
+            const okCount = results.filter(Boolean).length;
+            showToast('Stop all: paused ' + okCount + ' of ' + targets.length + (targets.length === 1 ? ' repo' : ' repos'), okCount === targets.length ? 'ok' : 'warn');
+            pollState();
+          });
+        });
+      }
+
+      // ---- Notifications ----
+
+      const NOTIFY_PREF_KEY = 'trinity_dash_notify';
+      const NOTIFY_STATES = ['done', 'failed', 'stalled', 'ready'];
+      let notifyOn = false;
+      let notifyBaselineReady = false;
+      let prevTaskStates = new Map();
+      let prevAttentionKeys = new Set();
+
+      function notificationsSupported() {
+        return typeof window.Notification === 'function';
+      }
+
+      function storeNotifyPref(on) {
+        try { localStorage.setItem(NOTIFY_PREF_KEY, on ? 'on' : 'off'); } catch (e) {}
+      }
+
+      function updateNotifyButton() {
+        if (!headerNotifyBtn) return;
+        if (!notificationsSupported()) {
+          headerNotifyBtn.disabled = true;
+          headerNotifyBtn.textContent = 'Notifications: n/a';
+          headerNotifyBtn.title = 'This browser has no Notification API';
+          headerNotifyBtn.setAttribute('aria-pressed', 'false');
+          return;
+        }
+        headerNotifyBtn.textContent = 'Notifications: ' + (notifyOn ? 'on' : 'off');
+        headerNotifyBtn.setAttribute('aria-pressed', notifyOn ? 'true' : 'false');
+        headerNotifyBtn.title = notifyOn
+          ? 'Notifying when a task finishes, fails, stalls, is ready or needs you. Click to turn off.'
+          : (window.Notification.permission === 'denied'
+            ? 'Notifications are blocked for this site in the browser settings'
+            : 'Turn on desktop notifications (asks the browser for permission)');
+      }
+
+      function loadNotifyPref() {
+        let stored = null;
+        try { stored = localStorage.getItem(NOTIFY_PREF_KEY); } catch (e) {}
+        notifyOn = stored === 'on' && notificationsSupported() && window.Notification.permission === 'granted';
+        updateNotifyButton();
+      }
+
+      function toggleNotifications() {
+        if (!notificationsSupported()) return;
+        if (notifyOn) {
+          notifyOn = false;
+          storeNotifyPref(false);
+          updateNotifyButton();
+          return;
+        }
+        let settled = false;
+        function finish(permission) {
+          if (settled) return;
+          settled = true;
+          if (permission === 'granted') {
+            notifyOn = true;
+            storeNotifyPref(true);
+            showToast('Notifications on', 'ok');
+          } else {
+            notifyOn = false;
+            storeNotifyPref(false);
+            showToast(permission === 'denied' ? 'Notifications are blocked for this site in the browser settings' : 'Notification permission was not granted', 'warn');
+          }
+          updateNotifyButton();
+        }
+        const current = window.Notification.permission;
+        if (current === 'granted' || current === 'denied') {
+          finish(current);
+          return;
+        }
+        try {
+          const pending = window.Notification.requestPermission(finish);
+          if (pending && typeof pending.then === 'function') pending.then(finish, function () { finish('default'); });
+        } catch (err) {
+          finish('default');
+        }
+      }
+
+      // Compares this poll with the previous one; never fires on the first poll. The baseline is kept
+      // up to date even while notifications are off, so turning them on does not replay old news.
+      function notifyAfterPoll(state) {
+        const nowTasks = new Map();
+        const taskInfo = new Map();
+        ((state && state.repos) || []).forEach(function (r) {
+          (r.tasks || []).forEach(function (t) {
+            const key = (r.path || r.name) + '::' + t.task;
+            nowTasks.set(key, t.state);
+            taskInfo.set(key, { repoName: r.name, repoPath: r.path || r.name, task: t.task, agent: t.agent, status: t.status });
+          });
+        });
+        const nowAttention = new Set();
+        const attention = (state && Array.isArray(state.attention)) ? state.attention : [];
+        attention.forEach(function (a) {
+          nowAttention.add((a.repo || '') + '::' + (a.task || '') + '::' + (a.reason || ''));
+        });
+
+        const events = [];
+        if (notifyBaselineReady) {
+          nowTasks.forEach(function (st, key) {
+            const prev = prevTaskStates.get(key);
+            if (prev !== undefined && prev !== st && NOTIFY_STATES.indexOf(st) !== -1) {
+              const info = taskInfo.get(key);
+              events.push({ kind: st, repoName: info.repoName, repoPath: info.repoPath, task: info.task, agent: info.agent, detail: info.status || '' });
+            }
+          });
+          attention.forEach(function (a) {
+            const k = (a.repo || '') + '::' + (a.task || '') + '::' + (a.reason || '');
+            if (prevAttentionKeys.has(k)) return;
+            const dup = events.some(function (e) { return e.task === a.task && (e.repoName === a.repo || e.repoPath === a.repoPath); });
+            if (dup) return;
+            events.push({ kind: a.reason || 'attention', repoName: a.repo || '', repoPath: a.repoPath || a.repo || '', task: a.task || '', agent: a.agent || '', detail: a.detail || '' });
+          });
+        }
+        prevTaskStates = nowTasks;
+        prevAttentionKeys = nowAttention;
+        notifyBaselineReady = true;
+
+        if (notifyOn && events.length > 0 && notificationsSupported() && window.Notification.permission === 'granted') {
+          fireNotifications(events);
+        }
+      }
+
+      const NOTIFY_TITLES = {
+        done: 'Task done',
+        failed: 'Task failed',
+        stalled: 'Task stalled',
+        ready: 'Ready to merge',
+        'done-unmerged': 'Task done, awaiting merge',
+        'runner-dead': 'Runner died',
+        limit: 'Autopilot paused'
+      };
+
+      function fireNotifications(events) {
+        const shown = events.slice(0, 3);
+        shown.forEach(function (ev) {
+          const title = (NOTIFY_TITLES[ev.kind] || 'Needs attention') + (ev.task ? ': ' + ev.task : '');
+          const body = [ev.repoName, ev.agent, ev.detail].filter(Boolean).join(' / ');
+          let n = null;
+          try {
+            n = new window.Notification(title, { body: body, tag: 'trinity:' + ev.repoPath + ':' + ev.task + ':' + ev.kind });
+          } catch (err) {
+            return;
+          }
+          n.onclick = function () {
+            try { window.focus(); } catch (e) {}
+            try { n.close(); } catch (e) {}
+            if (ev.task) {
+              openTaskInternal(ev.repoPath, ev.task, '');
+            } else if (window.TrinityBoard && typeof window.TrinityBoard.openAutopilot === 'function') {
+              window.TrinityBoard.openAutopilot(ev.repoPath);
+            } else if (findView('overview')) {
+              window.location.hash = '#overview';
+            }
+          };
+        });
+        if (events.length > shown.length) {
+          try {
+            new window.Notification((events.length - shown.length) + ' more tasks need you', { tag: 'trinity:more' });
+          } catch (err) {}
+        }
+      }
+
+      function updateHeaderControls(state) {
+        updateSlotsChip(state);
+        updateStopAllButton(state);
+      }
+
+      window.Trinity = {
+        getState: function () { return lastStateData; },
+        onState: onStateSubscribe,
+        action: runAction,
+        confirmCommand: function (title, command) { return confirmCommand(title, command); },
+        openTask: function (repoPath, task, tab) { openTaskInternal(repoPath, task, tab); },
+        openWizard: openWizard,
+        addView: addView,
+        toast: showToast
+      };
+
+      if (headerStopAllBtn) {
+        headerStopAllBtn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          stopAll();
+        });
+      }
+      if (headerNotifyBtn) {
+        headerNotifyBtn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          toggleNotifications();
+        });
+      }
+
       // Initialization
+      registerView('inbox', tabInbox, viewInbox, 'flex');
+      registerView('tasks', tabTasks, viewTasks, 'flex');
+      registerView('health', tabHealth, viewHealth, 'flex');
+      loadNotifyPref();
       loadSavedPreferences();
       applyViewFromHash();
       window.addEventListener('hashchange', applyViewFromHash);
@@ -8314,5 +9861,7 @@
       }, 1000);
     })();
   </script>
+  <script src="/ui/board.js" defer></script>
+  <script src="/ui/history.js" defer></script>
 </body>
 </html>
