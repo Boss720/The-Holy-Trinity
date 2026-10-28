@@ -7,9 +7,9 @@
         Start-CodexTask $f 'deadline-default'
         $wait = Invoke-Trinity $f @('wait', 'deadline-default', '-Timeout', '30')
         Assert-True ($wait.ExitCode -eq 1) "wait should exit 1 on deadline timeout, got $($wait.ExitCode)"
-        Assert-True ($wait.Output -match 'failed \(timed out after 45 min\)') "output should mention timed out: $($wait.Output)"
+        Assert-True ($wait.Output -match 'failed \(timed out after 120 min\)') "output should mention timed out: $($wait.Output)"
         $board = Get-Content -Raw (Join-Path $f.Repo '.git\agent-board.md')
-        Assert-True ($board -match '- status: failed \(timed out after 45 min\)') "board status should be timed out: $board"
+        Assert-True ($board -match '- status: failed \(timed out after 120 min\)') "board status should be timed out: $board"
         Assert-True (Test-Path (Join-Path $f.Worktrees 'codex-deadline-default')) 'worktree must be preserved for show/retry'
         $branchLog = Invoke-Git $f.Repo @('log', '--oneline', 'main..agent/codex/deadline-default')
         Assert-True (-not $branchLog) "branch should have 0 commits on timeout: $branchLog"
@@ -115,4 +115,25 @@ Run-Case 'runner watchdog: help text mentions -DeadlineMinutes' {
     $help = Invoke-Trinity $f @('help')
     Assert-True ($help.ExitCode -eq 0) "help failed: $($help.Output)"
     Assert-True ($help.Output -match '-DeadlineMinutes') "help should mention -DeadlineMinutes: $($help.Output)"
+}
+
+Run-Case 'runner watchdog: changing files without log output is not a stall' {
+    param($f)
+    $oldStall = $env:TRINITY_STALL_SECONDS
+    try {
+        $env:TRINITY_STALL_SECONDS = '2'
+        $env:FAKE_CODEX_MODE = 'quiet-edits'
+        Start-CodexTask $f 'quiet-task'
+        $boardFile = Join-Path $f.Repo '.git\agent-board.md'
+        $stalledSeen = $false
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        while ($sw.ElapsedMilliseconds -lt 9000) {
+            if ((Get-Content -Raw $boardFile) -match 'status: running \(stalled') { $stalledSeen = $true; break }
+            Start-Sleep -Milliseconds 250
+        }
+        $wait = Invoke-Trinity $f @('wait', 'quiet-task', '-Timeout', '40')
+        Assert-True (-not $stalledSeen) 'a task that keeps editing files was marked stalled'
+        Assert-True ($wait.ExitCode -eq 0) "task should finish: $($wait.Output)"
+    }
+    finally { $env:TRINITY_STALL_SECONDS = $oldStall }
 }

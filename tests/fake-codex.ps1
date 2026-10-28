@@ -37,6 +37,10 @@ elseif ($arguments -match '(?:^|\s)-o\s+(\S+)') { $resultPath = $Matches[1] }
 if (-not $workingDirectory -or -not $resultPath) { exit 2 }
 
 $null = [Console]::In.ReadToEnd()
+if ($mode -eq 'quiet-edits') {
+    # Like Antigravity: no output until exit, but files keep changing.
+    for ($i = 0; $i -lt 8; $i++) { [IO.File]::WriteAllText((Join-Path $workingDirectory 'fake-progress.txt'), "step $i", [System.Text.UTF8Encoding]::new($false)); Start-Sleep -Seconds 1 }
+}
 if ($mode -ne 'nochange') {
     [IO.File]::WriteAllText((Join-Path $workingDirectory 'fake-output.txt'), 'fake codex output' + "`r`n", [System.Text.UTF8Encoding]::new($false))
 }

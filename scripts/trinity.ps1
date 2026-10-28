@@ -115,7 +115,7 @@ function Show-Usage {
     Write-Host '                                          trinity done login-form added the login form'
     Write-Host '  (dispatch/run) -PromptFile <file>     read the prompt from a file instead of <prompt...>'
     Write-Host '                                          trinity dispatch codex login-form -PromptFile prompt.txt'
-    Write-Host '  (dispatch/run) -DeadlineMinutes <N>   kill runner after N min (default 45, env TRINITY_DEADLINE_MINUTES)'
+    Write-Host '  (dispatch/run) -DeadlineMinutes <N>   kill runner after N min (default 120, env TRINITY_DEADLINE_MINUTES)'
     Write-Host '  merge <task> [-Yes] [-Force]          review, merge --no-ff, run tests, clean up'
     Write-Host '                                          trinity merge login-form'
     Write-Host '  cancel <task> [-Force]                remove the worktree and branch, mark cancelled'
@@ -613,7 +613,7 @@ switch ($Command) {
         $log = Join-Path $paths.Out "log-$task.txt"
         $result = Join-Path $paths.Out "result-$task.md"
 
-        $effectiveDeadline = 45
+        $effectiveDeadline = 120
         if ($env:TRINITY_DEADLINE_MINUTES) {
             $parsed = 0
             if ([int]::TryParse($env:TRINITY_DEADLINE_MINUTES, [ref]$parsed) -and $parsed -gt 0) { $effectiveDeadline = $parsed }
@@ -696,12 +696,20 @@ switch ($Command) {
             $lastLogGrowth = Get-Date
             $lastLogSize = -1L
             $isStalled = $false
+            # Antigravity writes its log only when it exits, so changed files in the worktree count as progress too.
+            $treeEvery = [Math]::Max(1, [Math]::Min(30, [int]($stallSeconds / 2)))
+            $lastTreeCheck = [DateTime]::MinValue
+            $lastTreeSig = $null
+            $lastBoardCheck = [DateTime]::MinValue
 
             while (-not $agentProc.HasExited) {
-                $curEntry = Get-BoardEntry $paths $task
-                if ($curEntry -and $curEntry.status -match '^cancelled') {
-                    taskkill.exe /PID $agentProc.Id /T /F 2>&1 | Out-Null
-                    exit 0
+                if (((Get-Date) - $lastBoardCheck).TotalSeconds -ge 5) {
+                    $lastBoardCheck = Get-Date
+                    $curEntry = Get-BoardEntry $paths $task
+                    if ($curEntry -and $curEntry.status -match '^cancelled') {
+                        taskkill.exe /PID $agentProc.Id /T /F 2>&1 | Out-Null
+                        exit 0
+                    }
                 }
 
                 $now = Get-Date
@@ -715,7 +723,21 @@ switch ($Command) {
                 if (Test-Path -LiteralPath $log) {
                     try { $currentSize = (Get-Item -LiteralPath $log).Length } catch { }
                 }
-                if ($currentSize -gt $lastLogSize) {
+                $treeMoved = $false
+                if (($now - $lastTreeCheck).TotalSeconds -ge $treeEvery) {
+                    $lastTreeCheck = $now
+                    $sig = ''
+                    try {
+                        foreach ($line in @(git -C $entry.worktree status --porcelain 2>$null)) {
+                            $rel = ($line.Substring(3) -replace '^"|"$', '') -replace '^.* -> ', ''
+                            $item = Get-Item -LiteralPath (Join-Path $entry.worktree $rel) -ErrorAction SilentlyContinue
+                            $sig += "$line|$(if ($item) { $item.LastWriteTimeUtc.Ticks })`n"
+                        }
+                    } catch { }
+                    if ($null -ne $lastTreeSig -and $sig -ne $lastTreeSig) { $treeMoved = $true }
+                    $lastTreeSig = $sig
+                }
+                if ($currentSize -gt $lastLogSize -or $treeMoved) {
                     $lastLogSize = $currentSize
                     $lastLogGrowth = $now
                     if ($isStalled) {
@@ -728,7 +750,7 @@ switch ($Command) {
                     Set-BoardStatus $paths $task "running (stalled: no output $stallMinutes min)"
                 }
 
-                Start-Sleep -Milliseconds 200
+                Start-Sleep -Seconds 1
             }
 
             if ($timedOut) {
