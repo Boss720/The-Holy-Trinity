@@ -487,6 +487,42 @@ function Remove-TaskEntry([string]$task) {
     [IO.File]::WriteAllText($paths.Board, ($lines -join "`r`n") + "`r`n", $script:Utf8)
 }
 
+# Who listens on a TCP port? $null when nobody; else ProcessId, Name, CommandLine and IsDashboard (a dashboard.ps1 server).
+# dashboard.ps1 uses HttpListener, which HTTP.sys serves, so Get-NetTCPConnection names pid 4 (System) as the owner.
+# The real process is in the HTTP.sys request queues (netsh, no admin needed). If that gives nothing, fall back to
+# dashboard.ps1 processes started with -Port <port>.
+function Find-DashboardListener([int]$port) {
+    $owners = @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | ForEach-Object { [int]$_.OwningProcess } | Select-Object -Unique)
+    if ($owners.Count -eq 0) { return $null }
+    $ids = New-Object System.Collections.Generic.List[int]
+    $urlPattern = '(?i)https?://[^/\s]*:' + $port + '(?:[:/]|$)'
+    foreach ($owner in $owners) {
+        if ($owner -ne 4) { $ids.Add($owner); continue }
+        $queue = @()
+        foreach ($line in @(& netsh.exe http show servicestate view=requestq 2>$null)) {
+            if ($line -match '^\S') { $queue = @() }
+            elseif ($line -match '^\s+ID:\s*(\d+),') { $queue += [int]$Matches[1] }
+            elseif ($line -match $urlPattern) { foreach ($q in $queue) { $ids.Add($q) } }
+        }
+    }
+    if ($ids.Count -eq 0) {
+        $named = '(?i)dashboard\.ps1.*\s-Port\s+' + $port + '(\s|$)'
+        foreach ($p in @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue)) {
+            if ([string]$p.CommandLine -match $named) { $ids.Add([int]$p.ProcessId) }
+        }
+    }
+    if ($ids.Count -eq 0) { $ids.Add($owners[0]) }
+    $first = $null
+    foreach ($id in @($ids | Select-Object -Unique)) {
+        $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $id" -ErrorAction SilentlyContinue
+        $cmd = if ($proc) { [string]$proc.CommandLine } else { '' }
+        $found = [pscustomobject]@{ ProcessId = $id; Name = $(if ($proc) { [string]$proc.Name } else { 'unknown' }); CommandLine = $cmd; IsDashboard = ($cmd -like '*dashboard.ps1*') }
+        if ($found.IsDashboard) { return $found }
+        if (-not $first) { $first = $found }
+    }
+    $first
+}
+
 switch ($Command) {
     'status' { Show-Status }
 
@@ -1243,13 +1279,39 @@ switch ($Command) {
             if ($proc -and $proc.CommandLine -like '*dashboard.ps1*') { $running = Get-Process -Id $proc.ProcessId -ErrorAction SilentlyContinue }
             if ($running) { $Port = [int]$saved[1] }
         }
+        # No live server in the pid file (missing or stale): ask the port. An old server can hold it with no pid file.
+        $foundOnPort = $false
+        if (-not $running) {
+            $listener = Find-DashboardListener $Port
+            if ($listener -and $listener.IsDashboard) {
+                $running = Get-Process -Id $listener.ProcessId -ErrorAction SilentlyContinue
+                $foundOnPort = [bool]$running
+            }
+            elseif ($listener) {
+                $holder = "Port $Port is held by $($listener.Name) (pid $($listener.ProcessId)); not a trinity dashboard, left running."
+                if (-not $Stop) { Fail "$holder Pick a free port, e.g. -Port 7788" }
+                Write-Host $holder
+                Remove-Item $pidFile -ErrorAction SilentlyContinue
+                exit 0
+            }
+        }
         if ($Stop) {
-            if ($running) { Stop-Process -Id $running.Id -Force; Write-Host "Dashboard stopped (pid $($running.Id))." }
+            if ($running) {
+                Stop-Process -Id $running.Id -Force
+                $where = if ($foundOnPort) { ", found on port $Port" } else { '' }
+                Write-Host "Dashboard stopped (pid $($running.Id)$where)."
+            }
             else { Write-Host 'Dashboard is not running.' }
             Remove-Item $pidFile -ErrorAction SilentlyContinue
             exit 0
         }
-        if (-not $running) {
+        if ($foundOnPort) {
+            # Reuse the orphan instead of starting a second server, and record it so -Stop finds it by pid next time.
+            New-Item -ItemType Directory -Path (Split-Path -Parent $pidFile) -Force | Out-Null
+            [IO.File]::WriteAllText($pidFile, "$($running.Id) $Port", $script:Utf8)
+            Write-Host "Dashboard already running (pid $($running.Id), found on port $Port)."
+        }
+        elseif (-not $running) {
             Register-Repo $paths.Main
             $server = Start-Process powershell.exe -WindowStyle Hidden -PassThru -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$script`"", '-Port', $Port
             Start-Sleep -Seconds 2
