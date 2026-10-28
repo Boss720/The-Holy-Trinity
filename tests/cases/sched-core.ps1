@@ -49,6 +49,11 @@ Run-Case 'sched-core: running scope blocks overlap' {
 Run-Case 'sched-core: autopilot ready resume and limit' {
     param($f)
     $p=Get-SchedulerPaths $f.Repo; $null=Set-TrinityConfig $p @{autopilot=@{enabled=$true;maxConsecutiveFailures=2}}
+    foreach ($name in @('done-task','failed-task')) {
+        $null=Invoke-Git $f.Repo @('branch', "agent/codex/$name")
+        [void][IO.Directory]::CreateDirectory((Join-Path $p.Worktrees "codex-$name"))
+        Add-Decision $p $name 'started' 'dispatched' 0
+    }
     [IO.File]::WriteAllText($p.Board,"## done-task`r`n- agent: codex`r`n- scope: src/*`r`n- status: done`r`n")
     $r=Invoke-SchedulerTick $p -MergeCommand { param($p,$task,$dry) return $true }; Assert-True ((Get-BoardEntry $p 'done-task').status -match '^ready' -and $r.autopilot[0] -eq 'ready') 'ready failed'
     [IO.File]::WriteAllText($p.Board,"## failed-task`r`n- agent: codex`r`n- status: failed`r`n")
@@ -64,4 +69,48 @@ Run-Case 'sched-core: once writes heartbeat' {
     Assert-True ($LASTEXITCODE -eq 0) "once failed: $output"
     $h=ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $f.Repo '.trinity\scheduler.json')))
     Assert-True ($h.pid -gt 0 -and $h.lastTickAt -and $h.processStart) 'heartbeat missing fields'
+}
+
+Run-Case 'sched-core: old tasks and missing branches are ignored' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; $null=Set-TrinityConfig $p @{autopilot=@{enabled=$true}}
+    [IO.File]::WriteAllText($p.Board,"## old`r`n- agent: codex`r`n- status: done`r`n")
+    $calls=New-Object Collections.ArrayList
+    $null=Invoke-SchedulerTick $p -MergeCommand { [void]$calls.Add('merge'); $true }
+    [void][IO.Directory]::CreateDirectory((Join-Path $p.Worktrees 'codex-old')); Add-Decision $p 'old' 'started' 'dispatched' 0
+    $null=Invoke-SchedulerTick $p -MergeCommand { [void]$calls.Add('merge'); $true }
+    Assert-True ($calls.Count -eq 0) 'old or missing branch task acted on'
+}
+Run-Case 'sched-core: dispatch failure backoff and half success' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; Add-QueueItem $p @{task='retry';agent='codex';scope='src/*'}
+    $calls=New-Object Collections.ArrayList; $fake={ [void]$calls.Add(1); throw 'failure' }
+    $null=Invoke-SchedulerTick $p -DispatchCommand $fake; $r=Invoke-SchedulerTick $p -DispatchCommand $fake
+    Assert-True ($calls.Count -eq 1 -and $r.waiting.retry -eq 'retry backoff' -and @((Get-Decisions $p 0) | Where-Object { $_.action -eq 'failed' }).Count -eq 1) 'backoff failed'
+    [IO.File]::WriteAllText($p.Board,"## retry`r`n- agent: codex`r`n- status: running`r`n")
+    $r=Invoke-SchedulerTick $p -DispatchCommand $fake
+    Assert-True ($r.waiting.retry -eq 'already dispatched' -and (Get-TrinityQueue $p).items.Count -eq 0) 'half dispatch not removed'
+}
+Run-Case 'sched-core: conservative glob and unknown scopes' {
+    param($f)
+    Assert-True ((Test-SchedulerOverlap '' 'src/*') -and (Test-SchedulerOverlap 'unspecified' 'src/*') -and (Test-SchedulerOverlap 'src/fo*.ps1' 'src/foo/*.ps1') -and -not (Test-SchedulerOverlap 'src/a/*' 'src/b/*')) 'scope overlap incorrect'
+}
+Run-Case 'sched-core: reused pid does not occupy slot' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; [void][IO.Directory]::CreateDirectory($p.Out)
+    [IO.File]::WriteAllText((Join-Path $p.Out 'pid-old.txt'),[string]$PID)
+    (Get-Item (Join-Path $p.Out 'pid-old.txt')).LastWriteTime=(Get-Date).AddHours(-1)
+    Assert-True ((Get-SchedulerTaskState $p @{task='old';status='done'}) -eq 'done') 'reused pid considered alive'
+}
+Run-Case 'sched-core: stale rate limit is ignored' {
+    param($f)
+    $old=$env:CODEX_HOME; $env:CODEX_HOME=Join-Path $f.Root 'codex'; $dir=Join-Path $env:CODEX_HOME 'sessions'; [void][IO.Directory]::CreateDirectory($dir)
+    try { $file=Join-Path $dir 'rollout-test.jsonl'; [IO.File]::WriteAllText($file,'{"payload":{"rate_limits":{"primary":{"used_percent":99}}}}'); (Get-Item $file).LastWriteTime=(Get-Date).AddHours(-6); Assert-True (-not (Test-CodexRateLimit)) 'stale rate limit blocked' } finally { $env:CODEX_HOME=$old }
+}
+Run-Case 'sched-core: default dispatch omits empty options and restores model' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; Add-QueueItem $p @{task='model';agent='codex';model='test-model'}
+    $script:capturedArgs=$null; $script:capturedModel=''; $old=$env:TRINITY_CODEX_MODEL; $env:TRINITY_CODEX_MODEL='original'
+    function Invoke-SchedulerChild($paths,[string[]]$arguments) { $script:capturedArgs=$arguments; $script:capturedModel=$env:TRINITY_CODEX_MODEL; return $true }
+    try { $null=Invoke-SchedulerTick $p; Assert-True ($script:capturedModel -eq 'test-model' -and $env:TRINITY_CODEX_MODEL -eq 'original' -and '-Scope' -notin $script:capturedArgs -and '-PromptFile' -notin $script:capturedArgs -and '-Model' -notin $script:capturedArgs) 'dispatch arguments or model incorrect' } finally { $env:TRINITY_CODEX_MODEL=$old; Remove-Item Function:Invoke-SchedulerChild }
 }

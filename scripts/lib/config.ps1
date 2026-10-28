@@ -1,4 +1,19 @@
-﻿function ConvertTo-TrinityMap($Value) {
+﻿function Invoke-QueueLocked($Paths, [scriptblock]$Body) {
+    $dir = Join-Path $Paths.Main '.trinity'; [void][IO.Directory]::CreateDirectory($dir)
+    $path = Join-Path $dir 'queue.lock'; $lock = $null; $until = (Get-Date).AddSeconds(5)
+    while (-not $lock) {
+        try { $lock = [IO.File]::Open($path, [IO.FileMode]::CreateNew, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None) }
+        catch [IO.IOException] {
+            if (Test-Path -LiteralPath $path) {
+                try { if (((Get-Date) - (Get-Item -LiteralPath $path).LastWriteTime).TotalSeconds -gt 30) { Remove-Item -LiteralPath $path -Force -ErrorAction Stop } } catch { }
+            }
+            if ((Get-Date) -ge $until) { throw 'Timed out waiting for queue lock' }
+            Start-Sleep -Milliseconds 50
+        }
+    }
+    try { & $Body } finally { $lock.Dispose(); Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue }
+}
+function ConvertTo-TrinityMap($Value) {
     if ($Value -is [System.Collections.IDictionary]) {
         $out = @{}; foreach ($key in $Value.Keys) { $out[$key] = ConvertTo-TrinityMap $Value[$key] }; return $out
     }
@@ -16,7 +31,7 @@ function Merge-TrinityMap($Target, $Patch) {
 }
 function Write-TrinityJson([string]$Path, $Value) {
     [void][IO.Directory]::CreateDirectory((Split-Path $Path -Parent))
-    $tmp = "$Path.tmp"
+    $tmp = "$Path.$([guid]::NewGuid().ToString('N')).tmp"
     [IO.File]::WriteAllText($tmp, (ConvertTo-Json -InputObject $Value -Depth 100), (New-Object Text.UTF8Encoding($false)))
     Move-Item -LiteralPath $tmp -Destination $Path -Force
 }
@@ -37,6 +52,7 @@ function Get-TrinityConfig($Paths) {
     return $config
 }
 function Set-TrinityConfig($Paths, [hashtable]$Patch) {
+    Invoke-QueueLocked $Paths {
     $config = Get-TrinityConfig $Paths
     if ($config.ContainsKey('_error')) { throw "Cannot update unreadable config: $($config._error)" }
     $config.Remove('_source')
@@ -49,4 +65,5 @@ function Set-TrinityConfig($Paths, [hashtable]$Patch) {
     }
     Write-TrinityJson (Join-Path $Paths.Main '.trinity\trinity.json') $config
     return Get-TrinityConfig $Paths
+    }
 }
