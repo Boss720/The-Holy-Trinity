@@ -175,6 +175,135 @@ function Run-Case([string]$Name, [scriptblock]$Body, [string]$TestCommand = 'exi
     }
 }
 
+# Run the CLI in its own script scope to avoid a shell startup for every housekeeping assertion.
+function Invoke-CliTrinity($Fixture, [string[]]$Arguments) {
+    $oldPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    $cliParams = @{ Command = $Arguments[0] }
+    $positionals = @()
+    for ($i = 1; $i -lt $Arguments.Count; $i++) {
+        $arg = $Arguments[$i]
+        if ($arg -in @('-Json', '-Yes', '-Force')) { $cliParams[$arg.Substring(1)] = $true }
+        elseif ($arg -in @('-Timeout', '-OlderThanDays')) { $cliParams[$arg.Substring(1)] = $Arguments[++$i] }
+        else { $positionals += $arg }
+    }
+    $cliParams.Rest = $positionals
+    $global:LASTEXITCODE = 0
+    try { $output = & $Fixture.Trinity @cliParams *>&1 }
+    finally { $ErrorActionPreference = $oldPreference }
+    return [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = ($output | Out-String) }
+}
+
+# CLI housekeeping fixtures use board files only inside their temporary repository.
+function Set-CliTask($f, [string]$task, [string]$status, [string]$agent = 'codex') {
+    $board = Join-Path $f.Repo '.git\agent-board.md'
+    $text = "`r`n## $task`r`n- agent: $agent`r`n- branch: agent/$agent/$task`r`n- worktree: $(Join-Path $f.Worktrees "$agent-$task")`r`n- scope: tests/*`r`n- status: $status`r`n"
+    [IO.File]::AppendAllText($board, $text, (New-Object Text.UTF8Encoding($false)))
+}
+
+Run-Case 'cli-s5a show text, ASCII JSON, missing branch and unknown task' {
+    param($f)
+    Set-CliTask $f 'inspect' 'done (1 commits) 2026-01-01 00:00'
+    Invoke-Git $f.Repo @('branch', 'agent/codex/inspect') | Out-Null
+    $out = Join-Path $f.Repo '.codex-out'
+    New-Item -ItemType Directory -Path $out -Force | Out-Null
+    [IO.File]::WriteAllLines((Join-Path $out 'result-inspect.md'), [string[]](1..45 | ForEach-Object { "summary $_" }))
+    [IO.File]::WriteAllLines((Join-Path $out 'log-inspect.txt'), [string[]](1..25 | ForEach-Object { "line $_" }))
+    [IO.File]::AppendAllText((Join-Path $out 'log-inspect.txt'), [string][char]0x263a, (New-Object Text.UTF8Encoding($false)))
+    $before = Get-Content -Raw (Join-Path $f.Repo '.git\agent-board.md')
+    $show = Invoke-CliTrinity $f @('show', 'inspect')
+    Assert-True ($show.ExitCode -eq 0 -and $show.Output -match 'name: inspect' -and $show.Output -match 'agent: codex' -and $show.Output -match 'commitsAhead: 0' -and $show.Output -match 'scope: tests/\*') "show fields absent: $($show.Output)"
+    $json = Invoke-CliTrinity $f @('show', 'inspect', '-Json')
+    $detail = $json.Output | ConvertFrom-Json
+    Assert-True ($json.ExitCode -eq 0 -and $json.Output -notmatch '[^\x00-\x7f]' -and $detail.state -eq 'done' -and $detail.logTail.EndsWith([string][char]0x263a)) 'show JSON invalid or not ASCII'
+    Assert-True ($detail.resultSummary -match 'summary 40$' -and $detail.resultSummary -notmatch 'summary 41' -and $detail.logTail -match 'line 25' -and $detail.logTail -notmatch 'line 5\r?\n') 'summary or log limit wrong'
+    Assert-True ($detail.resultPath -eq (Join-Path $out 'result-inspect.md') -and $detail.logPath -eq (Join-Path $out 'log-inspect.txt')) 'file paths missing'
+    Assert-True ((Get-Content -Raw (Join-Path $f.Repo '.git\agent-board.md')) -ceq $before) 'show changed board'
+    Invoke-Git $f.Repo @('branch', '-D', 'agent/codex/inspect') | Out-Null
+    $gone = Invoke-CliTrinity $f @('show', 'inspect', '-Json')
+    Assert-True (($gone.Output | ConvertFrom-Json).diffstat -eq 'branch gone') 'deleted branch not reported'
+    $unknown = Invoke-CliTrinity $f @('show', 'absent')
+    Assert-True ($unknown.ExitCode -eq 1 -and $unknown.Output -match 'unknown task') 'unknown task accepted'
+    $retry = Invoke-CliTrinity $f @('retry', 'inspect')
+    Assert-True ($retry.ExitCode -eq 1 -and $retry.Output -match 'done') 'retry accepted done task'
+}
+
+Run-Case 'cli-s5a retry failed fake task preserves attempts and scope' {
+    param($f)
+    $out = Join-Path $f.Repo '.codex-out'
+    New-Item -ItemType Directory -Path $out -Force | Out-Null
+    Set-CliTask $f 'again' 'failed (exit 3) 2026-01-01 00:00'
+    # Exercise task-file prompt recovery and stale worktree cleanup without a first worker run.
+    $wt = Join-Path $f.Worktrees 'codex-again'
+    Invoke-Git $f.Repo @('worktree', 'add', '-b', 'agent/codex/again', $wt, 'main') | Out-Null
+    [IO.File]::WriteAllText((Join-Path $out 'task-again.md'), "# Task`r`n`r`n## Request`r`n`r`nRetry this exact prompt.`r`n`r`n## Rules`r`nold rules")
+    [IO.File]::WriteAllText((Join-Path $out 'log-again.txt'), 'old failure')
+    [IO.File]::WriteAllText((Join-Path $out 'result-again.md'), 'old result')
+    $retryRunner = $null
+    try {
+        $retry = Invoke-CliTrinity $f @('retry', 'again')
+        $pidFile = Join-Path $out 'pid-again.txt'
+        if (Test-Path $pidFile) { $retryRunner = Get-Process -Id ([int](Get-Content -Raw $pidFile)) -ErrorAction SilentlyContinue }
+        Assert-True ($retry.ExitCode -eq 0) "retry failed: $($retry.Output)"
+        $wait = Invoke-CliTrinity $f @('wait', 'again', '-Timeout', '20')
+        Assert-True ($wait.ExitCode -eq 0) "retry worker failed: $($wait.Output)"
+        Assert-True ((Get-Content -Raw (Join-Path $out 'log-again.attempt1.txt')) -eq 'old failure') 'old log lost'
+        Assert-True ((Get-Content -Raw (Join-Path $out 'result-again.attempt1.md')) -eq 'old result') 'old result lost'
+        Assert-True ((Get-Content -Raw (Join-Path $out 'prompt-again.md')) -eq 'Retry this exact prompt.') 'recovered prompt changed'
+        $taskText = Get-Content -Raw (Join-Path $out 'task-again.md')
+        Assert-True ($taskText -match 'scope: tests/\*' -and $taskText -match 'Retry this exact prompt') 'redispatch lost scope/prompt'
+    }
+    finally {
+        if ($retryRunner) {
+            if (-not $retryRunner.HasExited) { $retryRunner.Kill(); [void]$retryRunner.WaitForExit(2000) }
+            $retryRunner.Dispose()
+        }
+    }
+
+    Set-CliTask $f 'missing' 'cancelled 2026-01-01 00:00' 'claude'
+    $retry = Invoke-CliTrinity $f @('retry', 'missing')
+    Assert-True ($retry.ExitCode -eq 1 -and $retry.Output -match 'missing prompt') 'retry without prompt accepted'
+    $out = Join-Path $f.Repo '.codex-out'
+    [IO.File]::WriteAllText((Join-Path $out 'prompt-missing.md'), 'original prompt')
+    Invoke-Git $f.Repo @('branch', 'agent/claude/missing') | Out-Null
+    # A commit on the task branch must require -Force.
+    Invoke-Git $f.Repo @('checkout', 'agent/claude/missing') | Out-Null
+    [IO.File]::WriteAllText((Join-Path $f.Repo 'extra.txt'), 'committed')
+    Invoke-Git $f.Repo @('add', 'extra.txt') | Out-Null
+    Invoke-Git $f.Repo @('commit', '-m', 'extra') | Out-Null
+    Invoke-Git $f.Repo @('checkout', 'main') | Out-Null
+    $retry = Invoke-CliTrinity $f @('retry', 'missing')
+    Assert-True ($retry.ExitCode -eq 1 -and $retry.Output -match 'commits.*-Force') 'retry dropped commits without Force'
+}
+
+Run-Case 'cli-s5a clean previews, archives only old finished tasks, and keeps branches' {
+    param($f)
+    Set-CliTask $f 'old' 'merged 2020-01-01 00:00'
+    Set-CliTask $f 'done' 'done 2020-01-01 00:00'
+    Set-CliTask $f 'fresh' ("cancelled " + (Get-Date -Format 'yyyy-MM-dd HH:mm'))
+    Invoke-Git $f.Repo @('branch', 'agent/codex/old') | Out-Null
+    $out = Join-Path $f.Repo '.codex-out'
+    New-Item -ItemType Directory -Path $out -Force | Out-Null
+    foreach ($name in @('task-old.md','prompt-old.md','result-old.attempt1.md','log-old.txt','agy-old.log','agyout-old.json','meta-old.json','pid-old.txt','run-old.cmd','result-done.md','result-old-other.md')) {
+        [IO.File]::WriteAllText((Join-Path $out $name), $name)
+    }
+    $boardPath = Join-Path $f.Repo '.git\agent-board.md'
+    $before = Get-Content -Raw $boardPath
+    $preview = Invoke-CliTrinity $f @('clean', '-OlderThanDays', '7')
+    Assert-True ($preview.ExitCode -eq 0 -and $preview.Output -match 'old: merged' -and $preview.Output -notmatch 'done:|fresh:') 'clean candidate selection wrong'
+    Assert-True ((Get-Content -Raw $boardPath) -ceq $before) 'preview changed board'
+    Assert-True (-not (Test-Path (Join-Path $out 'archive'))) 'preview created archive'
+    $clean = Invoke-CliTrinity $f @('clean', '-OlderThanDays', '7', '-Yes')
+    Assert-True ($clean.ExitCode -eq 0) "clean failed: $($clean.Output)"
+    Assert-True ((Get-Content -Raw $boardPath) -notmatch '## old\r?\n' -and (Get-Content -Raw $boardPath) -match '## done') 'clean board removal incorrect'
+    Assert-True ((Get-Content -Raw (Join-Path $out 'archive\old\log-old.txt')) -eq 'log-old.txt') 'archive lost content'
+    Assert-True (Test-Path (Join-Path $out 'archive\old\result-old.attempt1.md')) 'attempt not archived'
+    Assert-True ((Test-Path (Join-Path $out 'result-done.md')) -and (Test-Path (Join-Path $out 'result-old-other.md'))) 'unrelated files archived'
+    Assert-True ([bool](Invoke-Git $f.Repo @('branch', '--list', 'agent/codex/old'))) 'clean deleted branch'
+    $again = Invoke-CliTrinity $f @('clean', '-Yes')
+    Assert-True ($again.ExitCode -eq 0) 'second clean failed'
+}
+
 Run-Case 'dispatch, wait, commit, merge, and cleanup' {
     param($f)
     Start-CodexTask $f 'task-a'

@@ -10,6 +10,7 @@ param(
     [string]$PromptFile,
     [int]$Timeout = 1800,
     [int]$Port = 7777,
+    [ValidateRange(0, 365000)][int]$OlderThanDays = 7,
     [switch]$Json,
     [switch]$Stop,
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest
@@ -21,7 +22,7 @@ $repoFree = @('help', 'version', 'doctor', 'init')
 if ($repoFree -contains $Command) { $paths = $null }
 else {
     $paths = Get-RepoPaths $PSScriptRoot
-    if (-not (Test-Path $paths.Out)) { New-Item -ItemType Directory -Path $paths.Out | Out-Null }
+    if ($Command -notin @('show', 'clean') -and -not (Test-Path $paths.Out)) { New-Item -ItemType Directory -Path $paths.Out | Out-Null }
 }
 
 function Show-Usage {
@@ -50,6 +51,9 @@ function Show-Usage {
     Write-Host '  merge <task> [-Yes] [-Force]          review, merge --no-ff, run tests, clean up'
     Write-Host '                                          trinity merge login-form'
     Write-Host '  cancel <task> [-Force]                remove the worktree and branch, mark cancelled'
+    Write-Host '  show <task> [-Json]                   read-only task details, result and log tail'
+    Write-Host '  retry <task> [-Force]                redispatch a failed or cancelled task, keeping attempts'
+    Write-Host '  clean [-OlderThanDays 7] [-Yes]       list or archive old merged/cancelled task files'
     Write-Host '  init <path> [-Force]                  install or update trinity in another git repo'
     Write-Host '                                          trinity init D:\code\myapp   (keeps its docs unless -Force)'
     Write-Host '  track <task> <note...>                put your own (Claude) work on the board; finish with done'
@@ -378,6 +382,25 @@ function Start-Dispatch([string]$agent, [string]$task, [string]$prompt) {
     }
 }
 
+# Exact task prefixes keep housekeeping away from similarly named tasks.
+function Get-TaskFiles([string]$task) {
+    if (Test-Path -LiteralPath $paths.Out) {
+        Get-ChildItem -LiteralPath $paths.Out -File | Where-Object {
+            $_.Name -match ('^(task|prompt|result|log|agy|agyout|meta|pid|run)-' + [regex]::Escape($task) + '\.')
+        }
+    }
+}
+
+function Remove-TaskEntry([string]$task) {
+    # Caller already holds the board lock.
+    $skip = $false
+    $lines = foreach ($line in [IO.File]::ReadAllLines($paths.Board)) {
+        if ($line -match '^## (.+)$') { $skip = $Matches[1] -eq $task }
+        if (-not $skip) { $line }
+    }
+    [IO.File]::WriteAllText($paths.Board, ($lines -join "`r`n") + "`r`n", $script:Utf8)
+}
+
 switch ($Command) {
     'status' { Show-Status }
 
@@ -596,6 +619,105 @@ switch ($Command) {
             $ni.Dispose()
         }
         catch { }
+    }
+
+    'show' {
+        $task = $Rest[0]
+        if (-not $task) { Fail 'usage: trinity show <task> [-Json]' }
+        Assert-TaskName $task
+        $entry = Get-BoardEntry $paths $task
+        if (-not $entry) { Fail "unknown task: $task" }
+        $exists = Get-Git @('-C', $paths.Main, 'rev-parse', '--verify', '--quiet', "refs/heads/$($entry.branch)")
+        $resultFile = Join-Path $paths.Out "result-$task.md"
+        $logFile = Join-Path $paths.Out "log-$task.txt"
+        if (-not (Test-Path -LiteralPath $logFile)) { $logFile = Join-Path $paths.Out "agy-$task.log" }
+        $detail = [ordered]@{
+            name = $task; agent = $entry.agent; state = ($entry.status -split '[ :,(]')[0]
+            status = $entry.status; branch = $entry.branch; scope = $entry.scope
+            commitsAhead = $(if ($exists) { [int](Get-Git @('-C', $paths.Main, 'rev-list', '--count', "main..$($entry.branch)")) } else { $null })
+            diffstat = $(if ($exists) { (Get-Git @('-C', $paths.Main, 'diff', '--stat', "main...$($entry.branch)")) -join "`n" } else { 'branch gone' })
+            resultPath = $resultFile
+            resultSummary = $(if (Test-Path -LiteralPath $resultFile) { (Get-Content -LiteralPath $resultFile -Encoding UTF8 -TotalCount 40) -join "`n" } else { '' })
+            logPath = $logFile
+            logTail = $(if (Test-Path -LiteralPath $logFile) { (Get-Content -LiteralPath $logFile -Encoding UTF8 -Tail 20) -join "`n" } else { '' })
+        }
+        if ($Json) {
+            $jsonText = $detail | ConvertTo-Json -Depth 4
+            # Windows PowerShell lacks ConvertTo-Json -EscapeHandling.
+            [regex]::Replace($jsonText, '[^\x00-\x7f]', { param($m) '\u{0:x4}' -f [int][char]$m.Value })
+        }
+        else { foreach ($key in $detail.Keys) { Write-Host "$($key): $($detail[$key])" } }
+        exit 0
+    }
+
+    'retry' {
+        $task = $Rest[0]
+        if (-not $task) { Fail 'usage: trinity retry <task> [-Force]' }
+        Assert-TaskName $task
+        $entry = Get-BoardEntry $paths $task
+        if (-not $entry) { Fail "unknown task: $task" }
+        if ($entry.status -notmatch '^(failed|cancelled)\b') { Fail "cannot retry $task in state: $($entry.status)" }
+        $retryPrompt = Join-Path $paths.Out "prompt-$task.md"
+        $prompt = $null
+        if (Test-Path -LiteralPath $retryPrompt) { $prompt = [IO.File]::ReadAllText($retryPrompt) }
+        else {
+            $taskFile = Join-Path $paths.Out "task-$task.md"
+            if (Test-Path -LiteralPath $taskFile) {
+                $body = [IO.File]::ReadAllText($taskFile)
+                if ($body -match '(?s)\r?\n## Request\r?\n\r?\n(.*)(?:\r\n\r\n|\n\n)## Rules\r?\n') { $prompt = $Matches[1] }
+            }
+        }
+        if (-not "$prompt".Trim()) { Fail "missing prompt: need $retryPrompt or a Request in task-$task.md" }
+        # Reuse cancel's process-tree shutdown and commit protection before touching old output.
+        $cancelArgs = @('cancel', $task)
+        if ($Force) { $cancelArgs += '-Force' }
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath @cancelArgs
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        $oldFiles = @(Get-TaskFiles $task | Where-Object { $_.Name -match '^(log|result|agy|agyout|meta|run)-' -and $_.Name -notmatch '\.attempt\d+\.' })
+        $attempt = 1
+        while (@(Get-TaskFiles $task | Where-Object { $_.Name -match "\.attempt$attempt\." }).Count) { $attempt++ }
+        foreach ($file in $oldFiles) {
+            $dest = Join-Path $paths.Out ($file.BaseName + ".attempt$attempt" + $file.Extension)
+            Move-Item -LiteralPath $file.FullName -Destination $dest -ErrorAction Stop
+            Write-Host "Kept $dest"
+        }
+        [IO.File]::WriteAllText($retryPrompt, $prompt, $script:Utf8)
+        $Scope = $entry.scope
+        Write-Host "Retrying $task with $($entry.agent), scope $Scope, prompt $retryPrompt"
+        Start-Dispatch $entry.agent $task $prompt
+    }
+
+    'clean' {
+        if (-not (Test-Path -LiteralPath $paths.Board)) { break }
+        $cleanBody = {
+            $tasks = @([IO.File]::ReadAllLines($paths.Board) | ForEach-Object { if ($_ -match '^## (.+)$') { $Matches[1] } })
+            foreach ($task in $tasks) {
+                if ($task -notmatch '^[a-z0-9][a-z0-9-]*$') { continue }
+                $entry = Get-BoardEntry $paths $task
+                if ($entry.status -notmatch '^(merged|cancelled)\b.* (\d{4}-\d{2}-\d{2} \d{2}:\d{2})$') { continue }
+                $state = $Matches[1]; $stamp = [datetime]::MinValue
+                if (-not [datetime]::TryParseExact($Matches[2], 'yyyy-MM-dd HH:mm', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$stamp)) { continue }
+                $age = ((Get-Date) - $stamp).TotalDays
+                if ($age -le $OlderThanDays) { continue }
+                $files = @(Get-TaskFiles $task)
+                Write-Host ("{0}: {1}, age {2:N1} days" -f $task, $state, $age)
+                foreach ($file in $files) { Write-Host "  archive: $($file.FullName)" }
+                if ($Yes) {
+                    $archive = Join-Path $paths.Out "archive\$task"
+                    if ($files.Count) { New-Item -ItemType Directory -Path $archive -Force | Out-Null }
+                    foreach ($file in $files) {
+                        $dest = Join-Path $archive $file.Name
+                        # A prior partial archive never causes an overwrite.
+                        $i = 1
+                        while (Test-Path -LiteralPath $dest) { $dest = Join-Path $archive ($file.BaseName + ".archive$i" + $file.Extension); $i++ }
+                        Move-Item -LiteralPath $file.FullName -Destination $dest -ErrorAction Stop
+                    }
+                    Remove-TaskEntry $task
+                    Write-Host "Archived $task and removed its board entry."
+                }
+            }
+        }
+        if ($Yes) { Invoke-BoardLocked $paths $cleanBody } else { & $cleanBody }
     }
 
     'cancel' {
