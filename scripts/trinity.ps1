@@ -472,7 +472,7 @@ function Start-Dispatch([string]$agent, [string]$task, [string]$prompt, [int]$de
 function Get-TaskFiles([string]$task) {
     if (Test-Path -LiteralPath $paths.Out) {
         Get-ChildItem -LiteralPath $paths.Out -File | Where-Object {
-            $_.Name -match ('^(task|prompt|result|log|agy|agyout|claudeout|meta|pid|run|deadline)-' + [regex]::Escape($task) + '\.')
+            $_.Name -match ('^(task|prompt|result|log|agy|agyout|claudeout|meta|pid|run|deadline|seed)-' + [regex]::Escape($task) + '\.')
         }
     }
 }
@@ -905,7 +905,7 @@ switch ($Command) {
         if ($Force) { $cancelArgs += '-Force' }
         & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath @cancelArgs
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-        $oldFiles = @(Get-TaskFiles $task | Where-Object { $_.Name -match '^(log|result|agy|agyout|claudeout|meta|run|deadline)-' -and $_.Name -notmatch '\.attempt\d+\.' })
+        $oldFiles = @(Get-TaskFiles $task | Where-Object { $_.Name -match '^(log|result|agy|agyout|claudeout|meta|run|deadline|seed)-' -and $_.Name -notmatch '\.attempt\d+\.' })
         $attempt = 1
         while (@(Get-TaskFiles $task | Where-Object { $_.Name -match "\.attempt$attempt\." }).Count) { $attempt++ }
         foreach ($file in $oldFiles) {
@@ -1105,7 +1105,7 @@ switch ($Command) {
         }
 
         # Toolkit files are always refreshed, so rerunning init updates an install.
-        $toolkit = @('VERSION', 'trinity.cmd', 'trinity.sh', 'scripts\trinity.ps1', 'scripts\agent-task.ps1', 'scripts\lib\board.ps1', 'scripts\doctor.ps1',
+        $toolkit = @('VERSION', 'trinity.cmd', 'trinity.sh', 'scripts\trinity.ps1', 'scripts\agent-task.ps1', 'scripts\lib\board.ps1', 'scripts\lib\seed.ps1', 'scripts\doctor.ps1',
             'scripts\codex.cmd', 'scripts\codex-review.cmd', 'scripts\codex-ask.cmd', '.githooks\pre-commit',
             'scripts\dashboard.ps1', 'scripts\dashboard.html',
             '.claude\agents\codex-worker.md', '.claude\agents\codex-reviewer.md', '.claude\agents\antigravity-worker.md',
