@@ -7,6 +7,8 @@ param(
     [switch]$Yes,
     [switch]$Force,
     [switch]$Brief,
+    [ValidateSet('claude', 'codex', 'antigravity')][string]$Agent,
+    [switch]$Headless,
     [string]$PromptFile,
     [int]$Timeout = 1800,
     [int]$Port = 7777,
@@ -25,6 +27,31 @@ else {
     if ($Command -notin @('show', 'clean') -and -not (Test-Path $paths.Out)) { New-Item -ItemType Directory -Path $paths.Out | Out-Null }
 }
 
+function Get-Orchestrator {
+    if ($Agent) { return $Agent }
+    if ($env:TRINITY_ORCHESTRATOR -in @('claude', 'codex', 'antigravity')) { return $env:TRINITY_ORCHESTRATOR.ToLowerInvariant() }
+    if ($env:ANTIGRAVITY_AGENT -or $env:ANTIGRAVITY_CONVERSATION_ID) { return 'antigravity' }
+    if ($env:CODEX_THREAD_ID) { return 'codex' }
+    if ($env:CLAUDECODE -or $env:CLAUDE_CODE_SESSION_ID) { return 'claude' }
+    'claude'
+}
+
+function Get-OrchestratorSession {
+    $session = switch (Get-Orchestrator) {
+        'claude' { $env:CLAUDE_CODE_SESSION_ID }
+        'codex' { $env:CODEX_THREAD_ID }
+        'antigravity' { $env:ANTIGRAVITY_CONVERSATION_ID }
+    }
+    $guid = [guid]::Empty
+    if ([guid]::TryParse("$session", [ref]$guid)) { return $session }
+    $null
+}
+
+# Board entry run by the headless runner (codex/antigravity, or claude dispatched with -Headless): only the runner marks it done.
+function Test-HeadlessEntry($entry) {
+    $entry.agent -in @('codex', 'antigravity') -or ($entry.agent -eq 'claude' -and $entry.mode -eq 'headless')
+}
+
 function Show-Usage {
     Write-Host 'trinity <command> [options]'
     Write-Host ''
@@ -38,7 +65,7 @@ function Show-Usage {
     Write-Host '  dispatch <agent> <task> <prompt...>   worktree + task file + start the agent'
     Write-Host '                                          trinity dispatch codex login-form -Scope "src/auth/*" Build the login form'
     Write-Host '                                          (agent: codex | antigravity = headless, background; claude = task file)'
-    Write-Host '                                          if that agent cannot run here, the other headless one takes it'
+    Write-Host '                                          if unavailable, try the other headless agent, then Claude'
     Write-Host '                                          (TRINITY_DISABLE=codex turns Codex off, e.g. without a ChatGPT plan)'
     Write-Host '  run <agent> <task> <prompt...>        dispatch, then wait and print result + commits'
     Write-Host '                                          trinity run codex login-form -Timeout 900 Build the login form'
@@ -56,12 +83,15 @@ function Show-Usage {
     Write-Host '  clean [-OlderThanDays 7] [-Yes]       list or archive old merged/cancelled task files'
     Write-Host '  init <path> [-Force]                  install or update trinity in another git repo'
     Write-Host '                                          trinity init D:\code\myapp   (keeps its docs unless -Force)'
-    Write-Host '  track <task> <note...>                put your own (Claude) work on the board; finish with done'
+    Write-Host '  track <task> <note...>                put your own (orchestrator) work on the board; finish with done'
     Write-Host '  dashboard [-Port 7777] [-Json] [-Stop] live page of all three agents across every trinity repo'
     Write-Host '  ui                                    open the main checkout in Antigravity'
     Write-Host '  setup                                 enable .githooks and create .codex-out'
     Write-Host '  doctor [-Json]                        check prerequisites (git, agents, PATH, hooks) and print the fix for each problem'
     Write-Host '  version                               print the installed toolkit version'
+    Write-Host '  -Agent <claude|codex|antigravity>      orchestrator override; else TRINITY_ORCHESTRATOR, env detection, default claude'
+    Write-Host '                                          env detection: Antigravity, then Codex, then Claude'
+    Write-Host '  (dispatch/run) -Headless              run Claude headless; otherwise Claude gets a task file'
     Write-Host '  help                                  this text'
 }
 
@@ -104,20 +134,22 @@ function Format-Availability($avail) {
     (@($avail.Keys | ForEach-Object { if ($avail[$_].available) { "$_ ok" } else { "$_ unavailable ($($avail[$_].detail))" } }) -join ', ')
 }
 
-# Headless worker for a dispatch: the requested one if it can run here, else the other headless agent.
+# Requested headless worker, then the other worker, then Claude.
 function Select-Worker([string]$agent, [string]$task) {
-    if ($agent -notin @('codex', 'antigravity')) { return $agent }
-    $avail = Get-AgentAvailability @('codex', 'antigravity')
-    if ($avail[$agent].available) { return $agent }
+    if ($agent -notin @('codex', 'antigravity', 'claude')) { Fail '-Agent must be claude, codex, or antigravity' }
+    if ($agent -eq 'claude' -and -not $Headless) { return $agent }
+    $avail = Get-AgentAvailability
     $other = if ($agent -eq 'codex') { 'antigravity' } else { 'codex' }
-    if (-not $avail[$other].available) {
-        Fail "no headless worker can run here ($(Format-Availability $avail)); do $task yourself or use: trinity dispatch claude $task ..."
+    foreach ($candidate in @($agent, $other, 'antigravity', 'claude') | Select-Object -Unique) {
+        if ($avail[$candidate].available) {
+            if ($candidate -ne $agent) { Write-Host "$agent unavailable ($($avail[$agent].detail)); routing $task to $candidate." -ForegroundColor Yellow }
+            return $candidate
+        }
     }
-    Write-Host "$agent unavailable ($($avail[$agent].detail)); routing $task to $other." -ForegroundColor Yellow
-    $other
+    Fail "no headless worker can run here ($(Format-Availability $avail)); do $task yourself"
 }
 
-# Reviewer: TRINITY_REVIEWER (codex|claude|antigravity|none) if usable, else Codex, else Claude or Antigravity,
+# Reviewer: TRINITY_REVIEWER (codex|claude|antigravity|none) if usable, otherwise
 # preferring one that did not write the change. $null = nobody can review.
 function Select-Reviewer([string]$author) {
     $choice = "$env:TRINITY_REVIEWER".Trim().ToLowerInvariant()
@@ -127,8 +159,7 @@ function Select-Reviewer([string]$author) {
         if ($avail.Contains($choice) -and $avail[$choice].available) { return $choice }
         Write-Host "TRINITY_REVIEWER=$choice cannot run here; picking another reviewer." -ForegroundColor Yellow
     }
-    if ($avail.codex.available) { return 'codex' }
-    $usable = @('claude', 'antigravity' | Where-Object { $avail[$_].available })
+    $usable = @('codex', 'claude', 'antigravity' | Where-Object { $avail[$_].available })
     $pick = @(@($usable | Where-Object { $_ -ne $author }) + $usable) | Select-Object -First 1
     if (-not $pick) { Write-Host "No reviewer can run here ($(Format-Availability $avail))." -ForegroundColor Yellow }
     $pick
@@ -241,6 +272,7 @@ function Show-Status {
     $dirty = @(Get-Git @('-C', $paths.Main, 'status', '--porcelain') | Where-Object { $_ }).Count
     Write-Host "main checkout: branch=$branch uncommitted=$dirty"
     Write-Host "agents: $(Format-Availability (Get-AgentAvailability))"
+    Write-Host "orchestrator: $(Get-Orchestrator)"
     Write-Host ''
     Write-Host 'Worktrees:'
     Get-Git @('-C', $paths.Main, 'worktree', 'list') | ForEach-Object { Write-Host "  $_" }
@@ -287,7 +319,7 @@ function Wait-Task([string]$task, [int]$timeoutSec) {
         $entry = Get-BoardEntry $paths $task
         $status = $entry.status
         # Headless tasks finish only when the runner writes its own status (after committing), never on a bare "done".
-        $headless = $entry.agent -in @('codex', 'antigravity')
+        $headless = Test-HeadlessEntry $entry
         # The runner deletes its pid file once it has committed and written the status, so a live runner
         # means pending whatever the board says (an agent could write a lookalike status itself).
         $pidFile = Join-Path $paths.Out "pid-$task.txt"
@@ -329,12 +361,14 @@ function Wait-Task([string]$task, [int]$timeoutSec) {
 # Create worktree + task file for one agent and start it (codex/antigravity) or park it (claude).
 function Start-Dispatch([string]$agent, [string]$task, [string]$prompt) {
     # Pick a worker that can run here now, in the foreground, rather than failing in the hidden runner.
+    $requested = $agent
     $agent = Select-Worker $agent $task
+    $isHeadless = $agent -ne 'claude' -or $Headless -or $requested -ne 'claude'
     $wt = New-AgentWorktree $paths $agent $task $Scope $Base
 
     $taskFile = Join-Path $paths.Out "task-$task.md"
     $resultPath = Join-Path $paths.Out "result-$task.md"
-    $body = @(
+    $body = (@(
         "# Task: $task",
         '',
         "- agent: $agent",
@@ -351,7 +385,7 @@ function Start-Dispatch([string]$agent, [string]$task, [string]$prompt) {
         '',
         '- Read AGENTS.md first.',
         '- Edit only files within the scope.',
-        $(if ($agent -ne 'claude') { '- Work only inside your current directory (your worktree). Do not run git commit or push; the runner commits your changes when you finish, using your final summary as the message.',
+        $(if ($isHeadless) { '- Work only inside your current directory (your worktree). Do not run git commit or push; the runner commits your changes when you finish, using your final summary as the message.',
              '- Do not start GUI apps or long-running servers; you run headless.' }
           else { '- Commit your work on this branch with clear messages (no Co-Authored-By trailers).',
              "- When finished: write your summary to $resultPath, then run in your worktree: trinity done $task <one-line summary>" }),
@@ -359,14 +393,15 @@ function Start-Dispatch([string]$agent, [string]$task, [string]$prompt) {
         '- Never edit the agent board (.git/agent-board.md) or any file under .git; the runner owns your board status.',
         '- Do not edit HANDOFF.md or PLAN.md.',
         '- Finish with a short summary of what you did and anything left.'
-    ) -join "`r`n"
+    ) | ForEach-Object { $_ }) -join "`r`n"
     [IO.File]::WriteAllText($taskFile, $body + "`r`n", $script:Utf8)
 
     Write-Host "Worktree: $($wt.Path)"
     Write-Host "Branch:   $($wt.Branch)"
     Write-Host "Task:     $taskFile"
     switch ($agent) {
-        { $_ -in @('codex', 'antigravity') } {
+        { $isHeadless } {
+            if ($agent -eq 'claude') { Set-BoardField $paths $task 'mode' 'headless' }
             Set-BoardStatus $paths $task 'running'
             $runner = Start-Process powershell.exe -WindowStyle Hidden -PassThru -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '_run', $task
             [IO.File]::WriteAllText((Join-Path $paths.Out "pid-$task.txt"), "$($runner.Id)", $script:Utf8)
@@ -374,6 +409,7 @@ function Start-Dispatch([string]$agent, [string]$task, [string]$prompt) {
             Write-Host "Log:    $(Join-Path $paths.Out "log-$task.txt")"
             Write-Host "Result: $(Join-Path $paths.Out "result-$task.md")"
             Write-Host 'Check progress with: trinity status'
+            break
         }
         'claude' {
             Set-BoardStatus $paths $task 'waiting for claude session'
@@ -386,7 +422,7 @@ function Start-Dispatch([string]$agent, [string]$task, [string]$prompt) {
 function Get-TaskFiles([string]$task) {
     if (Test-Path -LiteralPath $paths.Out) {
         Get-ChildItem -LiteralPath $paths.Out -File | Where-Object {
-            $_.Name -match ('^(task|prompt|result|log|agy|agyout|meta|pid|run)-' + [regex]::Escape($task) + '\.')
+            $_.Name -match ('^(task|prompt|result|log|agy|agyout|claudeout|meta|pid|run)-' + [regex]::Escape($task) + '\.')
         }
     }
 }
@@ -434,7 +470,7 @@ switch ($Command) {
             $i = [array]::IndexOf($reviewArgs, '--base')
             if ($i -ge 0 -and $i + 1 -lt $reviewArgs.Count) { $mode = 'base'; $ref = $reviewArgs[$i + 1] }
         }
-        $reviewer = Select-Reviewer ''
+        $reviewer = Select-Reviewer (Get-Orchestrator)
         if (-not $reviewer) { Fail 'no reviewer available; install or log in to Codex, Claude Code or Antigravity' }
         $rv = Invoke-Review $reviewer $paths.Root $mode $ref 'last'
         $rv.Lines | ForEach-Object { Write-Host $_ }
@@ -447,7 +483,7 @@ switch ($Command) {
         if (-not $prompt.Trim() -and [Console]::IsInputRedirected) { $prompt = [Console]::In.ReadToEnd() }
         if (-not $prompt.Trim()) { Fail 'usage: trinity ask <prompt...>   (or pipe the prompt on stdin)' }
         $answer = Join-Path $paths.Out 'codex-last.md'
-        $asker = Select-Reviewer ''
+        $asker = Select-Reviewer (Get-Orchestrator)
         if (-not $asker) { Fail 'nobody to ask; install or log in to Codex, Claude Code or Antigravity' }
         Write-Host "asking: $asker"
         if ($asker -eq 'codex') {
@@ -488,7 +524,7 @@ switch ($Command) {
             $prompt = ($Rest[2..($Rest.Count - 1)]) -join ' '
         }
         Start-Dispatch $Rest[0] $Rest[1] $prompt
-        if ($Rest[0] -eq 'claude') {
+        if ((Get-BoardEntry $paths $Rest[1]).status -match '^waiting for claude session') {
             Write-Host 'claude tasks need a Claude Code session; not waiting.'
             exit 0
         }
@@ -506,7 +542,7 @@ switch ($Command) {
         if (-not $task) { Fail 'usage: trinity done <task> [summary...]' }
         $entry = Get-BoardEntry $paths $task
         if (-not $entry) { Fail "no board entry for $task" }
-        if ($entry.agent -in @('codex', 'antigravity')) { Fail "$task is a headless $($entry.agent) task; its runner marks it done after committing" }
+        if ((Test-HeadlessEntry $entry) -and $entry.branch -and $entry.branch -ne '-') { Fail "$task is a headless $($entry.agent) task; its runner marks it done after committing" }
         $summary = ''
         if (@($Rest).Count -gt 1) { $summary = (($Rest[1..($Rest.Count - 1)]) -join ' ') -replace '[\r\n]+', ' ' }
         $status = if ($summary.Trim()) { "done: $($summary.Trim())" } else { 'done' }
@@ -531,8 +567,14 @@ switch ($Command) {
         $agyJson = Join-Path $paths.Out "agyout-$task.json"
         $agyLog = Join-Path $paths.Out "agy-$task.log"
 
+        $claudeJson = Join-Path $paths.Out "claudeout-$task.json"
         $runFile = Join-Path $paths.Out "run-$task.cmd"
-        if ($entry.agent -eq 'antigravity') {
+        if ($entry.agent -eq 'claude') {
+            $exe = Find-ClaudeExe
+            if (-not $exe) { Fail 'Claude CLI not found; set CLAUDE_EXE' }
+            $cmdLine = 'cd /d "' + $entry.worktree + '" && "' + $exe + '" -p --permission-mode acceptEdits --allowedTools "Read,Edit,Write,Glob,Grep,Bash" --add-dir "' + $paths.Out + '" --output-format json < "' + $taskFile + '" > "' + $claudeJson + '" 2> "' + $log + '"'
+        }
+        elseif ($entry.agent -eq 'antigravity') {
             # agy -p --output-format json returns the final answer plus conversation id and token use;
             # permissions are skipped, so the task rules confine it to its worktree.
             $exe = Resolve-AgyExe
@@ -544,8 +586,10 @@ switch ($Command) {
             $cmdLine = '"' + $exe + '" exec --sandbox workspace-write --add-dir "' + $paths.Common + '" --skip-git-repo-check -C "' + $entry.worktree + '" -o "' + $result + '" - < "' + $taskFile + '" > "' + $log + '" 2>&1'
         }
         [IO.File]::WriteAllText($runFile, "@echo off`r`n$cmdLine`r`nexit /b %ERRORLEVEL%`r`n", $script:Utf8)
-        & $runFile
-        $rc = $LASTEXITCODE
+        $nested = $env:CLAUDECODE
+        if ($entry.agent -eq 'claude') { $env:CLAUDECODE = $null }
+        try { & $runFile; $rc = $LASTEXITCODE }
+        finally { $env:CLAUDECODE = $nested }
         if ((Get-BoardEntry $paths $task).status -match '^cancelled') { exit 0 }
 
         $meta.finished = Get-Date -Format 'yyyy-MM-ddTHH:mm:ss'
@@ -574,6 +618,28 @@ switch ($Command) {
                 $m = [regex]::Match([IO.File]::ReadAllText($agyLog), 'label="([^"]+)"')
                 if ($m.Success) { $meta.model = $m.Groups[1].Value }
             }
+        }
+        elseif ($entry.agent -eq 'claude') {
+            $raw = if (Test-Path $claudeJson) { [IO.File]::ReadAllText($claudeJson) } else { '' }
+            $text = $raw
+            try {
+                $j = $raw | ConvertFrom-Json
+                if ($j -and $null -ne $j.result) {
+                    $text = "$($j.result)"
+                    if ($j.session_id) { $meta.sessionId = "$($j.session_id)" }
+                    if ($null -ne $j.duration_ms) { $meta.durationSec = [double]$j.duration_ms / 1000 }
+                    if ($null -ne $j.total_cost_usd) { $meta.costUsd = $j.total_cost_usd }
+                    if ($j.model) { $meta.model = $j.model }
+                    elseif ($j.modelUsage) { $meta.model = @($j.modelUsage.PSObject.Properties.Name)[0] }
+                    if ($j.usage) {
+                        $meta.tokens = [ordered]@{ input = [long]$j.usage.input_tokens; output = [long]$j.usage.output_tokens
+                            cached = [long]$j.usage.cache_read_input_tokens; total = ([long]$j.usage.input_tokens + [long]$j.usage.output_tokens) }
+                    }
+                    if ($j.is_error) { $rc = [Math]::Max($rc, 1) }
+                }
+            }
+            catch { }
+            [IO.File]::WriteAllText($result, $text, $script:Utf8)
         }
         elseif (Test-Path $log) {
             # Codex prints its settings in the log header.
@@ -671,7 +737,7 @@ switch ($Command) {
         if ($Force) { $cancelArgs += '-Force' }
         & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath @cancelArgs
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-        $oldFiles = @(Get-TaskFiles $task | Where-Object { $_.Name -match '^(log|result|agy|agyout|meta|run)-' -and $_.Name -notmatch '\.attempt\d+\.' })
+        $oldFiles = @(Get-TaskFiles $task | Where-Object { $_.Name -match '^(log|result|agy|agyout|claudeout|meta|run)-' -and $_.Name -notmatch '\.attempt\d+\.' })
         $attempt = 1
         while (@(Get-TaskFiles $task | Where-Object { $_.Name -match "\.attempt$attempt\." }).Count) { $attempt++ }
         foreach ($file in $oldFiles) {
@@ -682,6 +748,7 @@ switch ($Command) {
         [IO.File]::WriteAllText($retryPrompt, $prompt, $script:Utf8)
         $Scope = $entry.scope
         Write-Host "Retrying $task with $($entry.agent), scope $Scope, prompt $retryPrompt"
+        if ($entry.agent -eq 'claude' -and $entry.mode -eq 'headless') { $Headless = $true }
         Start-Dispatch $entry.agent $task $prompt
     }
 
@@ -871,7 +938,7 @@ switch ($Command) {
             'scripts\codex.cmd', 'scripts\codex-review.cmd', 'scripts\codex-ask.cmd', '.githooks\pre-commit',
             'scripts\dashboard.ps1', 'scripts\dashboard.html',
             '.claude\agents\codex-worker.md', '.claude\agents\codex-reviewer.md', '.claude\agents\antigravity-worker.md',
-            '.claude\skills\army\SKILL.md')
+            '.claude\skills\army\SKILL.md', '.agents\skills\trinity\SKILL.md')
         foreach ($rel in $toolkit) {
             if (-not (Test-Path (Join-Path $kit $rel))) { Write-Host "  missing  $rel (not in this toolkit checkout; skipped)"; continue }
             & $copy $rel; Write-Host "  updated  $rel"
@@ -953,7 +1020,7 @@ switch ($Command) {
         $outDir = Join-Path $target '.codex-out'
         if (-not (Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir | Out-Null }
         Write-Host ''
-        Write-Host "Installed trinity into $target. Next: fill in Project commands in AGENTS.md, commit, then open a new Claude session there."
+        Write-Host "Installed trinity into $target. Next: fill in Project commands in AGENTS.md, commit, then open a new Claude, Codex or Antigravity session there."
     }
 
     'ui' {
@@ -968,16 +1035,26 @@ switch ($Command) {
     }
 
     'track' {
-        # Claude's own work on the board, so the dashboard shows the orchestrator next to its workers.
+        # The orchestrator's own work on the board, so the dashboard shows the orchestrator next to its workers.
         $task = $Rest[0]
         if (-not $task) { Fail 'usage: trinity track <task> <what you are doing...>   (finish with: trinity done <task> <summary>)' }
         Assert-TaskName $task
         $note = if (@($Rest).Count -gt 1) { (($Rest[1..($Rest.Count - 1)]) -join ' ') -replace '[\r\n]+', ' ' } else { 'in progress' }
         $entry = Get-BoardEntry $paths $task
-        if ($entry -and $entry.agent -ne 'claude') { Fail "$task belongs to $($entry.agent); pick another task name" }
-        if (-not $entry) { Add-BoardEntry $paths $task 'claude' '-' '-' $Scope }
-        # Inside a Claude Code session, link the task to it so the dashboard shows its model and chat.
-        if ($env:CLAUDE_CODE_SESSION_ID -match '^[0-9a-fA-F-]{36}$') { Set-BoardField $paths $task 'session' $env:CLAUDE_CODE_SESSION_ID }
+        $orchestrator = Get-Orchestrator
+        if ($entry -and $entry.agent -ne $orchestrator) { Fail "$task belongs to $($entry.agent); pick another task name" }
+        if (-not $entry) { Add-BoardEntry $paths $task $orchestrator '-' '-' $Scope }
+        $session = Get-OrchestratorSession
+        if ($session) { Set-BoardField $paths $task 'session' $session }
+        if ($orchestrator -in @('codex', 'antigravity')) {
+            $metaFile = Join-Path $paths.Out "meta-$task.json"
+            $started = Get-Date -Format 'yyyy-MM-ddTHH:mm:ss'
+            if (Test-Path $metaFile) {
+                try { $old = [IO.File]::ReadAllText($metaFile) | ConvertFrom-Json; if ($old.started) { $started = $old.started } } catch { }
+            }
+            $meta = [ordered]@{ agent = $orchestrator; started = $started; sessionId = $session }
+            [IO.File]::WriteAllText($metaFile, ($meta | ConvertTo-Json -Compress), $script:Utf8)
+        }
         Set-BoardStatus $paths $task "working: $note"
         Write-Host "tracking $($task): $note"
     }
