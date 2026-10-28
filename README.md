@@ -6,6 +6,8 @@ A coordination toolkit that makes three coding agents work on one repo as a team
 - **Codex**: headless worker in its own worktree, and the reviewer gate before every commit and merge.
 - **Antigravity** (Gemini): UI work and browser-agent verification.
 
+Claude orchestrates by default, but any of the three can: drive the repo from Codex or Antigravity and it plans, dispatches the other two (Claude as a headless worker with `dispatch claude -Headless`), and merges through the same gate. See `docs/orchestrator.md`.
+
 All three read the same rules file (`AGENTS.md`) and talk to each other through files, because none of them can see the others' chats.
 
 This repo is the toolkit itself. Install it into any project with `trinity init <path>` (see "Use it in another project").

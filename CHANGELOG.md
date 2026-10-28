@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Any agent can orchestrate: Codex or Antigravity driving the main checkout plan, dispatch, `track`, review and merge like Claude (`docs/orchestrator.md`). Orchestrator is detected from the environment or set with `-Agent` / `TRINITY_ORCHESTRATOR`; `status` prints an `orchestrator:` line; reviews never pick the author or orchestrator when another reviewer can run.
+- `trinity dispatch claude <task> -Headless`: Claude Code as a headless worker (`claude -p`) in its own worktree.
+- `.agents/skills/trinity/SKILL.md`: orchestrator playbook loaded by Codex and Antigravity, installed by `trinity init`.
+
 ## v0.5.0 - 2026-10-28
 
 ### Added

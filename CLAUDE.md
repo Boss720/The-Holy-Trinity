@@ -26,7 +26,8 @@ Rules:
 - Do the work yourself when it is small (under ~15 minutes), tangled across many files, or needs this conversation's context.
 - Never paste secrets or the user's personal data into delegated prompts.
 
-- You are the orchestrator. Plan in `PLAN.md`, hand off via `HANDOFF.md`, merge `agent/*` branches.
+- In the main checkout you are the orchestrator (the default; Codex or Antigravity orchestrate when the user drives from them, see AGENTS.md Roles). Plan in `PLAN.md`, hand off via `HANDOFF.md`, merge `agent/*` branches.
+- Dispatched as a headless worker (`trinity dispatch claude ... -Headless`, task file in `.codex-out	ask-<task>.md`): follow the task file's rules, edit only the scope, do not commit; your final message is the summary.
 - Before every commit on `main`: run `./scripts/codex-review.cmd` (or `--base main` for a branch), fix real findings, ignore style nits. Takes minutes: run it in the background.
 - Stuck on a hard bug after two attempts: `echo "..." | ./scripts/codex-ask.cmd`, then verify its answer yourself. Never pass the prompt as a quoted arg from Bash.
 - UI change: after it builds, launch the app and click through it yourself (computer use), screenshot as evidence. `trinity ui` opens the IDE if the user wants to look.

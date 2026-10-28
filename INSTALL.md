@@ -7,7 +7,7 @@ Trinity coordinates Claude Code, Codex, and Antigravity in a shared repository w
 | Tool | Required? | Why | How to get it |
 |---|---|---|---|
 | Git for Windows (2.31+) | Required | Worktrees, branches, and commit hooks | Run the winget command below or download from https://git-scm.com/download/win |
-| Claude Code | Required | Orchestrator: plans work, coordinates agents, and merges | Run the install command below or see https://code.claude.com/docs/en/setup |
+| Claude Code | Required | Default orchestrator: plans work, coordinates agents, and merges (Codex or Antigravity can orchestrate instead) | Run the install command below or see https://code.claude.com/docs/en/setup |
 | Antigravity CLI (`agy`) | Recommended | Headless UI worker and fallback when Codex is unavailable | Run the install command below (see https://antigravity.google/docs/install?tab=cli) |
 | Codex CLI | Optional | Headless coding worker and code reviewer (requires ChatGPT plan) | Run the install command below (see https://github.com/openai/codex) |
 | Windows PowerShell 5.1 | Required | Runs Trinity automation scripts | Built into Windows 10 and Windows 11 |
