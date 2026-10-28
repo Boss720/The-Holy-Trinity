@@ -1734,6 +1734,11 @@ Run-Case 'dashboard action API validates requests and runs a review job' {
     }
 }
 
+# Extra cases, one file per task so parallel workers never edit this file.
+foreach ($caseFile in @(Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'cases') -Filter '*.ps1' -File -ErrorAction SilentlyContinue | Sort-Object Name)) {
+    . ($caseFile.FullName)
+}
+
 Write-Output "$passed passed, $failed failed, $skipped skipped"
 if (-not $Keep) {
     foreach ($root in @($fixtures)) {
