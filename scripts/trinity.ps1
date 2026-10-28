@@ -19,6 +19,10 @@ param(
     [string]$Feedback,
     [string]$FeedbackFile,
     [switch]$DryRun,
+    [string]$Model,
+    [switch]$Approval,
+    [ValidateSet('merged', 'failed', 'cancelled')][string]$Outcome,
+    [int]$Last = 20,
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest
 )
 
@@ -132,6 +136,15 @@ function Show-Usage {
     Write-Host '  ui                                    open the main checkout in Antigravity'
     Write-Host '  setup                                 enable .githooks and create .codex-out'
     Write-Host '  doctor [-Json]                        check prerequisites (git, agents, PATH, hooks) and print the fix for each problem'
+    Write-Host '  queue list [-Json]                    show queued tasks, in order'
+    Write-Host '  queue add <task> -Agent <a> -Scope <glob> -PromptFile <file> [-Model <m>]  queue a task (also: queue add <agent> <task>)'
+    Write-Host '  queue remove <task>                   take a task out of the queue'
+    Write-Host '  queue move <task> <index>             move a queued task to position <index> (0 = first)'
+    Write-Host '  scheduler start|stop|status|tick      start the detached scheduler, ask it to stop, show its heartbeat, or run one pass'
+    Write-Host '  pause [<reason>]                      write .trinity\PAUSE: scheduler and autopilot stop acting'
+    Write-Host '  unpause                               remove .trinity\PAUSE (also clears a limit pause)'
+    Write-Host '  autopilot on|off [-Approval]          enable or disable autopilot (-Approval = require approval before merge)'
+    Write-Host '  history [-Json] [-Agent a] [-Outcome merged|failed|cancelled] [-Last N]  finished tasks and scheduler decisions, newest first'
     Write-Host '  version                               print the installed toolkit version'
     Write-Host '  -Agent <claude|codex|antigravity>      orchestrator override; else TRINITY_ORCHESTRATOR, env detection, default claude'
     Write-Host '                                          env detection: Antigravity, then Codex, then Claude'
@@ -677,6 +690,103 @@ switch ($Command) {
             Write-Host "Saved .trinity\trinity.json"
         }
         else { Fail 'usage: trinity config [get [<key>]] | set <key> <value> | set -Json <file>' }
+    }
+
+    'queue' {
+        if (-not (Get-Command Get-TrinityQueue -ErrorAction SilentlyContinue)) { Fail 'scheduler library is missing' }
+        $sub = if ($Rest.Count) { $Rest[0] } else { 'list' }
+        try {
+            switch ($sub) {
+                'list' {
+                    if ($Rest.Count -gt 1) { throw 'usage: trinity queue list [-Json]' }
+                    $q = Get-TrinityQueue $paths
+                    if ($Json) { ConvertTo-Json -InputObject $q -Depth 20 }
+                    elseif (-not $q.items.Count) { Write-Host 'Queue is empty.' }
+                    else { for ($i = 0; $i -lt $q.items.Count; $i++) { $item = $q.items[$i]; Write-Host "$i $($item.task) $($item.agent) $($item.scope) $($item.waiting)" } }
+                }
+                'add' {
+                    if ($Agent -and $Rest.Count -eq 2) { $task = $Rest[1]; $queueAgent = $Agent }
+                    elseif (-not $Agent -and $Rest.Count -eq 3) { $queueAgent = $Rest[1]; $task = $Rest[2] }
+                    else { throw 'usage: trinity queue add <agent> <task> -Scope <glob> -PromptFile <file> [-Model <model>]' }
+                    if (-not $PSBoundParameters.ContainsKey('Scope') -or -not $Scope.Trim() -or -not $PromptFile) { throw 'queue add requires -Scope and -PromptFile' }
+                    Add-QueueItem $paths @{task=$task;agent=$queueAgent;scope=$Scope;promptFile=$PromptFile;model=$Model;base=$Base;addedBy='cli'}
+                    Write-Host "Queued $task."
+                }
+                'remove' { if ($Rest.Count -ne 2) { throw 'usage: trinity queue remove <task>' }; Remove-QueueItem $paths $Rest[1]; Write-Host "Removed $($Rest[1]) from queue." }
+                'move' { $index = 0; if ($Rest.Count -ne 3 -or -not [int]::TryParse($Rest[2], [ref]$index)) { throw 'usage: trinity queue move <task> <index>' }; Move-QueueItem $paths $Rest[1] $index; Write-Host "Moved $($Rest[1]) to $index." }
+                default { throw 'usage: trinity queue [list|add|remove|move]' }
+            }
+        } catch { Fail $_.Exception.Message }
+    }
+    'scheduler' {
+        if (-not (Get-Command Invoke-SchedulerTick -ErrorAction SilentlyContinue)) { Fail 'scheduler library is missing' }
+        if ($Rest.Count -ne 1 -or $Rest[0] -notin @('start','stop','status','tick')) { Fail 'usage: trinity scheduler start|stop|status|tick' }
+        $heartbeat = Join-Path $paths.Main '.trinity\scheduler.json'; $alive = $false; $beat = $null
+        if (Test-Path -LiteralPath $heartbeat) {
+            try {
+                $beat = ConvertFrom-Json ([IO.File]::ReadAllText($heartbeat)) -ErrorAction Stop
+                $proc = Get-Process -Id ([int]$beat.pid) -ErrorAction SilentlyContinue
+                $age = ((Get-Date) - [datetimeoffset]::Parse($beat.lastTickAt).LocalDateTime).TotalSeconds
+                $alive = [bool]($proc -and $proc.StartTime.ToString('o') -eq $beat.processStart -and $age -ge 0 -and $age -lt 90)
+            } catch { $alive = $false }
+        }
+        try {
+            switch ($Rest[0]) {
+                'status' { if ($alive) { Write-Host "Scheduler running (pid $($beat.pid), last tick $($beat.lastTickAt)): $($beat.now)" } else { Write-Host 'Scheduler is not running.' } }
+                'start' {
+                    if ($alive) { throw 'Scheduler already running' }
+                    $script = Join-Path $PSScriptRoot 'scheduler.ps1'; if (-not (Test-Path -LiteralPath $script)) { throw 'scripts\scheduler.ps1 is missing' }
+                    $stopFile = Join-Path $paths.Main '.trinity\scheduler.stop'; if (Test-Path -LiteralPath $stopFile) { Remove-Item -LiteralPath $stopFile -Force }
+                    $proc = Start-Process powershell.exe -WindowStyle Hidden -PassThru -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$script`"", '-Repo', "`"$($paths.Main)`""
+                    Write-Host "Scheduler starting (pid $($proc.Id))."
+                }
+                'stop' {
+                    if (-not $alive) { Write-Host 'Scheduler is not running.' }
+                    else { [void][IO.Directory]::CreateDirectory((Join-Path $paths.Main '.trinity')); [IO.File]::WriteAllText((Join-Path $paths.Main '.trinity\scheduler.stop'), '', $script:Utf8); Write-Host 'Scheduler stop requested.' }
+                }
+                'tick' {
+                    $dispatch = { param($p,$item,$cfg) $a=@('dispatch',$item.agent,$item.task,'-Scope',$item.scope,'-PromptFile',$item.promptFile); if ($item.base) { $a+=@('-Base',$item.base) }; $deadline=$cfg.deadlineMinutes; $envDeadline=0; if ([int]::TryParse($env:TRINITY_DEADLINE_MINUTES,[ref]$envDeadline) -and $envDeadline -gt 0) { $deadline=$envDeadline }; $a+=@('-DeadlineMinutes',[string]$deadline); $old=$env:TRINITY_CODEX_MODEL; try { if ($item.agent -eq 'codex' -and $item.model) { $env:TRINITY_CODEX_MODEL=$item.model }; Invoke-SchedulerChild $p $a } finally { $env:TRINITY_CODEX_MODEL=$old } }
+                    $merge = { param($p,$task,$dry) $flag=if ($dry) { '-DryRun' } else { '-Yes' }; Invoke-SchedulerChild $p @('merge',$task,$flag) }
+                    $resume = { param($p,$task,$feedback) Invoke-SchedulerChild $p @('resume',$task,'-FeedbackFile',$feedback) }
+                    $result = Invoke-SchedulerTick $paths $dispatch $merge $resume
+                    Write-Host "Scheduler tick: $(@($result.started).Count) started, $($result.waiting.Count) waiting."
+                }
+            }
+        } catch { Fail $_.Exception.Message }
+    }
+    'pause' {
+        try { $reason = if ($Rest.Count) { $Rest -join ' ' } else { 'user' }; Set-PauseSwitch $paths $reason; Write-Host "Paused: $reason" } catch { Fail $_.Exception.Message }
+    }
+    'unpause' {
+        if ($Rest.Count) { Fail 'usage: trinity unpause' }
+        try { Clear-PauseSwitch $paths; Write-Host 'Unpaused.' } catch { Fail $_.Exception.Message }
+    }
+    'autopilot' {
+        if ($Rest.Count -ne 1 -or $Rest[0] -notin @('on','off')) { Fail 'usage: trinity autopilot on|off [-Approval]' }
+        try {
+            $patch = @{enabled=($Rest[0] -eq 'on')}; if ($Approval) { $patch.approval = $true }
+            $null = Set-TrinityConfig $paths @{autopilot=$patch}
+            Add-Decision $paths '' 'skipped' "autopilot $($Rest[0])" 0
+            Write-Host "Autopilot $($Rest[0])."
+        } catch { Fail $_.Exception.Message }
+    }
+    'history' {
+        if ($Rest.Count -or $Last -lt 0) { Fail 'usage: trinity history [-Json] [-Agent a] [-Outcome merged|failed|cancelled] [-Last N]' }
+        try {
+            $items = @()
+            foreach ($entry in @(Get-SchedulerTasks $paths)) {
+                if ($entry.status -notmatch '^(merged|failed|cancelled)\b') { continue }; $outcomeName = $Matches[1]
+                $at = ''; if ($entry.status -match '(\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)') { $at = $Matches[1] }
+                $items += @{at=$at;task=$entry.task;agent=$entry.agent;outcome=$outcomeName;status=$entry.status;type='task'}
+            }
+            foreach ($decision in @(Get-Decisions $paths 0)) {
+                $entry = if ($decision.task) { Get-BoardEntry $paths $decision.task } else { $null }
+                $items += @{at=$decision.at;task=$decision.task;agent=$(if ($entry) { $entry.agent } else { '' });outcome=$decision.action;action=$decision.action;reason=$decision.reason;round=$decision.round;type='decision'}
+            }
+            if ($Agent) { $items = @($items | Where-Object { $_.agent -eq $Agent }) }; if ($Outcome) { $items = @($items | Where-Object { $_.outcome -eq $Outcome }) }
+            $items = @($items | Sort-Object { $date = [datetimeoffset]::MinValue; if ([datetimeoffset]::TryParse([string]$_.at, [ref]$date)) { $date } else { [datetimeoffset]::MinValue } } -Descending); if ($Last -gt 0) { $items = @($items | Select-Object -First $Last) }
+            if ($Json) { ConvertTo-Json -InputObject @($items) -Depth 20 } elseif (-not $items.Count) { Write-Host 'No history.' } else { foreach ($item in $items) { Write-Host "$($item.at) $($item.task) $($item.agent) $($item.outcome) $($item.reason)" } }
+        } catch { Fail $_.Exception.Message }
     }
 
     'version' {
