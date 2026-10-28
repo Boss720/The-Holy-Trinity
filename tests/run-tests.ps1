@@ -146,7 +146,7 @@ function Run-Case([string]$Name, [scriptblock]$Body, [string]$TestCommand = 'exi
     $oldReview = $env:FAKE_REVIEW_OUTPUT
     # Agent selection env: every case starts with all three fakes usable and nothing disabled.
     $savedEnv = @{}
-    foreach ($envName in 'CLAUDE_EXE', 'TRINITY_DISABLE', 'TRINITY_REVIEWER', 'FAKE_CODEX_LOGGED_OUT', 'FAKE_CLAUDE_LOGGED_OUT', 'FAKE_CLAUDE_MODE', 'TRINITY_AGY_HOME', 'FAKE_AGY_TRANSCRIPT', 'TRINITY_ORCHESTRATOR', 'CODEX_THREAD_ID', 'CLAUDECODE', 'CLAUDE_CODE_SESSION_ID', 'ANTIGRAVITY_AGENT', 'ANTIGRAVITY_CONVERSATION_ID', 'TRINITY_CODEX_MODEL', 'TRINITY_CODEX_EFFORT', 'TRINITY_SCOPE_GUARD') {
+    foreach ($envName in 'CLAUDE_EXE', 'TRINITY_DISABLE', 'TRINITY_REVIEWER', 'FAKE_CODEX_LOGGED_OUT', 'FAKE_CLAUDE_LOGGED_OUT', 'FAKE_CLAUDE_MODE', 'TRINITY_AGY_HOME', 'FAKE_AGY_TRANSCRIPT', 'TRINITY_ORCHESTRATOR', 'CODEX_THREAD_ID', 'CLAUDECODE', 'CLAUDE_CODE_SESSION_ID', 'ANTIGRAVITY_AGENT', 'ANTIGRAVITY_CONVERSATION_ID', 'TRINITY_CODEX_MODEL', 'TRINITY_CODEX_EFFORT', 'TRINITY_AGY_MODEL', 'TRINITY_AGY_EFFORT', 'TRINITY_SCOPE_GUARD') {
         $savedEnv[$envName] = [Environment]::GetEnvironmentVariable($envName)
         [Environment]::SetEnvironmentVariable($envName, $null)
     }
@@ -1261,7 +1261,9 @@ Run-Case 'dashboard caches Claude summaries and rejects non-loopback clients' {
         $state = $response.Content | ConvertFrom-Json; $repoState = @($state.repos | Where-Object path -eq ([IO.Path]::GetFullPath($f.Repo)))[0]; $sessions = @($repoState.claudeSessions)
         Assert-True ($sessions.Count -eq 5) "expected 5 Claude sessions, found $($sessions.Count)"
         Assert-True ((@($sessions | ForEach-Object id) -join ',') -eq 'session-7,session-6,session-5,session-4,session-3') "Claude sessions were not the 5 newest: $(@($sessions | ForEach-Object id) -join ',')"
-        Assert-True (@([IO.File]::ReadAllLines($summaryLog)).Count -eq 5) 'dashboard summarized files outside the newest 5'
+        # Under parallel load a background refresh can summarize the same files again; only which files were read matters.
+        $summarized = @([IO.File]::ReadAllLines($summaryLog) | Where-Object { $_ } | Sort-Object -Unique)
+        Assert-True ($summarized.Count -eq 5 -and -not @($summarized | Where-Object { $_ -match 'session-[12]\.jsonl' }).Count) "dashboard summarized files outside the newest 5: $($summarized -join ', ')"
         $changedPath = Join-Path $project 'session-7.jsonl'
         $changedStamp = [datetime]::UtcNow.ToString('o'); $changedLine = (@{ type='custom-title'; customTitle='Updated title'; timestamp=$changedStamp } | ConvertTo-Json -Compress) + "`r`n"
         [IO.File]::AppendAllText($changedPath, $changedLine, [Text.UTF8Encoding]::new($false))
