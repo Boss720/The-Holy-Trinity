@@ -15,7 +15,7 @@ $notesPath = Join-Path $OutDir 'RELEASE_NOTES.md'
 $fixed = @(
     'VERSION', 'README.md', 'INSTALL.md', 'CHANGELOG.md', 'AGENTS.md', 'CLAUDE.md', 'GEMINI.md',
     'trinity.cmd', 'trinity.sh', 'install.cmd', 'install.ps1', '.agent/rules/holy-trinity.md',
-    '.claude/settings.json', '.claude/skills/army/SKILL.md', '.githooks/pre-commit',
+    '.claude/settings.json', '.claude/skills/army/SKILL.md', '.agents/skills/trinity/SKILL.md', '.githooks/pre-commit',
     'scripts/agent-task.ps1', 'scripts/codex.cmd', 'scripts/codex-ask.cmd', 'scripts/codex-review.cmd',
     'scripts/dashboard.ps1', 'scripts/dashboard.html', 'scripts/doctor.ps1', 'scripts/trinity.ps1',
     'scripts/lib/board.ps1', 'docs/dashboard.md', 'docs/claude-install-prompt.md'

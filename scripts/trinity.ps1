@@ -48,8 +48,9 @@ function Get-OrchestratorSession {
 }
 
 # Board entry run by the headless runner (codex/antigravity, or claude dispatched with -Headless): only the runner marks it done.
+# A tracked orchestrator chunk has no branch and no runner.
 function Test-HeadlessEntry($entry) {
-    $entry.agent -in @('codex', 'antigravity') -or ($entry.agent -eq 'claude' -and $entry.mode -eq 'headless')
+    $entry.branch -and $entry.branch -ne '-' -and ($entry.agent -in @('codex', 'antigravity') -or ($entry.agent -eq 'claude' -and $entry.mode -eq 'headless'))
 }
 
 function Show-Usage {
@@ -542,7 +543,7 @@ switch ($Command) {
         if (-not $task) { Fail 'usage: trinity done <task> [summary...]' }
         $entry = Get-BoardEntry $paths $task
         if (-not $entry) { Fail "no board entry for $task" }
-        if ((Test-HeadlessEntry $entry) -and $entry.branch -and $entry.branch -ne '-') { Fail "$task is a headless $($entry.agent) task; its runner marks it done after committing" }
+        if (Test-HeadlessEntry $entry) { Fail "$task is a headless $($entry.agent) task; its runner marks it done after committing" }
         $summary = ''
         if (@($Rest).Count -gt 1) { $summary = (($Rest[1..($Rest.Count - 1)]) -join ' ') -replace '[\r\n]+', ' ' }
         $status = if ($summary.Trim()) { "done: $($summary.Trim())" } else { 'done' }

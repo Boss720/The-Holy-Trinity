@@ -56,6 +56,7 @@ Note: `trinity dispatch claude <task>` without `-Headless` only parks a task fil
 - **Never git merge agent branches by hand:** Always use `trinity merge <task> -Yes`.
 - **Never use --no-verify:** If pre-commit hooks fail in a worktree, fix the problem in that worktree and commit there.
 - **Main must be clean to merge:** Commit your orchestrator changes on `main` before merging worker branches.
+- **Review before every commit on main:** Run `trinity review` (it picks a reviewer other than you), fix real findings, ignore style nits.
 - **Treat worker output as a draft:** Re-run the project Test command and inspect the diff yourself after merge.
 - **No secrets in prompts:** Never paste API keys, credentials, or personal data into prompt files.
 - **Commit at each module gate:** Keep small, clean checkpoint commits on `main`.

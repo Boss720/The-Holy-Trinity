@@ -252,6 +252,8 @@ Run-Case 'orchestrator track links sessions preserves start and permits done' {
         Assert-True ($refused.ExitCode -ne 0 -and $refused.Output -match "belongs to $agent") 'track stole another agent task'
         $done = Invoke-Trinity $f @('done', $task, 'finished', '-Agent', $other)
         Assert-True ($done.ExitCode -eq 0 -and $done.Output -match 'done: finished') "tracked done failed: $($done.Output)"
+        $wait = Invoke-Trinity $f @('wait', $task, '-Timeout', '10')
+        Assert-True ($wait.ExitCode -eq 0) "wait did not finish a tracked $agent task: $($wait.Output)"
     }
     $env:CODEX_THREAD_ID = 'not-a-guid'
     $track = Invoke-Trinity $f @('track', 'invalid-session', 'work', '-Agent', 'codex')
