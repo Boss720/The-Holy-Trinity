@@ -232,6 +232,14 @@ function Resolve-CodexExe {
     Fail 'codex.exe not found. Install the Codex desktop app or set CODEX_EXE.'
 }
 
+# TRINITY_CODEX_MODEL picks the Codex model for workers, reviews and asks (empty = Codex's own default).
+function Get-CodexModelArgs {
+    $model = "$env:TRINITY_CODEX_MODEL".Trim()
+    if (-not $model) { return @() }
+    if ($model -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*$') { Fail "invalid TRINITY_CODEX_MODEL '$model'" }
+    return @('-c', "model=$model")
+}
+
 # Run a CLI's login check; exit code 0 = usable. The child must not think it is nested in this Claude session.
 function Test-CliLogin([string]$Exe, [string[]]$CliArgs) {
     $savedPref = $ErrorActionPreference

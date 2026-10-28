@@ -316,7 +316,8 @@ function Invoke-Review([string]$reviewer, [string]$dir, [string]$mode, [string]$
         # @() keeps a one-element result an array; splatting a bare string would pass it char by char.
         $codexArgs = @(switch ($mode) { 'base' { '--base', $ref } 'commit' { '--commit', $ref } default { '--uncommitted' } })
         Push-Location $dir
-        try { $lines = @($null | & $exe review -c sandbox_mode=read-only @codexArgs 2>&1 | ForEach-Object { "$_" }); $rc = $LASTEXITCODE }
+        $modelArgs = @(Get-CodexModelArgs)
+        try { $lines = @($null | & $exe review -c sandbox_mode=read-only @modelArgs @codexArgs 2>&1 | ForEach-Object { "$_" }); $rc = $LASTEXITCODE }
         finally { Pop-Location }
         return [pscustomobject]@{ ExitCode = $rc; Lines = $lines }
     }
@@ -648,7 +649,8 @@ switch ($Command) {
         if ($asker -eq 'codex') {
             $exe = Resolve-CodexExe
             $OutputEncoding = $script:Utf8
-            $prompt | & $exe exec --sandbox read-only --ephemeral --skip-git-repo-check -C $paths.Root -o $answer -
+            $modelArgs = @(Get-CodexModelArgs)
+            $prompt | & $exe exec @modelArgs --sandbox read-only --ephemeral --skip-git-repo-check -C $paths.Root -o $answer -
             exit $LASTEXITCODE
         }
         $promptFile = Join-Path $paths.Out 'ask-prompt.md'
@@ -788,7 +790,8 @@ switch ($Command) {
         }
         else {
             $exe = Resolve-CodexExe
-            $cmdLine = '"' + $exe + '" exec --sandbox workspace-write --add-dir "' + $paths.Common + '" --skip-git-repo-check -C "' + $entry.worktree + '" -o "' + $result + '" - < "' + $taskFile + '" > "' + $log + '" 2>&1'
+            $modelArgs = @(Get-CodexModelArgs)
+            $cmdLine = '"' + $exe + '" exec ' + $(if ($modelArgs.Count) { $modelArgs -join ' ' } else { '' }) + ' --sandbox workspace-write --add-dir "' + $paths.Common + '" --skip-git-repo-check -C "' + $entry.worktree + '" -o "' + $result + '" - < "' + $taskFile + '" > "' + $log + '" 2>&1'
         }
         [IO.File]::WriteAllText($runFile, "@echo off`r`n$cmdLine`r`nexit /b %ERRORLEVEL%`r`n", $script:Utf8)
         $nested = $env:CLAUDECODE
