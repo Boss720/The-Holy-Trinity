@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trinity board harness</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg-base: #f0f2f5; --bg-surface: #ffffff; --bg-surface-hover: #f7f9fa; --bg-subtle: #eaedf1;
+    --border-color: #d0d7de; --border-subtle: #e1e4e8; --border-focus: #0969da;
+    --text-main: #1f2328; --text-secondary: #57606a; --text-muted: #6e7781;
+    --status-live: #1a7f37; --status-live-bg: #dafbe1; --status-offline: #cf222e; --status-offline-bg: #ffebe9;
+    --status-warn: #9a6700; --status-warn-bg: #fff8c5; --status-warn-border: #d4a72c;
+    --codex-accent: #047857; --codex-bg: #ecfdf5; --antigravity-accent: #1d4ed8; --antigravity-bg: #eff6ff;
+    --claude-accent: #c2410c; --claude-bg: #fff7ed;
+    --badge-running-bg: #ddf4ff; --badge-running-text: #0969da; --badge-merged-bg: #fbefff; --badge-merged-text: #8250df;
+    --track-bg: #e1e4e8; --rate-limit-fill: #0969da;
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15); --overlay-backdrop: rgba(0, 0, 0, 0.4);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg-base: #0d1117; --bg-surface: #161b22; --bg-surface-hover: #1c2128; --bg-subtle: #21262d;
+      --border-color: #30363d; --border-subtle: #21262d; --border-focus: #2f81f7;
+      --text-main: #e6edf3; --text-secondary: #9da7b3; --text-muted: #7d8590;
+      --status-live: #3fb950; --status-live-bg: #12261e; --status-offline: #f85149; --status-offline-bg: #3c1618;
+      --status-warn: #d29922; --status-warn-bg: #3a2d0b; --status-warn-border: #9e6a03;
+      --codex-accent: #34d399; --codex-bg: #0d2a22; --antigravity-accent: #79b8ff; --antigravity-bg: #0f2342;
+      --claude-accent: #fb923c; --claude-bg: #331a0a;
+      --badge-running-bg: #0c2d6b; --badge-running-text: #58a6ff; --badge-merged-bg: #2d1b4e; --badge-merged-text: #bc8cff;
+      --track-bg: #30363d; --rate-limit-fill: #58a6ff;
+      --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6); --overlay-backdrop: rgba(0, 0, 0, 0.6);
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg-base); color: var(--text-main); font: 14px/1.4 system-ui, sans-serif; }
+  .hx-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 12px; background: var(--bg-surface); border-bottom: 1px solid var(--border-color); }
+  .hx-bar button, .hx-bar label { font: inherit; }
+  .hx-bar button { padding: 4px 10px; border: 1px solid var(--border-color); background: var(--bg-surface); color: inherit; border-radius: 6px; cursor: pointer; }
+  .hx-bar button.hx-active { background: var(--badge-running-bg); color: var(--badge-running-text); border-color: var(--badge-running-text); }
+  .hx-sep { width: 1px; height: 22px; background: var(--border-color); margin: 0 4px; }
+  #view { padding: 12px; min-width: 0; }
+  #hx-log { margin: 0 12px 12px; padding: 8px; background: #1f2328; color: #d6e1ec; font: 12px/1.35 Consolas, monospace; max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; border-radius: 6px; }
+  #hx-toasts { position: fixed; right: 8px; bottom: 8px; z-index: 2000; display: flex; flex-direction: column; gap: 6px; max-width: calc(100vw - 16px); }
+  .hx-toast { padding: 8px 12px; border-radius: 6px; background: var(--bg-surface); border: 1px solid var(--border-color); box-shadow: var(--shadow-lg); overflow-wrap: anywhere; }
+  .hx-toast-warn { border-color: var(--status-warn-border); }
+  .hx-toast-error { border-color: var(--status-offline); }
+</style>
+<link rel="stylesheet" href="./board.css">
+</head>
+<body>
+<div class="hx-bar" id="hx-bar">
+  <span id="hx-nav"></span>
+  <span class="hx-sep"></span>
+  <button type="button" id="hx-poll">Push poll</button>
+  <button type="button" id="hx-finish">Poll: running task finishes</button>
+  <button type="button" id="hx-pause">Poll: toggle pause</button>
+  <button type="button" id="hx-queue">Poll: reorder queue</button>
+  <label><input type="checkbox" id="hx-auto"> auto poll 3s</label>
+  <label><input type="checkbox" id="hx-reject"> reject next action (cancel)</label>
+</div>
+<div id="view"></div>
+<pre id="hx-log" aria-label="Action console"></pre>
+<div id="hx-toasts" aria-live="polite"></div>
+
+<script>
+(function () {
+  'use strict';
+  var logEl = document.getElementById('hx-log');
+  function log(line) {
+    logEl.textContent += line + '\n';
+    if (logEl.textContent.length > 20000) { logEl.textContent = logEl.textContent.slice(-10000); }
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+  window.__actions = [];
+  window.__toasts = [];
+  window.__opened = [];
+  window.__historyFetches = [];
+
+  /* ----- sample state ----- */
+  function iso(minAgo) {
+    var d = new Date(Date.now() - minAgo * 60000);
+    function p(n) { return (n < 10 ? '0' : '') + n; }
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+  }
+  function task(name, agent, state, status, minAgo, extra) {
+    var t = { task: name, agent: agent, state: state, status: status, updated: iso(minAgo), started: iso(minAgo + 5),
+      scope: 'src/' + name + '/*', model: agent === 'codex' ? 'gpt-6.1-terra' : (agent === 'claude' ? 'claude-opus-5-5' : 'Gemini 3.8 Flash'), commits: 1, rateLimits: [] };
+    Object.keys(extra || {}).forEach(function (k) { t[k] = extra[k]; });
+    return t;
+  }
+  function decisions(n) {
+    var acts = ['started', 'ready', 'failed', 'failed', 'resumed', 'merged', 'skipped', 'paused', 'limit'];
+    var out = [];
+    for (var i = 0; i < n; i++) {
+      var a = acts[i % acts.length];
+      out.push({ at: iso(i * 7 + 1), task: i % 4 === 3 ? '' : ('task-' + (n - i)), action: a, reason: a + ': review clean, tests 47/47, scope ok', round: a === 'resumed' ? 2 : undefined });
+    }
+    out[0] = { at: iso(1), task: 'test-collector', action: 'limit', reason: 'limit: 3 consecutive failures <b>not bold</b>', round: 1 };
+    return out;
+  }
+  var tick = 0;
+  var S = null;
+  function build() {
+    return {
+      generated: iso(0),
+      availability: {
+        claude: { available: true, detail: 'ok', model: 'claude-opus-5-5' },
+        codex: { available: false, detail: 'not logged in', model: 'gpt-6.1-terra' },
+        antigravity: { available: true, detail: 'ok', model: 'Gemini 3.8' }
+      },
+      repos: [
+        {
+          name: 'Holy trinity', path: 'D:\\proj\\Holy trinity', branch: 'main',
+          config: { version: 1, slots: { codex: 3, antigravity: 2, claude: 1 }, base: 'main', test: 'tests\\run-tests.cmd', autoMerge: false, maxRounds: 3, deadlineMinutes: 120,
+            models: { codex: 'gpt-6.1-terra', antigravity: '', claude: '' },
+            autopilot: { enabled: true, approval: true, maxTasksPerHour: 6, maxConsecutiveFailures: 3, cleanRunsBeforeAutoMerge: 10 } },
+          slots: { codex: { used: 1, max: 3 }, antigravity: { used: 1, max: 2 }, claude: { used: 0, max: 1 } },
+          scheduler: { alive: true, lastTickAt: iso(0), now: 'waiting for slot', next: 'login-form' },
+          queue: [
+            { task: 'login-form', agent: 'codex', scope: 'src/auth/*', promptFile: '.codex-out\\prompt-login-form.md', addedAt: iso(30), addedBy: 'dashboard', waiting: 'no free slot' },
+            { task: 'docs-pass', agent: 'claude', scope: 'docs/*', addedAt: iso(20), addedBy: 'dashboard', waiting: 'scope overlaps api-refactor', overlaps: ['api-refactor'], prompt: 'Rewrite the docs index.\nKeep it short.' },
+            { task: 'ui-polish', agent: 'antigravity', scope: 'scripts/dashboard-ui/*', addedAt: iso(10), waiting: 'rate limit', model: 'Gemini 3.8 Flash' },
+            { task: 'xss-check', agent: 'codex', scope: 'x/*', addedAt: iso(5), waiting: '<img src=x onerror=window.__xss=1>', overlaps: ['<b>a</b>', 'b'] }
+          ],
+          autopilot: { enabled: true, approval: true, autoMergeAllowed: false, cleanRuns: 4, paused: true, pauseReason: 'limit: 3 consecutive failures',
+            roundsUsed: { 'test-collector': 3, 'visual-compare': 1 }, decisions: decisions(20), limitBreach: '3 consecutive failures' },
+          tasks: [
+            task('api-refactor', 'codex', 'running', 'running ' + iso(12), 12 + tick, { rateLimits: [
+              { name: 'primary', usedPercent: 62, windowMinutes: 300, resetsAt: iso(-90) },
+              { name: 'secondary', usedPercent: 97, windowMinutes: 10080, resetsAt: iso(-3000) }] }),
+            task('dash-ui', 'antigravity', 'running', 'working: layout', 4 + tick, {}),
+            task('orchestrator-refactor', 'claude', 'done', 'done (2 commits)', 50, {}),
+            task('test-collector2', 'codex', 'ready', 'ready: review clean, tests 47/47', 40, {}),
+            task('test-collector', 'codex', 'failed', 'failed (exit 1)', 90, {}),
+            task('visual-compare', 'antigravity', 'stalled', 'running (stalled 12m)', 70, {}),
+            task('cli-mergebase', 'codex', 'merged', 'merged', 300, {}),
+            task('old-experiment', 'claude', 'cancelled', 'cancelled', 600, {})
+          ]
+        },
+        {
+          name: 'side-project', path: 'D:\\proj\\side-project', branch: 'dev',
+          config: { slots: { codex: 1, antigravity: 1, claude: 1 }, autoMerge: false, autopilot: { enabled: false } },
+          queue: [{ task: 'readme', agent: 'claude', scope: 'README.md', addedAt: iso(3), waiting: '' }],
+          scheduler: { alive: false },
+          autopilot: { enabled: false, approval: true, autoMergeAllowed: true, cleanRuns: 12, paused: false, pauseReason: '', roundsUsed: {}, decisions: [], limitBreach: '' },
+          tasks: [task('fix-typo', 'claude', 'running', 'running', 2, {}), task('lint-pass', 'codex', 'done', 'done', 15, {})]
+        },
+        {
+          name: 'legacy-repo', path: 'D:\\proj\\legacy-repo', branch: 'master',
+          tasks: [task('old-job', 'claude', 'running', 'running', 9, {}), task('old-done', 'codex', 'done', 'done', 99, {})]
+        }
+      ]
+    };
+  }
+  S = build();
+
+  /* ----- stub Trinity ----- */
+  var views = [];
+  var current = null;
+  var listeners = [];
+  var jobN = 0;
+  var navEl = document.getElementById('hx-nav');
+  var viewEl = document.getElementById('view');
+
+  function snapshot() { return JSON.parse(JSON.stringify(S)); }
+  function showToast(text, kind) {
+    window.__toasts.push({ text: text, kind: kind });
+    log('[toast ' + (kind || 'ok') + '] ' + text);
+    var t = document.createElement('div');
+    t.className = 'hx-toast hx-toast-' + (kind || 'ok');
+    t.textContent = text;
+    document.getElementById('hx-toasts').appendChild(t);
+    window.setTimeout(function () { if (t.parentNode) { t.parentNode.removeChild(t); } }, 4000);
+  }
+
+  window.Trinity = {
+    getState: function () { return S; },
+    onState: function (cb) {
+      listeners.push(cb);
+      return function () { var i = listeners.indexOf(cb); if (i >= 0) { listeners.splice(i, 1); } };
+    },
+    action: function (body) {
+      var copy = JSON.parse(JSON.stringify(body));
+      window.__actions.push(copy);
+      log('[action] ' + JSON.stringify(copy));
+      if (document.getElementById('hx-reject').checked) {
+        document.getElementById('hx-reject').checked = false;
+        log('[action] rejected: user cancelled the confirm dialog');
+        return Promise.reject(new Error('cancelled'));
+      }
+      jobN++;
+      return Promise.resolve({ job: 'job' + jobN, command: 'trinity ' + body.action + ' (stub)' });
+    },
+    confirmCommand: function (title, command) { log('[confirm] ' + title + ': ' + command); return Promise.resolve(true); },
+    openTask: function (repo, taskName, tab) { window.__opened.push([repo, taskName, tab]); log('[openTask] ' + repo + ' ' + taskName + ' ' + tab); },
+    openWizard: function (p) { log('[openWizard] ' + JSON.stringify(p)); },
+    addView: function (id, label, render) {
+      views.push({ id: id, label: label, render: render });
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = label;
+      b.setAttribute('data-view', id);
+      b.addEventListener('click', function () { show(id); });
+      navEl.appendChild(b);
+    },
+    toast: showToast
+  };
+
+  function show(id) {
+    var v = null;
+    views.forEach(function (x) { if (x.id === id) { v = x; } });
+    if (!v) { return; }
+    current = v;
+    var bs = navEl.querySelectorAll('button');
+    for (var i = 0; i < bs.length; i++) { bs[i].classList.toggle('hx-active', bs[i].getAttribute('data-view') === id); }
+    // each view gets its own container; hidden when not shown (like the real shell)
+    views.forEach(function (x) {
+      if (!x.container) { x.container = document.createElement('div'); viewEl.appendChild(x.container); }
+      x.container.hidden = x !== v;
+    });
+    v.render(v.container, S);
+  }
+  window.__show = show;
+
+  function poll(mutate) {
+    if (mutate) { mutate(S); }
+    S = snapshot();
+    S.generated = iso(0);
+    listeners.slice().forEach(function (cb) { cb(S); });
+    if (current) { current.render(current.container, S); }
+    log('[poll] #' + (++tick));
+  }
+  window.__poll = poll;
+
+  document.getElementById('hx-poll').addEventListener('click', function () { poll(); });
+  document.getElementById('hx-finish').addEventListener('click', function () {
+    poll(function (s) {
+      var t = s.repos[0].tasks.filter(function (x) { return x.state === 'running'; })[0];
+      if (t) { t.state = 'done'; t.status = 'done (1 commit)'; }
+    });
+  });
+  document.getElementById('hx-pause').addEventListener('click', function () {
+    poll(function (s) {
+      var ap = s.repos[0].autopilot;
+      ap.paused = !ap.paused; ap.pauseReason = ap.paused ? 'user' : ''; ap.limitBreach = ap.paused ? ap.limitBreach : '';
+    });
+  });
+  document.getElementById('hx-queue').addEventListener('click', function () {
+    poll(function (s) { var q = s.repos[0].queue; q.push(q.shift()); });
+  });
+  var autoTimer = null;
+  document.getElementById('hx-auto').addEventListener('change', function (e) {
+    if (autoTimer) { window.clearInterval(autoTimer); autoTimer = null; }
+    if (e.target.checked) { autoTimer = window.setInterval(function () { poll(); }, 3000); }
+  });
+
+  /* ----- stub /api/history ----- */
+  var realFetch = window.fetch ? window.fetch.bind(window) : null;
+  var HIST = [
+    { repo: 'D:\\proj\\Holy trinity', task: 'cli-mergebase', agent: 'codex', outcome: 'merged', started: iso(300), finished: iso(280), durationSec: 1200, commits: 3, model: 'gpt-6.1-terra', tokens: { total: 123456 } },
+    { repo: 'D:\\proj\\Holy trinity', task: 'csv-test', agent: 'claude', outcome: 'failed', started: iso(200), finished: iso(190), durationSec: 75, commits: 0, model: 'model, with "quotes"', tokens: 9000 },
+    { repo: 'D:\\proj\\side-project', task: 'readme', agent: 'antigravity', outcome: 'cancelled', started: iso(100), finished: iso(99), durationSec: 3700, commits: 1, model: '=SUM(1,2)', tokens: null },
+    { repo: 'D:\\proj\\side-project', task: 'multi-line', agent: 'codex', outcome: 'merged', started: iso(50), finished: iso(40), durationSec: 30, commits: 2, model: 'line1\nline2', tokens: { total: 5 } }
+  ];
+  window.fetch = function (url, opts) {
+    var u = String(url);
+    if (u.indexOf('/api/history') !== 0) { return realFetch ? realFetch(url, opts) : Promise.reject(new Error('no network in harness')); }
+    window.__historyFetches.push({ at: Date.now(), url: u });
+    log('[fetch] ' + u);
+    var q = {};
+    u.split('?')[1].split('&').forEach(function (kv) { var p = kv.split('='); q[p[0]] = decodeURIComponent(p[1] || ''); });
+    var items = HIST.filter(function (x) {
+      return (q.repo === 'all' || x.repo === q.repo) && (q.agent === 'all' || x.agent === q.agent) && (q.outcome === 'all' || x.outcome === q.outcome);
+    });
+    var body = JSON.stringify({ items: items });
+    return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve(JSON.parse(body)); } });
+  };
+}());
+</script>
+<script src="./board.js"></script>
+<script src="./history.js"></script>
+<script>
+  window.addEventListener('load', function () {
+    var want = (location.hash || '').replace('#', '') || 'overview';
+    window.__show(want);
+  });
+</script>
+</body>
+</html>
