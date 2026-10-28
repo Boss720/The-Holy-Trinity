@@ -115,14 +115,17 @@ function Show-Usage {
     Write-Host '  (dispatch/run) -DeadlineMinutes <N>   kill runner after N min (default 120, env TRINITY_DEADLINE_MINUTES)'
     Write-Host '  merge <task> [-Yes] [-Force]          review, merge --no-ff, run tests, clean up'
     Write-Host '                                          trinity merge login-form'
+    Write-Host '                                          reviews again if the base moved; unparsed review output blocks, -Force overrides'
     Write-Host '  cancel <task> [-Force]                remove the worktree and branch, mark cancelled'
     Write-Host '  show <task> [-Json]                   read-only task details, result and log tail'
     Write-Host '  retry <task> [-Force]                redispatch a failed or cancelled task, keeping attempts'
+    Write-Host '  resume <task> -Feedback "<text>"      re-run a done/failed task in its worktree with feedback (or -FeedbackFile <file>; default: saved merge review)'
     Write-Host '  clean [-OlderThanDays 7] [-Yes]       list or archive old merged/cancelled task files'
     Write-Host '  init <path> [-Force]                  install or update trinity in another git repo'
     Write-Host '                                          trinity init D:\code\myapp   (keeps its docs unless -Force)'
     Write-Host '  track <task> <note...>                put your own (orchestrator) work on the board; finish with done'
     Write-Host '  dashboard [-Port 7777] [-Json] [-Stop] live page of all three agents across every trinity repo'
+    Write-Host '                                          -Stop also finds an orphan server by its port'
     Write-Host '  ui                                    open the main checkout in Antigravity'
     Write-Host '  setup                                 enable .githooks and create .codex-out'
     Write-Host '  doctor [-Json]                        check prerequisites (git, agents, PATH, hooks) and print the fix for each problem'
@@ -130,6 +133,7 @@ function Show-Usage {
     Write-Host '  -Agent <claude|codex|antigravity>      orchestrator override; else TRINITY_ORCHESTRATOR, env detection, default claude'
     Write-Host '                                          env detection: Antigravity, then Codex, then Claude'
     Write-Host '  (dispatch/run) -Headless              run Claude headless; otherwise Claude gets a task file'
+    Write-Host '  (any command) -Base <branch>          base branch; else env TRINITY_BASE, else origin/HEAD, else main'
     Write-Host '  help                                  this text'
 }
 
@@ -937,7 +941,7 @@ switch ($Command) {
             if ($LASTEXITCODE -ne 0) { $rc = 2 }
         }
 
-        $n = [int](Get-Git @('-C', $paths.Main, 'rev-list', '--count', "main..$($entry.branch)"))
+        $n = [int](Get-Git @('-C', $paths.Main, 'rev-list', '--count', "$((Get-BaseBranch).Name)..$($entry.branch)"))
         if ($timedOut) { $status = "failed (timed out after $effectiveDeadline min)" }
         elseif ($rc -eq 0 -and $n -gt 0) { $status = "done ($n commits)" }
         elseif ($rc -eq 0) { $status = 'done, no commits' }
@@ -1011,7 +1015,7 @@ switch ($Command) {
         if ($Force) { $cancelArgs += '-Force' }
         & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath @cancelArgs
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-        $oldFiles = @(Get-TaskFiles $task | Where-Object { $_.Name -match '^(log|result|agy|agyout|claudeout|meta|run|deadline|seed)-' -and $_.Name -notmatch '\.attempt\d+\.' })
+        $oldFiles = @(Get-TaskFiles $task | Where-Object { $_.Name -match '^(log|result|agy|agyout|claudeout|meta|run|deadline|seed)-' -and $_.Name -notmatch '\.(attempt|round)\d+\.' })
         $attempt = 1
         while (@(Get-TaskFiles $task | Where-Object { $_.Name -match "\.attempt$attempt\." }).Count) { $attempt++ }
         foreach ($file in $oldFiles) {
@@ -1130,7 +1134,7 @@ switch ($Command) {
         if (-not $task) { Fail 'usage: trinity cancel <task>' }
         $entry = Get-BoardEntry $paths $task
         if (-not $entry) { Fail "no board entry for $task" }
-        $n = [int](Get-Git @('-C', $paths.Main, 'rev-list', '--count', "main..$($entry.branch)"))
+        $n = [int](Get-Git @('-C', $paths.Main, 'rev-list', '--count', "$((Get-BaseBranch).Name)..$($entry.branch)"))
         if ($n -gt 0 -and -not $Force) { Fail "$($entry.branch) has $n commits; rerun with -Force to drop them" }
         # Mark first so a runner that is still finishing never overwrites it, then stop the runner and its agent.
         Set-BoardStatus $paths $task 'cancelled'

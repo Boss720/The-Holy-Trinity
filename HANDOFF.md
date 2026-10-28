@@ -4,8 +4,8 @@ Update before you stop. Newest entry on top.
 
 ## Status
 - Completed: Modules 0-4 (dashboard detail + chats; works without Codex), dashboard detail v3 (Antigravity parity)
-- In flight: reliability wave 2 (2026-10-28, Claude Sonnet subagents in parked claude tasks, each `trinity done` when finished, then `trinity merge`): `cli-resume` (resume block after retry + 2 params above $Rest), `cli-mergebase` (merge gate re-review/unparsed block + Get-BaseBranch, $Base param, Wait-Task/show/merge/review/status), `cli-dashstop` (dashboard block + Find-DashboardListener). All in scripts/trinity.ps1, disjoint regions; tests in tests/cases/cli-*.ps1. Show-Usage help lines are added by the orchestrator after merge. Wave 1 merged: dash-token-test 67ae756, worktree-seed 0205a66 + wiring 010a4f0/83ad531, runner-watchdog 42a2a6d. Released through v0.6.0.
-- Next command: after wave 2 merges: add help lines, scripts/dashboard.ps1 still hard-codes main (cli-mergebase lists spots), Codex sandbox git dir (Top 8), live `dispatch claude -Headless`.
+- In flight: `test-parallel` (Sonnet subagent, parked claude task): tests/run-parallel.ps1 shards run-tests.ps1 (-Shard i/N), run-tests.cmd calls it; serial 521 s vs parallel 186 s. Wave 2 merged 2026-10-28: cli-resume 649f7eb (`trinity resume`), cli-dashstop (dashboard -Stop/start find orphan by port, HTTP.sys pid 4 handled), cli-mergebase e2bfb34 (re-review when base moved, unparsed review blocks unless -Force, review-<task>.md, Get-BaseBranch + `base:` status line). Wave 1 merged: dash-token-test 67ae756, worktree-seed 0205a66 + wiring 010a4f0/83ad531, runner-watchdog 42a2a6d. Released through v0.6.0.
+- Next command: merge test-parallel; scripts/dashboard.ps1 still hard-codes main (lines ~550, 574, 613-627, 726, 1145, 1333) and scripts/agent-task.ps1:16 `$Base = 'main'`; Codex sandbox git dir (Top 8); live `dispatch claude -Headless`.
 - Blockers: none (PLAN boxes for the user: notification seen on screen, Claude headless reviewer logged in, live `dispatch claude -Headless`)
 
 ## From Claude
