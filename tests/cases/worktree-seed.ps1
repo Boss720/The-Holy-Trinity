@@ -230,3 +230,17 @@ Run-Case 'seed library: paths with spaces' {
     Assert-True (Test-Path -LiteralPath $logFile) 'Log file was not created in worktree with spaces'
     Assert-True ((Get-Content -Raw $logFile) -match 'spaced-cmd-ok') 'Log content mismatch'
 }
+
+Run-Case 'seed library: run keeps a quoted program path and quoted arguments' {
+    param($f)
+    $main = Join-Path $f.Root 'seed-main-quoted'
+    $wt = Join-Path $f.Root 'seed-wt-quoted'
+    $tool = Join-Path $wt 'tool dir'
+    New-Item -ItemType Directory -Path $main, $tool -Force | Out-Null
+    [IO.File]::WriteAllText((Join-Path $tool 'say.cmd'), "@echo said:%~1`r`n")
+    [IO.File]::WriteAllText((Join-Path $main 'trinity-seed.txt'), "run `"tool dir\say.cmd`" `"hello world`"`r`n")
+    $res = Invoke-WorktreeSeed -MainPath $main -WorktreePath $wt
+    $log = Get-Content -Raw (Join-Path $wt '.trinity-seed.log')
+    Assert-True ($res.ExitCode -eq 0) "quoted command failed ($($res.ExitCode)): $log"
+    Assert-True ($log -match 'said:hello world') "quoted argument lost: $log"
+}

@@ -217,7 +217,8 @@ function Invoke-WorktreeSeed {
 
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName = 'cmd.exe'
-        $psi.Arguments = "/d /c $commandResult"
+        # /s plus outer quotes: cmd strips only those, so a quoted program path with quoted arguments survives.
+        $psi.Arguments = "/d /s /c `"$commandResult`""
         $psi.WorkingDirectory = $worktreeResolved
         $psi.UseShellExecute = $false
         $psi.RedirectStandardOutput = $true
