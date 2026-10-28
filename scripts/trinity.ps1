@@ -3,7 +3,7 @@
 param(
     [Parameter(Position = 0)][string]$Command = 'status',
     [string]$Scope = 'unspecified',
-    [string]$Base = 'main',
+    [string]$Base = '',
     [switch]$Yes,
     [switch]$Force,
     [switch]$Brief,
@@ -147,6 +147,29 @@ function Split-Findings([string[]]$lines) {
     $blocks
 }
 
+# True when a review that produced no "- [Pn]" findings plainly says there was nothing to report. A Codex run prints its
+# whole transcript (banner, prompt, commands, diff) and answers after the last "codex" line; other reviewers print only
+# the answer. An empty answer, an ERROR or usage-limit message, or a [Pn] tag that Split-Findings could not parse is not clean.
+function Test-ReviewClean([string[]]$lines) {
+    $text = @($lines | ForEach-Object { "$_".TrimEnd() })
+    $answer = $text
+    if (@($text | Where-Object { $_ -like 'OpenAI Codex v*' }).Count -gt 0) {
+        $at = [array]::LastIndexOf($text, 'codex')
+        $answer = if ($at -ge 0 -and $at + 1 -lt $text.Count) { @($text[($at + 1)..($text.Count - 1)]) } else { @() }
+    }
+    $answerText = (@($answer | Where-Object { $_.Trim() }) -join "`n").Trim()
+    if (-not $answerText -or $answerText -cmatch '(?m)^\s*(?:ERROR|FATAL)\b|^\s*Traceback \(' -or $answerText -match '\[P[0-3]\]') { return $false }
+    $noun = '(?:findings?|issues?|defects?|regressions?|bugs?|problems?|concerns?|flaws?|mistakes?|blockers?|vulnerabilit(?:y|ies))'
+    $clean = @(
+        ('\b(?:no|zero|0)\s+(?:[\w/-]+,?\s+){0,3}' + $noun + '\b'),
+        ('\b(?:did\s+not|didn''t|do\s+not|don''t)\s+(?:\w+\s+){0,2}(?:find|identify|see|spot|detect|report)\b[^.]{0,60}\b' + $noun + '\b'),
+        '\bnothing\s+(?:actionable|to\s+report|wrong|found|significant|blocking|concerning)\b',
+        '\b(?:looks?|seems?|appears?)\s+(?:good|fine|correct|clean)\b',
+        '\blgtm\b'
+    )
+    $answerText -match ('(?i)' + ($clean -join '|'))
+}
+
 # Backticked paths/globs on the "- Shared files: ..." line of AGENTS.md.
 function Get-SharedFiles([string]$root) {
     $md = Join-Path $root 'AGENTS.md'
@@ -164,6 +187,22 @@ function Get-Git([string[]]$GitArgs) {
     $out = & git @GitArgs 2>$null
     if ($LASTEXITCODE -ne 0) { return $null }
     $out
+}
+
+# Branch that dispatch branches from and merge lands on: -Base, else env TRINITY_BASE, else the remote's default
+# branch (origin/HEAD), else main. Returns @{ Name; Source }.
+function Get-BaseBranch {
+    $name = "$Base".Trim()
+    $source = '-Base'
+    if (-not $name) { $name = "$env:TRINITY_BASE".Trim(); $source = 'TRINITY_BASE' }
+    if (-not $name) {
+        $head = @(Get-Git @('-C', $paths.Main, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD'))[0]
+        $name = "$head".Trim() -replace '^origin/', ''
+        $source = 'origin/HEAD'
+    }
+    if (-not $name) { $name = 'main'; $source = 'default' }
+    if ($name.StartsWith('-')) { Fail "invalid base branch '$name'" }
+    @{ Name = $name; Source = $source }
 }
 
 function Format-Availability($avail) {
@@ -307,6 +346,8 @@ function Show-Status {
     $branch = Get-Git @('-C', $paths.Main, 'branch', '--show-current')
     $dirty = @(Get-Git @('-C', $paths.Main, 'status', '--porcelain') | Where-Object { $_ }).Count
     Write-Host "main checkout: branch=$branch uncommitted=$dirty"
+    $baseInfo = Get-BaseBranch
+    Write-Host "base: $($baseInfo.Name) ($($baseInfo.Source))"
     Write-Host "agents: $(Format-Availability (Get-AgentAvailability))"
     Write-Host "orchestrator: $(Get-Orchestrator)"
     Write-Host ''
@@ -392,10 +433,11 @@ function Wait-Task([string]$task, [int]$timeoutSec) {
     }
     $branch = $entry.branch
     if ($branch -and (Get-Git @('-C', $paths.Main, 'rev-parse', '--verify', '--quiet', "refs/heads/$branch"))) {
+        $baseName = (Get-BaseBranch).Name
         Write-Host '--- commits ---'
-        Get-Git @('-C', $paths.Main, 'log', '--oneline', "main..$branch") | ForEach-Object { Write-Host $_ }
+        Get-Git @('-C', $paths.Main, 'log', '--oneline', "$baseName..$branch") | ForEach-Object { Write-Host $_ }
         Write-Host '--- diffstat ---'
-        Get-Git @('-C', $paths.Main, 'diff', '--stat', "main...$branch") | ForEach-Object { Write-Host $_ }
+        Get-Git @('-C', $paths.Main, 'diff', '--stat', "$baseName...$branch") | ForEach-Object { Write-Host $_ }
     }
     if ($pending) { return 2 }
     if ($status -match '^done') { return 0 }
@@ -410,7 +452,8 @@ function Start-Dispatch([string]$agent, [string]$task, [string]$prompt, [int]$de
     $requested = $agent
     $agent = Select-Worker $agent $task
     $isHeadless = $agent -ne 'claude' -or $Headless -or $requested -ne 'claude'
-    $wt = New-AgentWorktree $paths $agent $task $Scope $Base
+    $baseName = (Get-BaseBranch).Name
+    $wt = New-AgentWorktree $paths $agent $task $Scope $baseName
 
     $taskFile = Join-Path $paths.Out "task-$task.md"
     $resultPath = Join-Path $paths.Out "result-$task.md"
@@ -515,7 +558,7 @@ switch ($Command) {
         }
         $i = [array]::IndexOf($reviewArgs, '--commit')
         if ($i -ge 0 -and $i + 1 -lt $reviewArgs.Count) { $mode = 'commit'; $ref = $reviewArgs[$i + 1] }
-        elseif ($PSBoundParameters.ContainsKey('Base')) { $mode = 'base'; $ref = $Base }
+        elseif ($PSBoundParameters.ContainsKey('Base')) { $mode = 'base'; $ref = (Get-BaseBranch).Name }
         else {
             $i = [array]::IndexOf($reviewArgs, '--base')
             if ($i -ge 0 -and $i + 1 -lt $reviewArgs.Count) { $mode = 'base'; $ref = $reviewArgs[$i + 1] }
@@ -862,14 +905,15 @@ switch ($Command) {
         $entry = Get-BoardEntry $paths $task
         if (-not $entry) { Fail "unknown task: $task" }
         $exists = Get-Git @('-C', $paths.Main, 'rev-parse', '--verify', '--quiet', "refs/heads/$($entry.branch)")
+        $baseName = (Get-BaseBranch).Name
         $resultFile = Join-Path $paths.Out "result-$task.md"
         $logFile = Join-Path $paths.Out "log-$task.txt"
         if (-not (Test-Path -LiteralPath $logFile)) { $logFile = Join-Path $paths.Out "agy-$task.log" }
         $detail = [ordered]@{
             name = $task; agent = $entry.agent; state = ($entry.status -split '[ :,(]')[0]
             status = $entry.status; branch = $entry.branch; scope = $entry.scope
-            commitsAhead = $(if ($exists) { [int](Get-Git @('-C', $paths.Main, 'rev-list', '--count', "main..$($entry.branch)")) } else { $null })
-            diffstat = $(if ($exists) { (Get-Git @('-C', $paths.Main, 'diff', '--stat', "main...$($entry.branch)")) -join "`n" } else { 'branch gone' })
+            commitsAhead = $(if ($exists) { [int](Get-Git @('-C', $paths.Main, 'rev-list', '--count', "$baseName..$($entry.branch)")) } else { $null })
+            diffstat = $(if ($exists) { (Get-Git @('-C', $paths.Main, 'diff', '--stat', "$baseName...$($entry.branch)")) -join "`n" } else { 'branch gone' })
             resultPath = $resultFile
             resultSummary = $(if (Test-Path -LiteralPath $resultFile) { (Get-Content -LiteralPath $resultFile -Encoding UTF8 -TotalCount 40) -join "`n" } else { '' })
             logPath = $logFile
@@ -994,62 +1038,94 @@ switch ($Command) {
         $entry = Get-BoardEntry $paths $task
         if (-not $entry) { Fail "no board entry for $task" }
         $branch = $entry.branch
+        $baseInfo = Get-BaseBranch
+        $baseName = $baseInfo.Name
 
         $cur = Get-Git @('-C', $paths.Main, 'branch', '--show-current')
-        if ($cur -ne 'main') { Fail "main checkout is on '$cur', switch it to main first" }
+        if ($cur -ne $baseName) { Fail "main checkout is on '$cur', switch it to $baseName first (base from $($baseInfo.Source); set TRINITY_BASE or pass -Base to change it)" }
         $dirty = @(Get-Git @('-C', $paths.Main, 'status', '--porcelain') | Where-Object { $_ })
         if ($dirty.Count -gt 0) { Fail 'main checkout has uncommitted changes; commit or stash them first' }
-        $n = [int](Get-Git @('-C', $paths.Main, 'rev-list', '--count', "main..$branch"))
-        if ($n -eq 0) { Fail "nothing to merge: $branch has no commits ahead of main" }
+        $n = [int](Get-Git @('-C', $paths.Main, 'rev-list', '--count', "$baseName..$branch"))
+        if ($n -eq 0) { Fail "nothing to merge: $branch has no commits ahead of $baseName" }
 
         # Codex reviews when it can; without it Claude Code or Antigravity (read-only) does, else tests alone gate.
+        # The base commit is recorded when a review starts; if the base moved by the time the review is judged,
+        # the review is stale (it was of a different merge base), so it runs again before anything is merged.
         $reviewer = Select-Reviewer $entry.agent
-        if ($reviewer) {
-            Write-Host "Reviewing $branch ($n commits) with $reviewer..."
-            $rv = Invoke-Review $reviewer $entry.worktree 'base' 'main' $task
-            $review = $rv.Lines
-            # A failed review has no findings to parse, so it must not count as a clean one.
-            if ($rv.ExitCode -ne 0 -and -not $Force) {
-                $review | Select-Object -Last 20 | ForEach-Object { Write-Host $_ }
-                Fail "$reviewer review failed (exit $($rv.ExitCode)); rerun, set TRINITY_REVIEWER to another agent, or use -Force"
+        $reviewedTip = Get-Git @('-C', $paths.Main, 'rev-parse', "refs/heads/$baseName")
+        $reviews = 0
+        while ($true) {
+            $reviews++
+            $deferred = @()
+            if ($reviews -gt 1) { Remove-Item -LiteralPath (Join-Path $paths.Out "deferred-$task.txt") -ErrorAction SilentlyContinue }
+            if ($reviewer) {
+                Write-Host "$(if ($reviews -gt 1) { 'Reviewing again' } else { 'Reviewing' }) $branch ($n commits) with $reviewer..."
+                $rv = Invoke-Review $reviewer $entry.worktree 'base' $baseName $task
+                $review = $rv.Lines
             }
-        }
-        else {
-            $review = @('No review: no reviewer can run here (TRINITY_REVIEWER=none, or Codex, Claude Code and Antigravity all unavailable). Tests alone gate this merge.')
-            Write-Host $review[0] -ForegroundColor Yellow
-        }
-        [IO.File]::WriteAllText((Join-Path $paths.Out "review-$task.txt"), (($review -join "`r`n") + "`r`n"), $script:Utf8)
-        $review | ForEach-Object { Write-Host $_ }
+            else {
+                $rv = $null
+                $review = @('No review: no reviewer can run here (TRINITY_REVIEWER=none, or Codex, Claude Code and Antigravity all unavailable). Tests alone gate this merge.')
+                Write-Host $review[0] -ForegroundColor Yellow
+            }
+            $reviewText = (($review -join "`r`n") + "`r`n")
+            [IO.File]::WriteAllText((Join-Path $paths.Out "review-$task.txt"), $reviewText, $script:Utf8)
+            [IO.File]::WriteAllText((Join-Path $paths.Out "review-$task.md"), $reviewText, $script:Utf8)
+            # A failed review has no findings to parse, so it must not count as a clean one.
+            if ($rv -and $rv.ExitCode -ne 0 -and -not $Force) {
+                $review | Select-Object -Last 20 | ForEach-Object { Write-Host $_ }
+                Fail "$reviewer review failed (exit $($rv.ExitCode)), review output unparsed; rerun, set TRINITY_REVIEWER to another agent, or use -Force"
+            }
+            $review | ForEach-Object { Write-Host $_ }
 
-        $blocks = @(Split-Findings $review | Select-Object -Unique)
-        $high = @($blocks | Where-Object { $_ -match '\[P[01]\]' })
-        $any = $blocks.Count -gt 0
+            $blocks = @(Split-Findings $review | Select-Object -Unique)
+            $high = @($blocks | Where-Object { $_ -match '\[P[01]\]' })
+            $any = $blocks.Count -gt 0
 
-        # Workers never edit shared files, so a finding about them on a branch that leaves them untouched
-        # is wiring the orchestrator does after the merge, not a reason to block it.
-        $shared = @(Get-SharedFiles $paths.Main)
-        if ($high -and $shared) {
-            $touched = @(Get-Git @('-C', $paths.Main, 'diff', '--name-only', "main...$branch"))
-            $touchesShared = @($touched | Where-Object { $f = $_; $shared | Where-Object { $f -like $_ } })
-            if (-not $touchesShared) {
-                $deferred = @($high | Where-Object { $b = $_ -replace '\\', '/'; $shared | Where-Object { $b -like "*$_*" } })
-                if ($deferred) {
-                    $high = @($high | Where-Object { $deferred -notcontains $_ })
-                    [IO.File]::WriteAllText((Join-Path $paths.Out "deferred-$task.txt"), (($deferred -join "`r`n`r`n") + "`r`n"), $script:Utf8)
-                    foreach ($d in $deferred) { Write-Host "Deferred to orchestrator (shared file): $(($d -split "`n")[0].Trim())" -ForegroundColor Yellow }
+            # Neither findings nor a plain "no findings" answer (empty output, a crash, a usage-limit message):
+            # the branch has not been reviewed, whatever the exit code said.
+            if ($reviewer -and -not $any -and -not (Test-ReviewClean $review)) {
+                if (-not $Force) { Fail 'review output unparsed: it holds neither "- [P1] title" findings nor a clear "No findings" answer; fix the reviewer (login, usage limit) and rerun, or use -Force' }
+                Write-Host 'review output unparsed; merging anyway because of -Force' -ForegroundColor Yellow
+            }
+
+            # Workers never edit shared files, so a finding about them on a branch that leaves them untouched
+            # is wiring the orchestrator does after the merge, not a reason to block it.
+            $shared = @(Get-SharedFiles $paths.Main)
+            if ($high -and $shared) {
+                $touched = @(Get-Git @('-C', $paths.Main, 'diff', '--name-only', "$baseName...$branch"))
+                $touchesShared = @($touched | Where-Object { $f = $_; $shared | Where-Object { $f -like $_ } })
+                if (-not $touchesShared) {
+                    $deferred = @($high | Where-Object { $b = $_ -replace '\\', '/'; $shared | Where-Object { $b -like "*$_*" } })
+                    if ($deferred) {
+                        $high = @($high | Where-Object { $deferred -notcontains $_ })
+                        [IO.File]::WriteAllText((Join-Path $paths.Out "deferred-$task.txt"), (($deferred -join "`r`n`r`n") + "`r`n"), $script:Utf8)
+                        foreach ($d in $deferred) { Write-Host "Deferred to orchestrator (shared file): $(($d -split "`n")[0].Trim())" -ForegroundColor Yellow }
+                    }
                 }
             }
-        }
-        if ($high -and -not $Force) { Fail 'P0/P1 findings; fix on the branch or rerun with -Force' }
-        if ($any -and -not $Yes) {
-            $ans = Read-Host 'Merge anyway? [y/N]'
-            if ($ans -ne 'y') { Fail 'merge cancelled' }
+            if ($high -and -not $Force) { Fail 'P0/P1 findings; fix on the branch or rerun with -Force' }
+            if ($any -and -not $Yes) {
+                $ans = Read-Host 'Merge anyway? [y/N]'
+                if ($ans -ne 'y') { Fail 'merge cancelled' }
+            }
+
+            # Right before merging: has the base moved since this review started?
+            $tip = Get-Git @('-C', $paths.Main, 'rev-parse', "refs/heads/$baseName")
+            if (-not $reviewer -or $tip -eq $reviewedTip) { break }
+            if ($reviews -ge 3) { Fail "$baseName moved again while it was being reviewed; nothing merged. Rerun trinity merge $task" }
+            $oldShort = "$reviewedTip".Substring(0, [Math]::Min(7, "$reviewedTip".Length))
+            $newShort = "$tip".Substring(0, [Math]::Min(7, "$tip".Length))
+            Write-Host "$baseName moved while the review ran ($oldShort -> $newShort); that review is stale, so $reviewer reviews again." -ForegroundColor Yellow
+            $reviewedTip = $tip
+            $n = [int](Get-Git @('-C', $paths.Main, 'rev-list', '--count', "$baseName..$branch"))
+            if ($n -eq 0) { Fail "nothing to merge: $branch has no commits ahead of $baseName" }
         }
 
         git -C $paths.Main merge --no-ff --no-commit $branch | Out-Host
         if ($LASTEXITCODE -ne 0) {
             git -C $paths.Main merge --abort
-            Fail 'merge conflicts; aborted. Rebase the branch on main and retry.'
+            Fail "merge conflicts; aborted. Rebase the branch on $baseName and retry."
         }
 
         # Test command comes from the "- Test: `...`" line in AGENTS.md.
@@ -1077,12 +1153,12 @@ switch ($Command) {
         Set-BoardStatus $paths $task 'merged'
         git -C $paths.Main worktree remove $entry.worktree
         if ($LASTEXITCODE -ne 0) {
-            Write-Host "Merged $branch into main, but the worktree has leftover files. Inspect, then: git worktree remove --force `"$($entry.worktree)`" and git branch -d $branch" -ForegroundColor Yellow
+            Write-Host "Merged $branch into $baseName, but the worktree has leftover files. Inspect, then: git worktree remove --force `"$($entry.worktree)`" and git branch -d $branch" -ForegroundColor Yellow
             exit 1
         }
         git -C $paths.Main branch -d $branch
         Write-Host ''
-        Write-Host "Merged $branch into main ($n commits). Worktree and branch removed."
+        Write-Host "Merged $branch into $baseName ($n commits). Worktree and branch removed."
         if ($deferred) { Write-Host "Shared-file wiring left for you: .codex-out\deferred-$task.txt" -ForegroundColor Yellow }
     }
 
