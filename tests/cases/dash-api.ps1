@@ -32,6 +32,9 @@ Run-Case 'dash-api: listener guards and routes' {
     $process=$null
     try {
         $tcp=New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback,0); $tcp.Start(); $port=$tcp.LocalEndpoint.Port; $tcp.Stop()
+        $dir=Join-Path $f.Repo '.trinity'; [void][IO.Directory]::CreateDirectory($dir)
+        [IO.File]::WriteAllText((Join-Path $dir 'queue.json'), '{"items":[{"task":"noprompt","agent":"claude"},{"task":"taken","agent":"claude","promptFile":"prompt.md"}]}')
+        Set-CliTask $f 'taken' 'done'
         $ui=Join-Path $f.Repo 'scripts\dashboard-ui'; [void][IO.Directory]::CreateDirectory($ui); [IO.File]::WriteAllText((Join-Path $ui 'test.js'),'test')
         $process=Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -WindowStyle Hidden -PassThru -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"{0}"' -f (Join-Path $f.Repo 'scripts\dashboard.ps1')),'-Port',[string]$port,'-Repos',('"{0}"' -f $f.Repo))
         $base="http://localhost:$port"; $page=$null; $deadline=(Get-Date).AddSeconds(30)
@@ -46,6 +49,15 @@ Run-Case 'dash-api: listener guards and routes' {
             $reader=New-Object IO.StreamReader($res.GetResponseStream()); $result=@{status=[int]$res.StatusCode; text=$reader.ReadToEnd()}; $reader.Dispose(); $res.Dispose(); return $result
         }
         $state=& $send '/api/state' $null ''; Assert-True ($state.status -eq 200) 'state failed'
+        $reply=& $send '/api/action' @{action='start-now';repo=$f.Repo;task='noprompt';confirm=$true} $token
+        Assert-True ($reply.status -eq 409 -and $reply.text -match 'no prompt file') 'missing prompt was accepted'
+        $reply=& $send '/api/action' @{action='start-now';repo=$f.Repo;task='taken';confirm=$true} $token
+        Assert-True ($reply.status -eq 409 -and $reply.text -match 'already exists') 'dispatch check did not reject existing task'
+        Assert-True ((Get-Content (Join-Path $dir 'queue.json') -Raw) -match 'taken') 'rejected dispatch removed queue item'
+        $badScope='src/' + [char]0x2019 + '; calc'
+        $reply=& $send '/api/action' @{action='queue-add';repo=$f.Repo;task='unsafe';agent='claude';scope=$badScope;prompt='test';confirm=$true} $token
+        Assert-True ($reply.status -eq 400) 'non-ASCII scope reached a job'
+        Assert-True (-not (Test-Path (Join-Path $f.Repo '.codex-out\jobs'))) 'unsafe request created a job'
         foreach ($action in @('resume','retry','queue-add','queue-remove','queue-move','start-now','settings-save','autopilot','pause','unpause')) { $reply=& $send '/api/action' @{action=$action;repo=$f.Repo;task=''} ''; Assert-True ($reply.status -eq 401) "$action did not require token" }
         foreach ($action in @('settings-save','autopilot','unpause')) { $reply=& $send '/api/action' @{action=$action;repo=$f.Repo;task=''} $token; Assert-True ($reply.status -eq 412) "$action did not require confirm" }
         $reply=& $send '/api/action' @{action='settings-save';repo=$f.Repo;task='';confirm=$true;config=@{slots=@{codex=9}}} $token; Assert-True ($reply.status -eq 400) 'bad settings accepted'
@@ -69,5 +81,36 @@ Run-Case 'dash-api: heartbeat and cached file changes' {
         $state=Get-TrinityState $f.Repo @(); Assert-True (-not $state.scheduler.alive) 'reused pid accepted'
         [IO.File]::WriteAllText((Join-Path $dir 'trinity.json'),'{bad')
         $state=Get-TrinityState $f.Repo @(); Assert-True ($state.configError -and $state.config.slots.codex -eq 2) 'malformed config did not fall back'
+    }
+}
+
+Run-Case 'dash-api: decision cache skips malformed lines and escapes quotes' {
+    param($f)
+    & {
+        . (Join-Path $f.Repo 'scripts\dashboard.ps1') -LibraryOnly
+        $dir=Join-Path $f.Repo '.trinity'; [void][IO.Directory]::CreateDirectory($dir)
+        $path=Join-Path $dir 'decisions.jsonl'
+        [IO.File]::WriteAllText($path, "{`"task`":`"first`",`"round`":1}`n{bad`n{`"task`":`"last`",`"round`":2}`n")
+        $a=Get-TrinityState $f.Repo @(); $b=Get-TrinityState $f.Repo @()
+        Assert-True ($a.autopilot.decisionsSkipped -eq 1 -and $b.autopilot.decisions.Count -eq 2 -and $b.autopilot.decisions[0].task -eq 'last') 'malformed decision lost valid records'
+        $key=[IO.Path]::GetFullPath($path).ToLowerInvariant(); Assert-True ($script:DecisionCache[$key].skipped -eq 1) 'parsed cache missing'
+        [IO.File]::AppendAllText($path, "{`"task`":`"new`",`"round`":3}`n")
+        $c=Get-TrinityState $f.Repo @(); Assert-True ($c.autopilot.decisions[0].task -eq 'new') 'decision cache did not invalidate'
+        foreach ($code in @(0x27,0x2018,0x2019,0x201a,0x201b)) { $ch=[string][char]$code; Assert-True ((Quote-ActionLiteral ("a"+$ch+"b")) -eq ("'a"+$ch+$ch+"b'")) 'quote was not doubled' }
+    }
+}
+
+Run-Case 'dash-api: failed dispatch stops queue removal and model is inherited' {
+    param($f)
+    & {
+        . (Join-Path $f.Repo 'scripts\dashboard.ps1') -LibraryOnly
+        $marker=Join-Path $f.Repo 'calls.txt'; $scriptPath=Join-Path $f.Repo 'scripts\trinity.ps1'
+        $fake="param([Parameter(ValueFromRemainingArguments=`$true)]`$rest)`r`n[IO.File]::AppendAllText('" + $marker.Replace("'","''") + "', (`$rest -join ' ') + ':' + `$env:TRINITY_CODEX_MODEL + [Environment]::NewLine)`r`nexit 1`r`n"
+        [IO.File]::WriteAllText($scriptPath,$fake)
+        $commands=@(); $commands+=,@('dispatch','claude','queued','-PromptFile','prompt.md'); $commands+=,@('queue','remove','queued')
+        $action='$env:TRINITY_CODEX_MODEL=' + (Quote-ActionLiteral 'test-model') + '; ' + (Convert-ActionScript $f.Repo $commands)
+        $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($action))
+        & (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -NoProfile -EncodedCommand $encoded
+        $calls=@(Get-Content $marker); Assert-True ($calls.Count -eq 1 -and $calls[0] -match '^dispatch .*:test-model$') 'failed dispatch removed queue item or lost model'
     }
 }

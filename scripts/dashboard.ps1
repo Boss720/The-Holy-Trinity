@@ -804,6 +804,7 @@ function Get-RepoTasks([string]$Main, [string]$Common) {
 }
 
 $script:TrinityFileCache = @{}
+$script:DecisionCache = @{}
 function Read-TrinityFile([string]$Path) {
     try {
         $file = Get-Item -LiteralPath $Path -ErrorAction Stop
@@ -813,7 +814,7 @@ function Read-TrinityFile([string]$Path) {
         $text = [IO.File]::ReadAllText($file.FullName)
         $script:TrinityFileCache[$key] = @{ stamp=$stamp; length=$length; text=$text }
         return $text
-    } catch { if (Test-Path -LiteralPath $Path) { throw }; return '' }
+    } catch { if (Test-Path -LiteralPath $Path) { throw }; $key=[IO.Path]::GetFullPath($Path).ToLowerInvariant(); $script:TrinityFileCache.Remove($key); return '' }
 }
 function Merge-TrinityDefaults($Defaults, $Patch) {
     foreach ($key in @($Patch.Keys)) {
@@ -828,7 +829,15 @@ function Get-TrinityState([string]$Root, $Tasks) {
     $queue=@(); $decisions=@(); $heartbeat=$null; $reason=''
     try { $raw=Read-TrinityFile (Join-Path $dir 'queue.json'); if ($raw) { $queue=@((Get-JsonValue ($script:JsonSerializer.DeserializeObject($raw)) 'items' @())) } } catch { if (-not $errorText) { $errorText=$_.Exception.Message } }
     try { $raw=Read-TrinityFile (Join-Path $dir 'scheduler.json'); if ($raw) { $heartbeat=$script:JsonSerializer.DeserializeObject($raw) } } catch { if (-not $errorText) { $errorText=$_.Exception.Message } }
-    try { $raw=Read-TrinityFile (Join-Path $dir 'decisions.jsonl'); foreach ($line in ($raw -split "`r?`n")) { if ($line.Trim()) { $decisions+=@($script:JsonSerializer.DeserializeObject($line)) } } } catch { if (-not $errorText) { $errorText=$_.Exception.Message } }
+    $skipped=0
+    try {
+        $decisionPath=Join-Path $dir 'decisions.jsonl'; $raw=Read-TrinityFile $decisionPath; $key=[IO.Path]::GetFullPath($decisionPath).ToLowerInvariant(); $fileCache=$script:TrinityFileCache[$key]; $cached=$script:DecisionCache[$key]
+        if ($fileCache -and $cached -and $cached.stamp -eq $fileCache.stamp -and $cached.length -eq $fileCache.length) { $decisions=$cached.decisions; $skipped=$cached.skipped }
+        elseif ($fileCache) {
+            foreach ($line in ($raw -split "`r?`n")) { if ($line.Trim()) { try { $parsed=$script:JsonSerializer.DeserializeObject($line); if ($parsed -isnot [System.Collections.IDictionary]) { throw 'Decision must be an object' }; $decisions+=@($parsed) } catch { $skipped++ } } }
+            $script:DecisionCache[$key]=@{stamp=$fileCache.stamp; length=$fileCache.length; decisions=$decisions; skipped=$skipped}
+        }
+    } catch { if (-not $errorText) { $errorText=$_.Exception.Message } }
     $pausePath=Join-Path $dir 'PAUSE'; $paused=Test-Path -LiteralPath $pausePath -PathType Leaf
     if ($paused) { try { $reason=(Read-TrinityFile $pausePath).Trim() } catch { if (-not $errorText) { $errorText=$_.Exception.Message } } }
     $slots=@{}; foreach ($agent in @('codex','antigravity','claude')) { $slots[$agent]=@{used=@($Tasks | Where-Object { $_.agent -eq $agent -and $_.state -in @('running','stalled') }).Count; max=[int](Get-JsonValue $config.slots $agent 0)} }
@@ -847,7 +856,8 @@ function Get-TrinityState([string]$Root, $Tasks) {
     for ($i=$decisions.Count-1; $i -ge 0; $i--) { $d=$decisions[$i]; $task=[string](Get-JsonValue $d 'task' ''); $round=[int](Get-JsonValue $d 'round' 0); if ($task -and (-not $rounds.ContainsKey($task) -or $round -gt $rounds[$task])) { $rounds[$task]=$round }; $act=[string](Get-JsonValue $d 'action' ''); if ($counting) { if ($act -eq 'failed') { $counting=$false } elseif ($act -in @('ready','merged')) { $clean++ } } }
     $newest=@(); for ($i=$decisions.Count-1; $i -ge 0 -and $newest.Count -lt 20; $i--) { $newest+=@($decisions[$i]) }
     $breach=''; if ($paused -and $reason -match '^limit:') { $breach=$reason } elseif ($newest.Count -and (Get-JsonValue $newest[0] 'action' '') -eq 'limit') { $breach=[string](Get-JsonValue $newest[0] 'reason' 'limit') }
-    return @{config=$config; configError=$errorText; queue=$items; slots=$slots; scheduler=@{alive=$alive; lastTickAt=$tick; now=[string](Get-JsonValue $heartbeat 'now' ''); next=[string](Get-JsonValue $heartbeat 'next' '')}; autopilot=@{enabled=[bool]$config.autopilot.enabled; approval=[bool]$config.autopilot.approval; autoMergeAllowed=([bool]$config.autoMerge -and -not [bool]$config.autopilot.approval -and $clean -ge [int]$config.autopilot.cleanRunsBeforeAutoMerge); cleanRuns=$clean; paused=$paused; pauseReason=$reason; roundsUsed=$rounds; decisions=$newest; limitBreach=$breach} }
+    $auto=@{enabled=[bool]$config.autopilot.enabled; approval=[bool]$config.autopilot.approval; autoMergeAllowed=([bool]$config.autoMerge -and -not [bool]$config.autopilot.approval -and $clean -ge [int]$config.autopilot.cleanRunsBeforeAutoMerge); cleanRuns=$clean; paused=$paused; pauseReason=$reason; roundsUsed=$rounds; decisions=$newest; limitBreach=$breach}; if ($skipped -gt 0) { $auto.decisionsSkipped=$skipped }
+    return @{config=$config; configError=$errorText; queue=$items; slots=$slots; scheduler=@{alive=$alive; lastTickAt=$tick; now=[string](Get-JsonValue $heartbeat 'now' ''); next=[string](Get-JsonValue $heartbeat 'next' '')}; autopilot=$auto }
 }
 
 function Get-RepoState([string]$Path) {
@@ -1193,7 +1203,7 @@ function Test-SettingsPatch($Patch) {
         $v=$Patch[$key]
         switch -CaseSensitive ($key) {
             'version' { if ($v -isnot [int] -or $v -ne 1) { return $false } }
-            { $_ -in @('base','test') } { if ($v -isnot [string] -or $v -match '\p{Cc}') { return $false } }
+            { $_ -in @('base','test') } { if ($v -isnot [string] -or $v -match '[^\x20-\x7e]') { return $false } }
             'autoMerge' { if ($v -isnot [bool]) { return $false } }
             { $_ -in @('maxRounds','deadlineMinutes') } { if ($v -isnot [int]) { return $false }; if ($key -eq 'maxRounds' -and ($v -lt 1 -or $v -gt 10)) { return $false }; if ($key -eq 'deadlineMinutes' -and ($v -lt 5 -or $v -gt 1440)) { return $false } }
             { $_ -in @('slots','models','autopilot') } {
@@ -1201,7 +1211,7 @@ function Test-SettingsPatch($Patch) {
                 foreach ($nested in $v.Keys) {
                     $n=$v[$nested]
                     if ($key -eq 'slots') { if ($nested -cnotin @('codex','antigravity','claude') -or $n -isnot [int] -or $n -lt 0 -or $n -gt 8) { return $false } }
-                    elseif ($key -eq 'models') { if ($nested -cnotin @('codex','antigravity','claude') -or $n -isnot [string] -or $n -match '\p{Cc}') { return $false } }
+                    elseif ($key -eq 'models') { if ($nested -cnotin @('codex','antigravity','claude') -or $n -isnot [string] -or $n -match '[^\x20-\x7e]') { return $false } }
                     else { switch -CaseSensitive ($nested) { { $_ -in @('enabled','approval') } { if ($n -isnot [bool]) { return $false } }; 'maxTasksPerHour' { if ($n -isnot [int] -or $n -lt 1 -or $n -gt 60) { return $false } }; 'maxConsecutiveFailures' { if ($n -isnot [int] -or $n -lt 1 -or $n -gt 20) { return $false } }; 'cleanRunsBeforeAutoMerge' { if ($n -isnot [int] -or $n -lt 0) { return $false } }; default { return $false } } }
                 }
             }
@@ -1214,9 +1224,13 @@ function Write-NewUtf8([string]$Path, [string]$Text) {
     $stream=New-Object IO.FileStream($Path,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
     try { $bytes=[Text.Encoding]::UTF8.GetBytes($Text); $stream.Write($bytes,0,$bytes.Length) } finally { $stream.Dispose() }
 }
+function Quote-ActionLiteral([string]$Value) {
+    foreach ($code in @(0x27,0x2018,0x2019,0x201a,0x201b)) { $char=[string][char]$code; $Value=$Value.Replace($char,$char+$char) }
+    return "'" + $Value + "'"
+}
 function Convert-ActionScript([string]$RepoPath, $Commands) {
     $scriptPath=Join-Path $RepoPath 'scripts\trinity.ps1'
-    $parts=@(); foreach ($command in $Commands) { $quoted=@($command | ForEach-Object { "'" + ([string]$_).Replace("'","''") + "'" }); $parts+=('& ' + "'" + $scriptPath.Replace("'","''") + "' " + ($quoted -join ' ')) }
+    $parts=@(); foreach ($command in $Commands) { $quoted=@($command | ForEach-Object { Quote-ActionLiteral ([string]$_) }); $parts+=('& ' + (Quote-ActionLiteral $scriptPath) + ' ' + ($quoted -join ' ')) }
     return ($parts -join '; if (-not $?) { exit 1 }; ')
 }
 
@@ -1397,7 +1411,7 @@ try {
                     if ($action -eq 'dispatch') {
                         $agentValue=Get-JsonValue $body 'agent' ''; $scopeValue=Get-JsonValue $body 'scope' ''; $promptValue=Get-JsonValue $body 'prompt' ''
                         if (-not $confirm -or $agentValue -isnot [string] -or $scopeValue -isnot [string] -or $promptValue -isnot [string]) { Send-JsonResponse $response 400 @{ error='Dispatch requires confirm:true and string agent, scope and prompt' }; continue }
-                        if (-not $promptValue.Trim() -or [Text.Encoding]::UTF8.GetByteCount($promptValue) -gt 32768) { Send-JsonResponse $response 400 @{ error='Prompt must be non-empty and at most 32 KB UTF-8' }; continue }
+                        if ($scopeValue -match '[^\x20-\x7e]' -or $promptValue -match '[^\x20-\x7e]' -or -not $promptValue.Trim() -or [Text.Encoding]::UTF8.GetByteCount($promptValue) -gt 32768) { Send-JsonResponse $response 400 @{ error='Prompt must be non-empty and at most 32 KB UTF-8' }; continue }
                         $check=Get-DispatchCheck $repoState $snapshot.availability $agentValue $taskName $scopeValue
                         $dispatchAgent=$check.effectiveAgent
                         if (-not $check.canDispatch) { Send-JsonResponse $response 400 @{ error=(@($check.taskReason,$check.agentReason,$check.scopeReason) | Where-Object { $_ }) -join '; ' }; continue }
@@ -1424,7 +1438,7 @@ try {
                     if ($running.Count -ge 4) { Add-ActionLog $action $repoPath $taskName '429'; $actionLogged=$true; Send-JsonResponse $response 429 @{ error='Too many running actions' }; continue }
                     $idBytes = New-Object byte[] 6; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($idBytes); $jobId=([BitConverter]::ToString($idBytes) -replace '-','').ToLowerInvariant()
                     $display = switch ($action) { 'cancel' { "trinity cancel $taskName" }; 'merge' { "trinity merge $taskName -Yes" }; 'review-task' { "trinity merge $taskName -DryRun" }; 'open-folder' { "explorer.exe `"$worktree`"" } }
-                    $commands=@(); $actionScript=''; $outDir=Join-Path $repoPath '.codex-out'; [void][IO.Directory]::CreateDirectory($outDir)
+                    $commands=@(); $actionScript=''; $modelPrefix=''; $outDir=Join-Path $repoPath '.codex-out'; [void][IO.Directory]::CreateDirectory($outDir)
                     $queueItem=@($repoState.queue | Where-Object { $_.task -ceq $taskName }) | Select-Object -First 1
                     if ($action -in @('queue-remove','queue-move','start-now') -and -not $queueItem) { Send-JsonResponse $response 404 @{error='Unknown queued task'}; continue }
                     switch ($action) {
@@ -1437,7 +1451,7 @@ try {
                         'retry' { $commands+=,@('retry',$taskName); $display="trinity retry $taskName" }
                         'queue-add' {
                             $agentValue=Get-JsonValue $body 'agent' $null; $scopeValue=Get-JsonValue $body 'scope' $null; $promptValue=Get-JsonValue $body 'prompt' $null
-                            if ($agentValue -isnot [string] -or $agentValue -cnotin @('codex','antigravity','claude') -or $scopeValue -isnot [string] -or $promptValue -isnot [string] -or -not $promptValue.Trim() -or [Text.Encoding]::UTF8.GetByteCount($promptValue) -gt 32768 -or $scopeValue -match '[:\\\x00-\x1f\x7f]' -or $scopeValue.Contains('..') -or $scopeValue.StartsWith('/') -or @($scopeValue.Split(',')).Count -gt 20 -or @($repoState.tasks | Where-Object { $_.task -eq $taskName -and $_.state -ne 'cancelled' }).Count -or $queueItem) { Send-JsonResponse $response 400 @{error='Invalid queue item'}; continue }
+                            if ($agentValue -isnot [string] -or $agentValue -cnotin @('codex','antigravity','claude') -or $scopeValue -isnot [string] -or $promptValue -isnot [string] -or $promptValue -match '[^\x20-\x7e]' -or -not $promptValue.Trim() -or [Text.Encoding]::UTF8.GetByteCount($promptValue) -gt 32768 -or $scopeValue -match '[^\x20-\x7e]' -or $scopeValue -match '[:\\\x00-\x1f\x7f]' -or $scopeValue.Contains('..') -or $scopeValue.StartsWith('/') -or @($scopeValue.Split(',')).Count -gt 20 -or @($repoState.tasks | Where-Object { $_.task -eq $taskName -and $_.state -ne 'cancelled' }).Count -or $queueItem) { Send-JsonResponse $response 400 @{error='Invalid queue item'}; continue }
                             $file=Join-Path $outDir "prompt-$taskName-$jobId.md"; Write-NewUtf8 $file $promptValue
                             $commands+=,@('queue','add',$agentValue,$taskName,'-Scope',$scopeValue,'-PromptFile',$file); $commands+=,@('scheduler','start')
                             $display="trinity queue add $agentValue $taskName -Scope $(Quote-ProcessArgument $scopeValue) -PromptFile $(Quote-ProcessArgument $file); trinity scheduler start"
@@ -1448,11 +1462,17 @@ try {
                             $agentValue=[string]$queueItem.agent; $slot=$repoState.slots.$agentValue
                             if (-not $slot -or $slot.used -ge $slot.max) { Send-JsonResponse $response 409 @{error='no free slot'}; continue }
                             $scopeValue=[string]$queueItem.scope; $file=[string]$queueItem.promptFile
-                            $dispatchArgs=@('dispatch',$agentValue,$taskName,'-Scope',$scopeValue,'-PromptFile',$file)
-                            $display="trinity queue remove $taskName; trinity dispatch $agentValue $taskName -Scope $(Quote-ProcessArgument $scopeValue) -PromptFile $(Quote-ProcessArgument $file)"
+                            if (-not $file.Trim()) { Send-JsonResponse $response 409 @{error='no prompt file'}; continue }
+                            if ($scopeValue -match '[^\x20-\x7e]' -or $file -match '[^\x20-\x7e]' -or [string]$queueItem.base -match '[^\x20-\x7e]' -or [string]$queueItem.model -match '[^\x20-\x7e]') { Send-JsonResponse $response 400 @{error='Invalid queue item text'}; continue }
+                            $check=Get-DispatchCheck $repoState $snapshot.availability $agentValue $taskName $scopeValue
+                            if (-not $check.canDispatch) { Send-JsonResponse $response 409 @{error=(@($check.taskReason,$check.agentReason,$check.scopeReason) | Where-Object { $_ }) -join '; '}; continue }
+                            $agentValue=$check.effectiveAgent; $dispatchArgs=@('dispatch',$agentValue,$taskName); $display="trinity dispatch $agentValue $taskName"
+                            if ($scopeValue) { $dispatchArgs+=@('-Scope',$scopeValue); $display+=' -Scope ' + (Quote-ProcessArgument $scopeValue) }
+                            if ($file) { $dispatchArgs+=@('-PromptFile',$file); $display+=' -PromptFile ' + (Quote-ProcessArgument $file) }
                             if ($queueItem.base) { $dispatchArgs+=@('-Base',[string]$queueItem.base); $display+=' -Base ' + (Quote-ProcessArgument ([string]$queueItem.base)) }
-                            if ($queueItem.model) { $dispatchArgs+=@('-Model',[string]$queueItem.model); $display+=' -Model ' + (Quote-ProcessArgument ([string]$queueItem.model)) }
-                            $commands+=,@('queue','remove',$taskName); $commands+=,$dispatchArgs
+                            $commands+=,$dispatchArgs; $commands+=,@('queue','remove',$taskName); $display+="; trinity queue remove $taskName"
+                            if ($queueItem.model) { $modelPrefix='$env:TRINITY_CODEX_MODEL=' + (Quote-ActionLiteral ([string]$queueItem.model)) + '; '; $display=$modelPrefix+$display }
+
                         }
                         'settings-save' { $config=Get-JsonValue $body 'config' $null; if (-not (Test-SettingsPatch $config)) { Send-JsonResponse $response 400 @{error='Invalid settings'}; continue }; $file=Join-Path $outDir "config-$jobId.json"; Write-NewUtf8 $file ($script:JsonSerializer.Serialize($config)); $commands+=,@('config','set','-Json',$file); $display="trinity config set -Json $(Quote-ProcessArgument $file)" }
                         'autopilot' { $enabled=Get-JsonValue $body 'enabled' $null; if ($enabled -isnot [bool]) { Send-JsonResponse $response 400 @{error='enabled must be a boolean'}; continue }; $mode=if ($enabled) {'on'} else {'off'}; $commands+=,@('autopilot',$mode); $display="trinity autopilot $mode"; if ($enabled) { $commands+=,@('scheduler','start'); $display+='; trinity scheduler start' } }
@@ -1466,7 +1486,7 @@ try {
                         $display='trinity dispatch {0} {1} -Scope {2} -PromptFile {3}' -f $check.effectiveAgent,$taskName,(Quote-ProcessArgument ($check.scopeNormalized -join ',')),(Quote-ProcessArgument $promptFile)
                         Start-ActionProcess $jobId $action $taskName $repoPath '' $display $check.effectiveAgent ($check.scopeNormalized -join ',') $promptFile
                     }
-                    else { if ($commands.Count) { $actionScript=Convert-ActionScript $repoPath $commands }; Start-ActionProcess $jobId $action $taskName $repoPath $worktree $display '' '' '' $actionScript }
+                    else { if ($commands.Count) { $actionScript=$modelPrefix + (Convert-ActionScript $repoPath $commands) }; Start-ActionProcess $jobId $action $taskName $repoPath $worktree $display '' '' '' $actionScript }
                     Add-ActionLog $action $repoPath $taskName $jobId '' ([string]$script:Jobs[$jobId].agent)
                     $actionLogged=$true
                     $jobFiles = @(Get-ChildItem -LiteralPath (Join-Path $repoPath '.codex-out\jobs') -Filter '*.txt' -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^[0-9a-f]{12}\.txt$' } | Sort-Object LastWriteTimeUtc -Descending)
