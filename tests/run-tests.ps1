@@ -292,6 +292,10 @@ Run-Case 'orchestrator headless Claude commits parses result and refuses done' {
     $interactive = Invoke-Trinity $f @('dispatch', 'claude', 'claude-interactive', '-PromptFile', $f.Prompt)
     $board = Get-Content -Raw (Join-Path $f.Repo '.git\agent-board.md')
     Assert-True ($interactive.ExitCode -eq 0 -and $board -match 'waiting for claude session') 'interactive Claude dispatch changed'
+    $doneInteractive = Invoke-Trinity $f @('done', 'claude-interactive', 'finished', 'by', 'hand')
+    Assert-True ($doneInteractive.ExitCode -eq 0) "done refused an interactive Claude task: $($doneInteractive.Output)"
+    $waitInteractive = Invoke-Trinity $f @('wait', 'claude-interactive', '-Timeout', '10')
+    Assert-True ($waitInteractive.ExitCode -eq 0) "wait did not finish an interactive Claude task marked done: $($waitInteractive.Output)"
 }
 
 Run-Case 'orchestrator fallback uses headless Claude last and done refuses Codex' {

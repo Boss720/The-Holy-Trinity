@@ -47,6 +47,11 @@ function Get-OrchestratorSession {
     $null
 }
 
+# Board entry run by the headless runner (codex/antigravity, or claude dispatched with -Headless): only the runner marks it done.
+function Test-HeadlessEntry($entry) {
+    $entry.agent -in @('codex', 'antigravity') -or ($entry.agent -eq 'claude' -and $entry.mode -eq 'headless')
+}
+
 function Show-Usage {
     Write-Host 'trinity <command> [options]'
     Write-Host ''
@@ -314,7 +319,7 @@ function Wait-Task([string]$task, [int]$timeoutSec) {
         $entry = Get-BoardEntry $paths $task
         $status = $entry.status
         # Headless tasks finish only when the runner writes its own status (after committing), never on a bare "done".
-        $headless = $entry.branch -and $entry.branch -ne '-' -and $entry.status -notmatch '^waiting for claude session'
+        $headless = Test-HeadlessEntry $entry
         # The runner deletes its pid file once it has committed and written the status, so a live runner
         # means pending whatever the board says (an agent could write a lookalike status itself).
         $pidFile = Join-Path $paths.Out "pid-$task.txt"
@@ -396,6 +401,7 @@ function Start-Dispatch([string]$agent, [string]$task, [string]$prompt) {
     Write-Host "Task:     $taskFile"
     switch ($agent) {
         { $isHeadless } {
+            if ($agent -eq 'claude') { Set-BoardField $paths $task 'mode' 'headless' }
             Set-BoardStatus $paths $task 'running'
             $runner = Start-Process powershell.exe -WindowStyle Hidden -PassThru -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '_run', $task
             [IO.File]::WriteAllText((Join-Path $paths.Out "pid-$task.txt"), "$($runner.Id)", $script:Utf8)
@@ -536,7 +542,7 @@ switch ($Command) {
         if (-not $task) { Fail 'usage: trinity done <task> [summary...]' }
         $entry = Get-BoardEntry $paths $task
         if (-not $entry) { Fail "no board entry for $task" }
-        if ($entry.branch -and $entry.branch -ne '-') { Fail "$task is a headless $($entry.agent) task; its runner marks it done after committing" }
+        if ((Test-HeadlessEntry $entry) -and $entry.branch -and $entry.branch -ne '-') { Fail "$task is a headless $($entry.agent) task; its runner marks it done after committing" }
         $summary = ''
         if (@($Rest).Count -gt 1) { $summary = (($Rest[1..($Rest.Count - 1)]) -join ' ') -replace '[\r\n]+', ' ' }
         $status = if ($summary.Trim()) { "done: $($summary.Trim())" } else { 'done' }
@@ -742,7 +748,7 @@ switch ($Command) {
         [IO.File]::WriteAllText($retryPrompt, $prompt, $script:Utf8)
         $Scope = $entry.scope
         Write-Host "Retrying $task with $($entry.agent), scope $Scope, prompt $retryPrompt"
-        if ($entry.agent -eq 'claude') { $Headless = $true }
+        if ($entry.agent -eq 'claude' -and $entry.mode -eq 'headless') { $Headless = $true }
         Start-Dispatch $entry.agent $task $prompt
     }
 
