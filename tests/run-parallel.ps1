@@ -50,8 +50,12 @@ foreach ($s in $shards) {
         if ($errText.Count -gt 0 -and $code -ne 0) { $errText | Select-Object -First 10 | ForEach-Object { Write-Output "  stderr: $_" } }
     }
 }
-if (-not $bad -or -not $Keep) {
+# Failing runs keep every shard log: only PASS/FAIL/SKIP lines reach the console, the error details are in the logs.
+if (-not $bad -and -not $Keep) {
     foreach ($s in $shards) { Remove-Item -LiteralPath $s.Out, $s.Err -Force -ErrorAction SilentlyContinue }
+}
+elseif ($bad) {
+    foreach ($s in $shards) { Write-Output "shard $($s.Index) log: $($s.Out)" }
 }
 
 Write-Output "$passed passed, $failed failed, $skipped skipped"
