@@ -52,7 +52,7 @@ Run-Case 'sched-core: autopilot ready resume and limit' {
     foreach ($name in @('done-task','failed-task')) {
         $null=Invoke-Git $f.Repo @('branch', "agent/codex/$name")
         [void][IO.Directory]::CreateDirectory((Join-Path $p.Worktrees "codex-$name"))
-        Add-Decision $p $name 'started' 'dispatched' 0
+        Set-SchedulerStarted $p $name $true; Add-Decision $p $name 'started' 'dispatched' 0
     }
     [IO.File]::WriteAllText($p.Board,"## done-task`r`n- agent: codex`r`n- scope: src/*`r`n- status: done`r`n")
     $r=Invoke-SchedulerTick $p -MergeCommand { param($p,$task,$dry) return $true }; Assert-True ((Get-BoardEntry $p 'done-task').status -match '^ready' -and $r.autopilot[0] -eq 'ready') 'ready failed'
@@ -219,8 +219,50 @@ Run-Case 'sched-core: configured models and ignored explicit model' {
 Run-Case 'sched-core: default merge dry run is supported' {
     param($f)
     $p=Get-SchedulerPaths $f.Repo; $null=Set-TrinityConfig $p @{autopilot=@{enabled=$true}}
-    $null=Invoke-Git $f.Repo @('branch','agent/codex/done'); [void][IO.Directory]::CreateDirectory((Join-Path $p.Worktrees 'codex-done')); Add-Decision $p 'done' 'started' 'dispatched' 0
+    $null=Invoke-Git $f.Repo @('branch','agent/codex/done'); [void][IO.Directory]::CreateDirectory((Join-Path $p.Worktrees 'codex-done')); Set-SchedulerStarted $p 'done' $true; Add-Decision $p 'done' 'started' 'dispatched' 0
     [IO.File]::WriteAllText($p.Board,"## done`r`n- agent: codex`r`n- status: done`r`n")
     $script:mergeArgs=@(); function Invoke-SchedulerChild($paths,[string[]]$arguments) { $script:mergeArgs=$arguments; return $true }
     try { $null=Invoke-SchedulerTick $p; Assert-True ($script:mergeArgs -contains '-DryRun' -and ([IO.File]::ReadAllText((Join-Path $repoSource 'scripts\trinity.ps1')) -match '\[switch\]\s*\$DryRun')) 'dry run missing from command or parameter block' } finally { Remove-Item Function:Invoke-SchedulerChild }
+}
+
+Run-Case 'sched-core: queue sharing violation preserves file' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; Add-QueueItem $p @{task='locked';agent='codex';promptFile=$f.Prompt}
+    $path=Join-Path $p.Main '.trinity\queue.json'; $stream=[IO.File]::Open($path,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None); $threw=$false
+    try { try { $null=Get-TrinityQueue $p } catch { $threw=$true } } finally { $stream.Dispose() }
+    Assert-True ($threw -and (Test-Path $path) -and (Get-TrinityQueue $p).items[0].task -eq 'locked' -and @(Get-ChildItem (Split-Path $path) -Filter 'queue.json.corrupt-*').Count -eq 0) 'locked queue was lost'
+}
+Run-Case 'sched-core: gate errors wait and findings resume' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; $null=Set-TrinityConfig $p @{autopilot=@{enabled=$true}}
+    $null=Invoke-Git $f.Repo @('branch','agent/codex/gate'); [void][IO.Directory]::CreateDirectory((Join-Path $p.Worktrees 'codex-gate')); Set-SchedulerStarted $p 'gate' $true
+    [IO.File]::WriteAllText($p.Board,"## gate`r`n- agent: codex`r`n- status: done`r`n")
+    $calls=New-Object Collections.ArrayList; $resumes=New-Object Collections.ArrayList
+    $gate={ [void]$calls.Add(1); @{success=$false;output='reviewer unavailable'} }; $resume={ [void]$resumes.Add(1); $true }
+    $null=Invoke-SchedulerTick $p -MergeCommand $gate -ResumeCommand $resume; $null=Invoke-SchedulerTick $p -MergeCommand $gate -ResumeCommand $resume
+    $d=@(Get-Decisions $p 1)[0]; Assert-True ($calls.Count -eq 1 -and $resumes.Count -eq 0 -and $d.action -eq 'gate-error' -and $d.reason -eq 'reviewer unavailable' -and $d.round -eq 0) 'gate error retried or resumed'
+    $path=Join-Path $p.Main '.trinity\decisions.jsonl'; $text=[IO.File]::ReadAllText($path).Replace($d.at, (Get-Date).AddMinutes(-11).ToString('o')); [IO.File]::WriteAllText($path,$text)
+    $null=Invoke-SchedulerTick $p -MergeCommand { @{success=$false;output='dry run: tests failed (exit 1)'} } -ResumeCommand $resume
+    Assert-True ($resumes.Count -eq 1 -and @(Get-Decisions $p 1)[0].action -eq 'resumed') 'findings did not resume'
+}
+Run-Case 'sched-core: unpause without pause preserves limits' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; $null=Set-TrinityConfig $p @{autopilot=@{enabled=$true;maxConsecutiveFailures=1}}; Add-Decision $p 'x' 'failed' 'failed' 0; Clear-PauseSwitch $p
+    $null=Invoke-SchedulerTick $p; Assert-True ((Test-PauseSwitch $p).paused -and @((Get-Decisions $p 0) | Where-Object { $_.action -eq 'unpaused' }).Count -eq 0) 'unpause bypassed limit'
+}
+Run-Case 'sched-core: ownership survives decision rotation and prunes' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; $null=Set-TrinityConfig $p @{autopilot=@{enabled=$true}}; Add-QueueItem $p @{task='owned';agent='codex';promptFile=$f.Prompt}
+    $null=Invoke-SchedulerTick $p -DispatchCommand { $true }; $null=Invoke-Git $f.Repo @('branch','agent/codex/owned'); [void][IO.Directory]::CreateDirectory((Join-Path $p.Worktrees 'codex-owned'))
+    [IO.File]::WriteAllText((Join-Path $p.Main '.trinity\decisions.jsonl'),''); [IO.File]::WriteAllText($p.Board,"## owned`r`n- agent: codex`r`n- status: done`r`n")
+    $r=Invoke-SchedulerTick $p -MergeCommand { $true }; Assert-True ($r.autopilot -contains 'ready') 'ownership lost with decision log'
+    [IO.File]::WriteAllText($p.Board,"## owned`r`n- agent: codex`r`n- status: cancelled`r`n"); $null=Invoke-SchedulerTick $p; Assert-True (@(Get-SchedulerStarted $p).Count -eq 0) 'cancelled ownership not pruned'
+}
+Run-Case 'sched-core: idle skips probes and rate cache observes newest file' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; $script:schedulerAvailabilityAt=$null; $script:probeCalls=0
+    function Get-CachedAgentAvailability { $script:probeCalls++; return @{} }; function Test-CodexRateLimit { $script:probeCalls++; return $false }
+    try { $null=Invoke-SchedulerTick $p; Assert-True ($script:probeCalls -eq 0) 'idle probes ran' } finally { Remove-Item Function:Get-CachedAgentAvailability; Remove-Item Function:Test-CodexRateLimit; . (Join-Path $repoSource 'scripts\lib\scheduler.ps1') }
+    $old=$env:CODEX_HOME; $env:CODEX_HOME=Join-Path $f.Root 'codex-cache'; $dir=Join-Path $env:CODEX_HOME ('sessions\' + (Get-Date).ToString('yyyy\MM\dd')); [void][IO.Directory]::CreateDirectory($dir)
+    try { $file=Join-Path $dir 'rollout-test.jsonl'; [IO.File]::WriteAllText($file,'{"payload":{"rate_limits":{"primary":{"used_percent":99}}}}'); Assert-True (Test-CodexRateLimit) 'rate limit missed'; [IO.File]::WriteAllText($file,'{"payload":{"rate_limits":{"primary":{"used_percent":0}}}}'); (Get-Item $file).LastWriteTimeUtc=(Get-Date).ToUniversalTime().AddSeconds(2); Assert-True (-not (Test-CodexRateLimit)) 'changed rollout cache not invalidated' } finally { $env:CODEX_HOME=$old }
 }
