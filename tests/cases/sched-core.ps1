@@ -42,7 +42,7 @@ Run-Case 'sched-core: slots block then dispatch' {
 }
 Run-Case 'sched-core: running scope blocks overlap' {
     param($f)
-    $p=Get-SchedulerPaths $f.Repo; [IO.File]::WriteAllText($p.Board,"## busy`r`n- agent: claude`r`n- scope: src/auth/*`r`n- status: running`r`n")
+    $p=Get-SchedulerPaths $f.Repo; [void][IO.Directory]::CreateDirectory((Join-Path $p.Worktrees 'claude-busy')); [IO.File]::WriteAllText($p.Board,"## busy`r`n- agent: claude`r`n- scope: src/auth/*`r`n- status: running`r`n")
     Add-QueueItem $p @{task='one';agent='codex';promptFile=$f.Prompt;scope='src/auth/forms/*'}; $r=Invoke-SchedulerTick $p -DispatchCommand { throw 'unexpected dispatch' }
     Assert-True ($r.waiting.one -eq 'scope overlaps busy') 'overlap not blocked'
 }
@@ -87,7 +87,7 @@ Run-Case 'sched-core: dispatch failure backoff and half success' {
     $calls=New-Object Collections.ArrayList; $fake={ [void]$calls.Add(1); throw 'failure' }
     $null=Invoke-SchedulerTick $p -DispatchCommand $fake; $r=Invoke-SchedulerTick $p -DispatchCommand $fake
     Assert-True ($calls.Count -eq 1 -and $r.waiting.retry -eq 'retry backoff' -and @((Get-Decisions $p 0) | Where-Object { $_.action -eq 'failed' }).Count -eq 1) 'backoff failed'
-    [IO.File]::WriteAllText($p.Board,"## retry`r`n- agent: codex`r`n- status: running`r`n")
+    [void][IO.Directory]::CreateDirectory((Join-Path $p.Worktrees 'codex-retry')); [IO.File]::WriteAllText($p.Board,"## retry`r`n- agent: codex`r`n- status: running`r`n")
     $r=Invoke-SchedulerTick $p -DispatchCommand $fake
     Assert-True ($r.waiting.retry -eq 'already dispatched' -and (Get-TrinityQueue $p).items.Count -eq 0) 'half dispatch not removed'
 }
@@ -167,4 +167,60 @@ Run-Case 'sched-core: daemon records tick error' {
     $output=& $exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $f.Repo 'scripts\scheduler.ps1') -Repo $f.Repo -Once 2>&1
     $h=ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $dir 'scheduler.json')))
     Assert-True ($LASTEXITCODE -eq 0 -and $h.now -match '^error:' -and (Test-Path (Join-Path $f.Repo '.codex-out\scheduler-error.log'))) "tick error not recorded: $output"
+}
+
+Run-Case 'sched-core: cancelled and merged entries can be requeued' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; $calls=New-Object Collections.ArrayList
+    foreach ($state in @('cancelled','merged')) {
+        [IO.File]::WriteAllText($p.Board,"## $state`r`n- agent: codex`r`n- status: $state`r`n")
+        Add-QueueItem $p @{task=$state;agent='codex';promptFile=$f.Prompt;scope='src/*'}
+        $null=Invoke-SchedulerTick $p -DispatchCommand { param($paths,$item) [void]$calls.Add($item.task); $true }
+    }
+    Assert-True (($calls -join ',') -eq 'cancelled,merged') 'terminal entries prevented dispatch'
+}
+Run-Case 'sched-core: tracked and missing worktrees count correctly' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; $recent=(Get-Date).ToString('yyyy-MM-dd HH:mm'); $old=(Get-Date).AddHours(-3).ToString('yyyy-MM-dd HH:mm')
+    [IO.File]::WriteAllText($p.Board,"## tracked`r`n- agent: claude`r`n- branch: -`r`n- worktree: -`r`n- scope: unspecified`r`n- status: working: test $recent`r`n## stale`r`n- agent: codex`r`n- branch: -`r`n- worktree: -`r`n- status: working: test $old`r`n## missing`r`n- agent: codex`r`n- worktree: missing-path`r`n- status: running`r`n")
+    $slots=Get-SlotUse $p (Get-TrinityConfig $p); Assert-True ($slots.claude.used -eq 1 -and $slots.codex.used -eq 0) 'tracked or missing slot count incorrect'
+    Add-QueueItem $p @{task='new';agent='codex';promptFile=$f.Prompt}; $r=Invoke-SchedulerTick $p -DispatchCommand { $true }
+    Assert-True ($r.started -contains 'new') 'tracked or missing worktree blocked overlap'
+}
+Run-Case 'sched-core: limits checked before each dispatch' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; $null=Set-TrinityConfig $p @{autopilot=@{enabled=$true;maxTasksPerHour=1;maxConsecutiveFailures=1}}
+    foreach ($name in @('one','two')) { Add-QueueItem $p @{task=$name;agent='codex';promptFile=$f.Prompt;scope="$name/*"} }
+    $calls=New-Object Collections.ArrayList; $r=Invoke-SchedulerTick $p -DispatchCommand { param($paths,$item) [void]$calls.Add($item.task); $true }
+    Assert-True ($calls.Count -eq 1 -and (Test-PauseSwitch $p).paused -and $r.waiting.two -eq 'paused') 'hourly limit allowed second dispatch'
+    Clear-PauseSwitch $p; $r=Invoke-SchedulerTick $p -DispatchCommand { $true }
+    Assert-True ($r.started -contains 'two') 'unpause did not reset hourly count'
+}
+Run-Case 'sched-core: failure limit checked during queue' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; $null=Set-TrinityConfig $p @{autopilot=@{enabled=$true;maxConsecutiveFailures=1}}
+    foreach ($name in @('one','two')) { Add-QueueItem $p @{task=$name;agent='codex';promptFile=$f.Prompt;scope="$name/*"} }
+    $calls=New-Object Collections.ArrayList; $r=Invoke-SchedulerTick $p -DispatchCommand { [void]$calls.Add(1); throw 'bad' }
+    Assert-True ($calls.Count -eq 1 -and (Test-PauseSwitch $p).paused -and $r.waiting.two -eq 'paused') 'failure limit allowed second dispatch'
+}
+Run-Case 'sched-core: configured models and ignored explicit model' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; $null=Set-TrinityConfig $p @{models=@{codex='configured';claude='configured-claude'}}
+    $script:modelsSeen=New-Object Collections.ArrayList
+    function Invoke-SchedulerChild($paths,[string[]]$arguments) { [void]$script:modelsSeen.Add($env:TRINITY_CODEX_MODEL); return $true }
+    $old=$env:TRINITY_CODEX_MODEL; $env:TRINITY_CODEX_MODEL='original'
+    try {
+        Add-QueueItem $p @{task='c';agent='codex';promptFile=$f.Prompt;scope='c/*'}; $null=Invoke-SchedulerTick $p
+        Add-QueueItem $p @{task='a';agent='claude';promptFile=$f.Prompt;model='explicit';scope='a/*'}; $null=Invoke-SchedulerTick $p
+        Assert-True ($script:modelsSeen[0] -eq 'configured' -and $script:modelsSeen[1] -eq 'original' -and $env:TRINITY_CODEX_MODEL -eq 'original') 'model environment incorrect'
+        Assert-True (@((Get-Decisions $p 0) | Where-Object { $_.task -eq 'a' -and $_.reason -eq 'model ignored for claude' }).Count -eq 1) 'ignored model decision missing'
+    } finally { $env:TRINITY_CODEX_MODEL=$old; Remove-Item Function:Invoke-SchedulerChild }
+}
+Run-Case 'sched-core: default merge dry run is supported' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; $null=Set-TrinityConfig $p @{autopilot=@{enabled=$true}}
+    $null=Invoke-Git $f.Repo @('branch','agent/codex/done'); [void][IO.Directory]::CreateDirectory((Join-Path $p.Worktrees 'codex-done')); Add-Decision $p 'done' 'started' 'dispatched' 0
+    [IO.File]::WriteAllText($p.Board,"## done`r`n- agent: codex`r`n- status: done`r`n")
+    $script:mergeArgs=@(); function Invoke-SchedulerChild($paths,[string[]]$arguments) { $script:mergeArgs=$arguments; return $true }
+    try { $null=Invoke-SchedulerTick $p; Assert-True ($script:mergeArgs -contains '-DryRun' -and ([IO.File]::ReadAllText((Join-Path $repoSource 'scripts\trinity.ps1')) -match '\[switch\]\s*\$DryRun')) 'dry run missing from command or parameter block' } finally { Remove-Item Function:Invoke-SchedulerChild }
 }
