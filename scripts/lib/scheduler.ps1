@@ -29,7 +29,7 @@ function Read-QueueUnlocked($Paths) {
         }
     }
     try {
-        $queue = ConvertTo-TrinityMap (ConvertFrom-Json -InputObject $content -ErrorAction Stop)
+        $queue = ConvertTo-TrinityMap (ConvertFrom-Json -InputObject $content -ErrorAction Stop); if ($queue -isnot [hashtable] -or $queue.items -isnot [array]) { throw 'Invalid queue file' }
     } catch {
         $archive=$path + '.corrupt-' + (Get-Date -Format 'yyyyMMddHHmmssfff') + '-' + [guid]::NewGuid().ToString('N')
         Move-Item -LiteralPath $path -Destination $archive -ErrorAction Stop
@@ -37,7 +37,7 @@ function Read-QueueUnlocked($Paths) {
         [IO.File]::AppendAllText((Join-Path $Paths.Main '.trinity\decisions.jsonl'), $record + "`n", (New-Object Text.UTF8Encoding($false)))
         return @{version=1;items=@()}
     }
-    if ($queue -isnot [hashtable] -or $queue.items -isnot [array]) { throw 'Invalid queue file' }; return $queue
+    return $queue
 }
 function Get-TrinityQueue($Paths) { Invoke-QueueLocked $Paths { Read-QueueUnlocked $Paths } }
 function Test-SchedulerPrompt($Paths, [string]$Prompt) {
@@ -107,11 +107,38 @@ function Get-Decisions($Paths, [int]$Last=20) {
     $all=@($records.ToArray()); [array]::Reverse($all); if ($Last -gt 0) { $all=@($all | Select-Object -First $Last) }; return $all
 }
 function Get-SchedulerStarted($Paths) {
-    $path=Join-Path $Paths.Main '.trinity\scheduler-tasks.json'
-    if (-not (Test-Path -LiteralPath $path)) { return @() }
+    $tasksPath=Join-Path $Paths.Main '.trinity\scheduler-tasks.json'
+    if (-not (Test-Path -LiteralPath $tasksPath)) {
+        $dir=Join-Path $Paths.Main '.trinity'; $seeded=@()
+        if (Test-Path -LiteralPath $dir) {
+            $files=@(Get-ChildItem -LiteralPath $dir -Filter 'decisions*.jsonl' -File | Sort-Object Name); $seen=@{}
+            foreach ($file in $files) {
+                foreach ($line in [IO.File]::ReadAllLines($file.FullName)) {
+                    try {
+                        if (-not $line.Trim()) { continue }
+                        $d=ConvertFrom-Json $line -ErrorAction Stop
+                        if ($d.action -ne 'started' -or -not $d.task -or $seen.ContainsKey([string]$d.task)) { continue }
+                        $taskName=[string]$d.task; $entry=Get-BoardEntry $Paths $taskName; if (-not $entry) { continue }
+                        if (-not (Test-SchedulerWorktree $Paths $entry)) { continue }
+                        $branch=if ($entry.branch) { [string]$entry.branch } else { "agent/$($entry.agent)/$taskName" }
+                        if ($branch -eq '-') { continue }
+                        git -C $Paths.Main rev-parse --verify --quiet "refs/heads/$branch" | Out-Null
+                        if ($LASTEXITCODE -ne 0) { continue }
+                        $seen[$taskName]=$true
+                        $seeded+=@{task=$taskName;startedAt=$(if ($d.at) { [string]$d.at } else { (Get-Date).ToString('o') })}
+                    } catch { }
+                }
+            }
+        }
+        if ($seeded.Count) {
+            Invoke-QueueLocked $Paths { if (-not (Test-Path -LiteralPath $tasksPath)) { Write-TrinityJson $tasksPath @($seeded) } }
+            return @($seeded)
+        }
+        return @()
+    }
     $content=''
     for ($attempt=0; ; $attempt++) {
-        try { $content=[IO.File]::ReadAllText($path); break }
+        try { $content=[IO.File]::ReadAllText($tasksPath); break }
         catch {
             $errorType=$_.Exception; while ($errorType.InnerException) { $errorType=$errorType.InnerException }
             if ($errorType -isnot [IO.IOException] -and $errorType -isnot [UnauthorizedAccessException]) { throw }
@@ -120,8 +147,8 @@ function Get-SchedulerStarted($Paths) {
     }
     try { $parsed=ConvertFrom-Json -InputObject $content -ErrorAction Stop; $items=@($parsed) }
     catch {
-        $archive=$path + '.corrupt-' + (Get-Date -Format 'yyyyMMddHHmmssfff') + '-' + [guid]::NewGuid().ToString('N')
-        Move-Item -LiteralPath $path -Destination $archive -ErrorAction Stop
+        $archive=$tasksPath + '.corrupt-' + (Get-Date -Format 'yyyyMMddHHmmssfff') + '-' + [guid]::NewGuid().ToString('N')
+        Move-Item -LiteralPath $tasksPath -Destination $archive -ErrorAction Stop
         $record=@{at=(Get-Date).ToString('o');task='';action='skipped';reason='corrupt scheduler-tasks recovered';round=0} | ConvertTo-Json -Compress
         [IO.File]::AppendAllText((Join-Path $Paths.Main '.trinity\decisions.jsonl'), $record + "`n", (New-Object Text.UTF8Encoding($false)))
         return @()
@@ -186,7 +213,7 @@ function Get-SchedulerLimit($Config, $Decisions) {
         if ($d.action -eq 'unpaused') { break }
         if ($d.action -eq 'started') { $recovered[[string]$d.task]=$true; if ([datetimeoffset]::Parse($d.at) -gt (Get-Date).AddHours(-1)) { $hour++ } }
         elseif ($d.action -in @('failed','gate-stuck') -and $countFailures -and -not $recovered.ContainsKey([string]$d.task)) { $failures++ }
-        elseif ($d.action -notin @('failed','gate-stuck','resumed','skipped','limit','paused','started')) { $countFailures=$false }
+        elseif ($d.action -notin @('failed','gate-stuck','resumed','skipped','limit','paused','started','gate-error')) { $countFailures=$false }
     }
     if ($hour -ge $Config.autopilot.maxTasksPerHour) { return "limit: $hour tasks per hour" }
     if ($failures -ge $Config.autopilot.maxConsecutiveFailures) { return "limit: $failures consecutive failures" }
@@ -279,17 +306,25 @@ function Invoke-SchedulerTick($Paths, [scriptblock]$DispatchCommand, [scriptbloc
                 git -C $Paths.Main rev-parse --verify --quiet "refs/heads/$branch" | Out-Null
                 if ($LASTEXITCODE -ne 0 -or -not @($started | Where-Object { $_.task -eq $task.task }).Count) { continue }
                 $history=@($decisions | Where-Object { $_.task -eq $task.task }); if ($history.Count -and $history[0].action -in @('ready','merged','failed','gate-stuck')) { continue }
-                $round=@($history | Where-Object { $_.action -eq 'resumed' }).Count; $clean=$false
+                $round=@($history | Where-Object { $_.action -eq 'resumed' }).Count; $clean=$false; $conflictBase=''
                 if ($state -eq 'done') {
                     $gateError=@($history | Select-Object -First 1 | Where-Object { $_.action -eq 'gate-error' })
                     if ($gateError.Count -and ([datetimeoffset]::Parse($gateError[0].at)) -gt (Get-Date).AddMinutes(-10)) { continue }
                     $gateText=''; try { $gate=& $MergeCommand $Paths $task.task $true; if ($gate -is [hashtable]) { $clean=[bool]$gate.success; $gateText=[string]$gate.output } else { $clean=$gate -ne $false } } catch { $gateText=$_.Exception.Message }
-                    if (-not $clean -and ($gateText -match '(?im)not recognized|command not found|test runner error|review output unparsed' -or $gateText -notmatch '(?im)(?:^\s*-\s*\[P[01]\]|P0/P1 findings|tests failed|files? outside (?:the task )?scope|file\(s\) outside the task scope)')) {
+                    $isGateError=-not $clean -and ($gateText -match '(?im)not recognized|command not found|test runner error|review output unparsed' -or $gateText -notmatch '(?im)(?:^\s*-\s*\[P[01]\]|P0/P1 findings|tests failed|files? outside (?:the task )?scope|file\(s\) outside the task scope|conflicts with)')
+                    $gateKind=if ($clean) { 'clean' } elseif ($isGateError) { 'gate-error' } else { 'findings' }
+                    [void][IO.Directory]::CreateDirectory($Paths.Out)
+                    [IO.File]::WriteAllText((Join-Path $Paths.Out ("gate-{0}.txt" -f $task.task)), $gateText, (New-Object Text.UTF8Encoding($false)))
+                    Write-Host "gate $($task.task): $gateKind (see .codex-out\gate-$($task.task).txt)"
+                    if ($isGateError) {
                         $lines=@($gateText -split "`r?`n" | Where-Object { $_.Trim() }); $first=@($lines | Where-Object { $_ -match '(?i)^\s*(trinity:|error:)' } | Select-Object -First 1); if (-not $first.Count) { $first=@($lines | Select-Object -First 1) }; $reason=if ($first.Count) { $first[0] } else { 'merge gate failed without output' }
                         Add-Decision $Paths $task.task 'gate-error' $reason $round; $result.autopilot+=@('gate-error')
                         $streak=1; foreach ($h in $history) { if ($h.action -eq 'gate-error') { $streak++ } else { break } }
                         if ($streak -ge 3) { Add-Decision $Paths $task.task 'gate-stuck' "merge gate failed $streak times in a row: $reason" $round; $result.autopilot+=@('gate-stuck') }
                         continue
+                    }
+                    if ($gateText -match '(?im)conflicts with\s+([^;\r\n]+?)(?:;\s*merge\s+([^\r\n]+?)\s+into the worktree first|$)') {
+                        $conflictBase=if ($Matches[2]) { $Matches[2].Trim() } else { $Matches[1].Trim() }
                     }
                 }
                 if ($clean) {
@@ -298,7 +333,7 @@ function Invoke-SchedulerTick($Paths, [scriptblock]$DispatchCommand, [scriptbloc
                     else { Set-BoardStatus $Paths $task.task 'ready: merge gate clean'; Add-Decision $Paths $task.task 'ready' 'merge gate clean' $round; $result.autopilot+=@('ready') }
                 } elseif ($round -lt $cfg.maxRounds) {
                     [void][IO.Directory]::CreateDirectory($Paths.Out); $feedback=Join-Path $Paths.Out ("feedback-{0}-scheduler.md" -f $task.task); $review=Join-Path $Paths.Out ("review-{0}.md" -f $task.task); $log=Join-Path $Paths.Out ("log-{0}.txt" -f $task.task)
-                    $text=if (Test-Path $review) { [IO.File]::ReadAllText($review) } elseif (Test-Path $log) { (Get-Content -LiteralPath $log -Tail 100) -join "`r`n" } else { "Task $($task.task) failed or merge gate was not clean." }; [IO.File]::WriteAllText($feedback,$text,(New-Object Text.UTF8Encoding($false)))
+                    $text=if ($conflictBase) { "merge $conflictBase into your worktree, resolve the conflicts, keep both sides' intent, run the tests." } elseif (Test-Path -LiteralPath $review) { [IO.File]::ReadAllText($review) } elseif (Test-Path -LiteralPath $log) { (Get-Content -LiteralPath $log -Tail 100) -join "`r`n" } else { "Task $($task.task) failed or merge gate was not clean." }; [IO.File]::WriteAllText($feedback,$text,(New-Object Text.UTF8Encoding($false)))
                     try { if ((& $ResumeCommand $Paths $task.task $feedback) -eq $false) { throw 'resume failed' }; Add-Decision $Paths $task.task 'resumed' 'retry after failure' ($round+1); $result.autopilot+=@('resumed') } catch { Add-Decision $Paths $task.task 'failed' $_.Exception.Message $round; $result.autopilot+=@('failed') }
                 } else { Add-Decision $Paths $task.task 'failed' 'maximum rounds reached' $round; $result.autopilot+=@('failed') }; break
             }

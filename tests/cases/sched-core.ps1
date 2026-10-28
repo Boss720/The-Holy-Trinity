@@ -322,3 +322,98 @@ Run-Case 'sched-core: stale started entries are pruned' {
     $left=(@(Get-SchedulerStarted $p | ForEach-Object { $_.task }) | Sort-Object) -join ','
     Assert-True ($left -eq 'fresh-noboard,keep') "pruning wrong: $left"
 }
+
+Run-Case 'sched-core: dry run conflict classifies findings and provides exact feedback' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; $null=Set-TrinityConfig $p @{autopilot=@{enabled=$true;cleanRunsBeforeAutoMerge=0}}
+    $null=Invoke-Git $f.Repo @('branch','agent/codex/conflicted'); [void][IO.Directory]::CreateDirectory((Join-Path $p.Worktrees 'codex-conflicted')); Set-SchedulerStarted $p 'conflicted' $true; Add-Decision $p 'conflicted' 'started' 'dispatched' 0
+    [IO.File]::WriteAllText($p.Board,"## conflicted`r`n- agent: codex`r`n- status: done`r`n")
+    $script:resumedFeedback=''
+    $gate={ @{success=$false;output='dry run: agent/codex/conflicted conflicts with main; merge main into the worktree first'} }
+    $resume={ param($paths,$task,$file) $script:resumedFeedback=[IO.File]::ReadAllText($file); return $true }
+    $r=Invoke-SchedulerTick $p -MergeCommand $gate -ResumeCommand $resume
+    $d=@(Get-Decisions $p 1)[0]
+    Assert-True ($r.autopilot -contains 'resumed' -and $d.action -eq 'resumed' -and $script:resumedFeedback -eq "merge main into your worktree, resolve the conflicts, keep both sides' intent, run the tests.") ("conflict feedback incorrect: '$($script:resumedFeedback)', action: $($d.action)")
+}
+Run-Case 'sched-core: wrong shape queue is archived and recovered' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; $qPath=Join-Path $p.Main '.trinity\queue.json'
+    [void][IO.Directory]::CreateDirectory((Split-Path $qPath))
+    foreach ($bad in @('{"version":1}', 'null', '{"version":1,"items":123}', '[1,2,3]')) {
+        [IO.File]::WriteAllText($qPath, $bad)
+        $q=Get-TrinityQueue $p
+        Assert-True ($q.items.Count -eq 0 -and @(Get-Decisions $p 1)[0].reason -eq 'corrupt queue recovered') "bad queue shape '$bad' was not recovered"
+    }
+    Assert-True (@(Get-ChildItem (Split-Path $qPath) -Filter 'queue.json.corrupt-*').Count -ge 4) 'corrupt archives missing'
+}
+Run-Case 'sched-core: migration seeds scheduler-tasks when missing' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; $null=Set-TrinityConfig $p @{autopilot=@{enabled=$true}}
+    $tasksPath=Join-Path $p.Main '.trinity\scheduler-tasks.json'
+    if (Test-Path $tasksPath) { Remove-Item $tasksPath -Force }
+    [void][IO.Directory]::CreateDirectory((Split-Path $tasksPath))
+    $archivedDec=Join-Path $p.Main '.trinity\decisions-20261028000000.jsonl'
+    $currentDec=Join-Path $p.Main '.trinity\decisions.jsonl'
+    $time1=(Get-Date).AddHours(-5).ToString('o')
+    $time2=(Get-Date).AddHours(-1).ToString('o')
+    [IO.File]::WriteAllText($archivedDec, (@{at=$time1;task='migrated-arch';action='started';reason='dispatched';round=0} | ConvertTo-Json -Compress) + "`n")
+    [IO.File]::WriteAllText($currentDec, (@{at=$time2;task='migrated-curr';action='started';reason='dispatched';round=0} | ConvertTo-Json -Compress) + "`n" + (@{at=$time2;task='no-branch';action='started';reason='dispatched';round=0} | ConvertTo-Json -Compress) + "`n" + (@{at=$time2;task='no-worktree';action='started';reason='dispatched';round=0} | ConvertTo-Json -Compress) + "`n" + (@{at=$time2;task='no-board';action='started';reason='dispatched';round=0} | ConvertTo-Json -Compress) + "`n")
+    $null=Invoke-Git $f.Repo @('branch','agent/codex/migrated-arch')
+    [void][IO.Directory]::CreateDirectory((Join-Path $p.Worktrees 'codex-migrated-arch'))
+    $null=Invoke-Git $f.Repo @('branch','agent/codex/migrated-curr')
+    [void][IO.Directory]::CreateDirectory((Join-Path $p.Worktrees 'codex-migrated-curr'))
+    [void][IO.Directory]::CreateDirectory((Join-Path $p.Worktrees 'codex-no-branch'))
+    $null=Invoke-Git $f.Repo @('branch','agent/codex/no-worktree')
+    $null=Invoke-Git $f.Repo @('branch','agent/codex/no-board')
+    [void][IO.Directory]::CreateDirectory((Join-Path $p.Worktrees 'codex-no-board'))
+    [IO.File]::WriteAllText($p.Board, "## migrated-arch`r`n- agent: codex`r`n- status: done`r`n## migrated-curr`r`n- agent: codex`r`n- status: done`r`n## no-branch`r`n- agent: codex`r`n- status: done`r`n## no-worktree`r`n- agent: codex`r`n- status: done`r`n")
+    Assert-True (-not (Test-Path $tasksPath)) 'scheduler-tasks should not exist before migration'
+    $started=Get-SchedulerStarted $p
+    Assert-True (Test-Path $tasksPath) 'scheduler-tasks was not created by migration'
+    $names=(@($started | ForEach-Object { $_.task }) | Sort-Object) -join ','
+    Assert-True ($names -eq 'migrated-arch,migrated-curr') "migrated tasks incorrect: $names"
+}
+Run-Case 'sched-core: gate errors do not break consecutive failure count' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; $cfg=Get-TrinityConfig $p
+    $cfg.autopilot.maxConsecutiveFailures=2
+    Add-Decision $p 't1' 'failed' 'fail1' 0
+    Add-Decision $p 't2' 'gate-error' 'error' 0
+    Add-Decision $p 't3' 'failed' 'fail2' 0
+    $d=Get-Decisions $p 0
+    $limit=Get-SchedulerLimit $cfg $d
+    Assert-True ($limit -eq 'limit: 2 consecutive failures') "gate-error broke failure chain: '$limit'"
+    [IO.File]::WriteAllText((Join-Path $p.Main '.trinity\decisions.jsonl'), '')
+    Add-Decision $p 't1' 'failed' 'fail1' 0
+    Add-Decision $p 't2' 'gate-error' 'error' 0
+    $d=Get-Decisions $p 0
+    $limit=Get-SchedulerLimit $cfg $d
+    Assert-True ($limit -eq '') "gate-error counted as a failure: '$limit'"
+}
+Run-Case 'sched-core: dry run gate writes output file and prints status' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; $null=Set-TrinityConfig $p @{autopilot=@{enabled=$true}}
+    $null=Invoke-Git $f.Repo @('branch','agent/codex/task-clean'); [void][IO.Directory]::CreateDirectory((Join-Path $p.Worktrees 'codex-task-clean')); Set-SchedulerStarted $p 'task-clean' $true; Add-Decision $p 'task-clean' 'started' 'dispatched' 0
+    [IO.File]::WriteAllText($p.Board,"## task-clean`r`n- agent: codex`r`n- status: done`r`n")
+    $outClean = & { Invoke-SchedulerTick $p -MergeCommand { @{success=$true;output='dry run clean: tests passed, scope ok'} } } 6>&1
+    $gatePath = Join-Path $p.Out 'gate-task-clean.txt'
+    Assert-True (Test-Path $gatePath) 'gate output file missing for clean'
+    Assert-True (([IO.File]::ReadAllText($gatePath)).Trim() -eq 'dry run clean: tests passed, scope ok') 'gate file content incorrect'
+    Assert-True (($outClean -join "`n") -match 'gate task-clean: clean \(see \.codex-out\\gate-task-clean\.txt\)') "printed line incorrect for clean: $outClean"
+
+    $null=Invoke-Git $f.Repo @('branch','agent/codex/task-findings'); [void][IO.Directory]::CreateDirectory((Join-Path $p.Worktrees 'codex-task-findings')); Set-SchedulerStarted $p 'task-findings' $true; Add-Decision $p 'task-findings' 'started' 'dispatched' 0
+    [IO.File]::WriteAllText($p.Board,"## task-findings`r`n- agent: codex`r`n- status: done`r`n")
+    $outFindings = & { Invoke-SchedulerTick $p -MergeCommand { @{success=$false;output='- [P1] bug in code'} } -ResumeCommand { $true } } 6>&1
+    $gatePathFindings = Join-Path $p.Out 'gate-task-findings.txt'
+    Assert-True (Test-Path $gatePathFindings) 'gate output file missing for findings'
+    Assert-True (([IO.File]::ReadAllText($gatePathFindings)).Trim() -eq '- [P1] bug in code') 'gate file content incorrect'
+    Assert-True (($outFindings -join "`n") -match 'gate task-findings: findings \(see \.codex-out\\gate-task-findings\.txt\)') "printed line incorrect for findings: $outFindings"
+
+    $null=Invoke-Git $f.Repo @('branch','agent/codex/task-gerr'); [void][IO.Directory]::CreateDirectory((Join-Path $p.Worktrees 'codex-task-gerr')); Set-SchedulerStarted $p 'task-gerr' $true; Add-Decision $p 'task-gerr' 'started' 'dispatched' 0
+    [IO.File]::WriteAllText($p.Board,"## task-gerr`r`n- agent: codex`r`n- status: done`r`n")
+    $outGerr = & { Invoke-SchedulerTick $p -MergeCommand { @{success=$false;output='reviewer unavailable'} } } 6>&1
+    $gatePathGerr = Join-Path $p.Out 'gate-task-gerr.txt'
+    Assert-True (Test-Path $gatePathGerr) 'gate output file missing for gate-error'
+    Assert-True (([IO.File]::ReadAllText($gatePathGerr)).Trim() -eq 'reviewer unavailable') 'gate file content incorrect'
+    Assert-True (($outGerr -join "`n") -match 'gate task-gerr: gate-error \(see \.codex-out\\gate-task-gerr\.txt\)') "printed line incorrect for gate-error: $outGerr"
+}
