@@ -1,4 +1,14 @@
-﻿Run-Case 'dash-api: ready and stalled task states' {
+﻿Run-Case 'dash-api: merge accepts ready and rejects running' {
+    param($f)
+    & {
+        . (Join-Path $f.Repo 'scripts\dashboard.ps1') -LibraryOnly
+        Assert-True (Test-TaskActionState 'merge' 'ready' $false '') 'ready merge rejected'
+        Assert-True (Test-TaskActionState 'merge' 'done' $false '') 'done merge rejected'
+        Assert-True (-not (Test-TaskActionState 'merge' 'running' $false '')) 'running merge accepted'
+    }
+}
+
+Run-Case 'dash-api: ready and stalled task states' {
     param($f)
     & {
         . (Join-Path $f.Repo 'scripts\dashboard.ps1') -LibraryOnly
@@ -35,6 +45,8 @@ Run-Case 'dash-api: listener guards and routes' {
         $dir=Join-Path $f.Repo '.trinity'; [void][IO.Directory]::CreateDirectory($dir)
         [IO.File]::WriteAllText((Join-Path $dir 'queue.json'), '{"items":[{"task":"noprompt","agent":"claude"},{"task":"taken","agent":"claude","promptFile":"prompt.md"}]}')
         Set-CliTask $f 'taken' 'done'
+        Set-CliTask $f 'ready-task' 'ready: review clean'
+        Set-CliTask $f 'running-task' 'running'
         $ui=Join-Path $f.Repo 'scripts\dashboard-ui'; [void][IO.Directory]::CreateDirectory($ui); [IO.File]::WriteAllText((Join-Path $ui 'test.js'),'test')
         $process=Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -WindowStyle Hidden -PassThru -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"{0}"' -f (Join-Path $f.Repo 'scripts\dashboard.ps1')),'-Port',[string]$port,'-Repos',('"{0}"' -f $f.Repo))
         $base="http://localhost:$port"; $page=$null; $deadline=(Get-Date).AddSeconds(30)
@@ -58,6 +70,8 @@ Run-Case 'dash-api: listener guards and routes' {
         $reply=& $send '/api/action' @{action='queue-add';repo=$f.Repo;task='unsafe';agent='claude';scope=$badScope;prompt='test';confirm=$true} $token
         Assert-True ($reply.status -eq 400) 'non-ASCII scope reached a job'
         Assert-True (-not (Test-Path (Join-Path $f.Repo '.codex-out\jobs'))) 'unsafe request created a job'
+        $reply=& $send '/api/action' @{action='merge';repo=$f.Repo;task='ready-task';confirm=$true} $token; Assert-True ($reply.status -eq 202) "ready merge rejected: $($reply.text)"
+        $reply=& $send '/api/action' @{action='merge';repo=$f.Repo;task='running-task';confirm=$true} $token; Assert-True ($reply.status -eq 409 -and $reply.text -match 'Task state does not allow this action') "running merge accepted: $($reply.text)"
         foreach ($action in @('resume','retry','queue-add','queue-remove','queue-move','start-now','settings-save','autopilot','pause','unpause')) { $reply=& $send '/api/action' @{action=$action;repo=$f.Repo;task=''} ''; Assert-True ($reply.status -eq 401) "$action did not require token" }
         foreach ($action in @('settings-save','autopilot','unpause')) { $reply=& $send '/api/action' @{action=$action;repo=$f.Repo;task=''} $token; Assert-True ($reply.status -eq 412) "$action did not require confirm" }
         $reply=& $send '/api/action' @{action='settings-save';repo=$f.Repo;task='';confirm=$true;config=@{slots=@{codex=9}}} $token; Assert-True ($reply.status -eq 400) 'bad settings accepted'

@@ -675,6 +675,10 @@ function Get-TaskState([string]$Status, [bool]$RunnerAlive) {
     return 'other'
 }
 
+function Test-TaskActionState([string]$Action, [string]$State, [bool]$HasWorktree, [string]$Branch) {
+    return -not (($Action -eq 'cancel' -and $State -in @('merged','cancelled')) -or ($Action -eq 'merge' -and $State -notin @('done','ready')) -or ($Action -in @('review-task','open-folder') -and (-not $HasWorktree -or -not $Branch -or $Branch -eq '-')))
+}
+
 function Get-RepoTasks([string]$Main, [string]$Common) {
     $boardPath = Join-Path $Common 'agent-board.md'
     if (-not (Test-Path -LiteralPath $boardPath -PathType Leaf)) { return @() }
@@ -1428,8 +1432,8 @@ try {
                             $hasWorktree = $worktree.StartsWith($expected, [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $worktree -PathType Container)
                         } catch { $hasWorktree = $false }
                     }
-                    if (($action -eq 'cancel' -and $taskState.state -in @('merged','cancelled')) -or ($action -eq 'merge' -and $taskState.state -notin @('done','ready')) -or ($action -in @('review-task','open-folder') -and (-not $hasWorktree -or -not $taskState.branch -or $taskState.branch -eq '-'))) {
-                        Add-ActionLog $action $repoPath $taskName '400'; $actionLogged=$true; Send-JsonResponse $response 400 @{ error='Task state does not allow this action' }; continue
+                    if (-not (Test-TaskActionState $action $taskState.state $hasWorktree ([string]$taskState.branch))) {
+                        if ($action -eq 'merge') { $stateCode=409 } else { $stateCode=400 }; Add-ActionLog $action $repoPath $taskName ([string]$stateCode); $actionLogged=$true; Send-JsonResponse $response $stateCode @{ error='Task state does not allow this action' }; continue
                     }
                     }
                     Update-ActionJobs
