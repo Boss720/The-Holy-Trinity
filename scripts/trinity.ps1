@@ -78,15 +78,10 @@ function Test-TaskRunnerAlive($paths, [string]$task) {
     catch {
         return [pscustomobject]@{ Alive = $false; PidReused = $true; Process = $proc }
     }
-    $dispatchTime = $null
-    $taskFile = Join-Path $paths.Out "task-$task.md"
-    if (Test-Path -LiteralPath $taskFile) {
-        $dispatchTime = (Get-Item -LiteralPath $taskFile).LastWriteTime
-    }
-    elseif (Test-Path -LiteralPath $pidFile) {
-        $dispatchTime = (Get-Item -LiteralPath $pidFile).LastWriteTime
-    }
-    if ($dispatchTime -and $procStartTime -lt $dispatchTime.AddSeconds(-2)) {
+    # The dispatcher writes the pid file right after starting the runner, so the runner must have started shortly
+    # before that write. A process started later (PID reused, even by another powershell) or long before is not ours.
+    $pidWritten = (Get-Item -LiteralPath $pidFile).LastWriteTime
+    if ($procStartTime -gt $pidWritten.AddSeconds(2) -or $procStartTime -lt $pidWritten.AddSeconds(-60)) {
         return [pscustomobject]@{ Alive = $false; PidReused = $true; Process = $proc }
     }
     return [pscustomobject]@{ Alive = $true; PidReused = $false; Process = $proc }
@@ -728,7 +723,7 @@ switch ($Command) {
                     $lastTreeCheck = $now
                     $sig = ''
                     try {
-                        foreach ($line in @(git -C $entry.worktree status --porcelain 2>$null)) {
+                        foreach ($line in @(git -C $entry.worktree status --porcelain --untracked-files=all 2>$null)) {
                             $rel = ($line.Substring(3) -replace '^"|"$', '') -replace '^.* -> ', ''
                             $item = Get-Item -LiteralPath (Join-Path $entry.worktree $rel) -ErrorAction SilentlyContinue
                             $sig += "$line|$(if ($item) { $item.LastWriteTimeUtc.Ticks })`n"

@@ -96,6 +96,7 @@ Run-Case 'runner watchdog: pid reuse detection reports runner dead' {
     Set-CliTask $f 'reuse-ps' 'running' 'codex'
     [IO.File]::WriteAllText((Join-Path $outDir 'pid-reuse-ps.txt'), "$PID`r`n", [System.Text.UTF8Encoding]::new($false))
     [IO.File]::WriteAllText((Join-Path $outDir 'task-reuse-ps.md'), "# Task`r`n", [System.Text.UTF8Encoding]::new($false))
+    (Get-Item -LiteralPath (Join-Path $outDir 'pid-reuse-ps.txt')).LastWriteTime = (Get-Process -Id $PID).StartTime.AddMinutes(10)
     $waitB = Invoke-Trinity $f @('wait', 'reuse-ps', '-Timeout', '10')
     Assert-True ($waitB.ExitCode -eq 1) "wait should exit 1 on reused powershell PID, got $($waitB.ExitCode)"
     Assert-True ($waitB.Output -match 'runner dead \(pid reused\)') "wait should report runner dead: $($waitB.Output)"
@@ -104,10 +105,24 @@ Run-Case 'runner watchdog: pid reuse detection reports runner dead' {
     Set-CliTask $f 'reuse-cancel' 'running' 'codex'
     [IO.File]::WriteAllText((Join-Path $outDir 'pid-reuse-cancel.txt'), "$PID`r`n", [System.Text.UTF8Encoding]::new($false))
     [IO.File]::WriteAllText((Join-Path $outDir 'task-reuse-cancel.md'), "# Task`r`n", [System.Text.UTF8Encoding]::new($false))
+    (Get-Item -LiteralPath (Join-Path $outDir 'pid-reuse-cancel.txt')).LastWriteTime = (Get-Process -Id $PID).StartTime.AddMinutes(10)
     $cancel = Invoke-Trinity $f @('cancel', 'reuse-cancel', '-Force')
     Assert-True ($cancel.Output -match 'runner dead \(pid reused\)') "cancel should report runner dead: $($cancel.Output)"
     $myProc = Get-Process -Id $PID -ErrorAction SilentlyContinue
     Assert-True ($null -ne $myProc) 'cancel must not kill unrelated process'
+
+    # Part D: a powershell started after the pid file was written (PID reused by a newer process)
+    $newer = Start-Process powershell.exe -ArgumentList '-NoProfile', '-Command', 'Start-Sleep -Seconds 60' -PassThru -WindowStyle Hidden
+    try {
+        Set-CliTask $f 'reuse-newer' 'running' 'codex'
+        $pidNewer = Join-Path $outDir 'pid-reuse-newer.txt'
+        [IO.File]::WriteAllText($pidNewer, "$($newer.Id)`r`n", [System.Text.UTF8Encoding]::new($false))
+        (Get-Item -LiteralPath $pidNewer).LastWriteTime = $newer.StartTime.AddMinutes(-5)
+        $cancelD = Invoke-Trinity $f @('cancel', 'reuse-newer', '-Force')
+        Assert-True ($cancelD.Output -match 'runner dead \(pid reused\)') "cancel should report runner dead: $($cancelD.Output)"
+        Assert-True (-not $newer.HasExited) 'cancel killed a newer process that reused the pid'
+    }
+    finally { if (-not $newer.HasExited) { $newer.Kill() } }
 }
 
 Run-Case 'runner watchdog: help text mentions -DeadlineMinutes' {
