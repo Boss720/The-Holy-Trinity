@@ -497,6 +497,8 @@ function Start-Dispatch([string]$agent, [string]$task, [string]$prompt, [int]$de
     $agent = Select-Worker $agent $task
     $isHeadless = $agent -ne 'claude' -or $Headless -or $requested -ne 'claude'
     $baseName = (Get-BaseBranch).Name
+    # Bad model/effort env values fail here, before a worktree exists.
+    if ($agent -eq 'codex') { $null = Get-CodexModelArgs } elseif ($agent -eq 'antigravity') { $null = Get-AgyModelArgs }
     $wt = New-AgentWorktree $paths $agent $task $Scope $baseName
 
     $taskFile = Join-Path $paths.Out "task-$task.md"
@@ -865,7 +867,7 @@ switch ($Command) {
             # permissions are skipped, so the task rules confine it to its worktree.
             $exe = Resolve-AgyExe
             Remove-Item $agyJson, $agyLog -ErrorAction SilentlyContinue
-            $cmdLine = 'cd /d "' + $entry.worktree + '" && "' + $exe + '" -p "Read the task file ' + $taskFile + ' and do it. Your final message is your summary." --dangerously-skip-permissions --add-dir "' + $paths.Out + '" --output-format json --log-file "' + $agyLog + '" > "' + $agyJson + '" 2> "' + $log + '"'
+            $cmdLine = 'cd /d "' + $entry.worktree + '" && "' + $exe + '" -p "Read the task file ' + $taskFile + ' and do it. Your final message is your summary." ' + ((Get-AgyModelArgs) -join ' ') + ' --dangerously-skip-permissions --add-dir "' + $paths.Out + '" --output-format json --log-file "' + $agyLog + '" > "' + $agyJson + '" 2> "' + $log + '"'
         }
         else {
             $exe = Resolve-CodexExe

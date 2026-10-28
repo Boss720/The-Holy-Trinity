@@ -249,6 +249,23 @@ function Get-CodexModelArgs {
     return $out
 }
 
+# TRINITY_AGY_MODEL (e.g. gemini-3.8-flash-high, see `agy models`) and TRINITY_AGY_EFFORT pick the Antigravity
+# model and reasoning effort for headless workers (empty = agy's own default).
+function Get-AgyModelArgs {
+    $out = @()
+    $model = "$env:TRINITY_AGY_MODEL".Trim()
+    if ($model) {
+        if ($model -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*$') { Fail "invalid TRINITY_AGY_MODEL '$model'" }
+        $out += @('--model', $model)
+    }
+    $effort = "$env:TRINITY_AGY_EFFORT".Trim().ToLowerInvariant()
+    if ($effort) {
+        if ($effort -notin @('low', 'medium', 'high', 'xhigh', 'max')) { Fail "invalid TRINITY_AGY_EFFORT '$effort' (low, medium, high, xhigh, max)" }
+        $out += @('--effort', $effort)
+    }
+    return $out
+}
+
 # Run a CLI's login check; exit code 0 = usable. The child must not think it is nested in this Claude session.
 function Test-CliLogin([string]$Exe, [string[]]$CliArgs) {
     $savedPref = $ErrorActionPreference

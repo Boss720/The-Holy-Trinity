@@ -56,6 +56,20 @@ Run-Case 'cli-wire: TRINITY_CODEX_MODEL and TRINITY_CODEX_EFFORT reach the Codex
     Assert-True ($bad.ExitCode -ne 0 -and $bad.Output -match 'invalid TRINITY_CODEX_EFFORT') "bad effort accepted: $($bad.Output)"
 }
 
+Run-Case 'cli-wire: TRINITY_AGY_MODEL and TRINITY_AGY_EFFORT reach the Antigravity command line' {
+    param($f)
+    $env:TRINITY_AGY_MODEL = 'gemini-test-high'
+    $env:TRINITY_AGY_EFFORT = 'high'
+    Start-AgyTask $f 'agy-model-task'
+    $wait = Invoke-Trinity $f @('wait', 'agy-model-task', '-Timeout', '30')
+    Assert-True ($wait.ExitCode -eq 0) "fixture task did not finish: $($wait.Output)"
+    $run = [IO.File]::ReadAllText((Join-Path $f.Repo '.codex-out\run-agy-model-task.cmd'))
+    Assert-True ($run -match '--model gemini-test-high --effort high --dangerously-skip-permissions') "agy model args missing from the runner: $run"
+    $env:TRINITY_AGY_EFFORT = 'turbo'
+    $bad = Invoke-Trinity $f @('dispatch', 'antigravity', 'agy-bad-effort', '-Scope', 'tests/*', '-PromptFile', $f.Prompt)
+    Assert-True ($bad.ExitCode -ne 0 -and $bad.Output -match 'invalid TRINITY_AGY_EFFORT') "bad agy effort accepted: $($bad.Output)"
+}
+
 Run-Case 'cli-wire: trinity config set/get and base branch from trinity.json' {
     param($f)
     if (-not (Test-Path -LiteralPath (Join-Path $f.Repo 'scripts\lib\config.ps1'))) { Skip-Case 'scripts\lib\config.ps1 not installed' }

@@ -146,7 +146,7 @@ function Run-Case([string]$Name, [scriptblock]$Body, [string]$TestCommand = 'exi
     $oldReview = $env:FAKE_REVIEW_OUTPUT
     # Agent selection env: every case starts with all three fakes usable and nothing disabled.
     $savedEnv = @{}
-    foreach ($envName in 'CLAUDE_EXE', 'TRINITY_DISABLE', 'TRINITY_REVIEWER', 'FAKE_CODEX_LOGGED_OUT', 'FAKE_CLAUDE_LOGGED_OUT', 'FAKE_CLAUDE_MODE', 'TRINITY_AGY_HOME', 'FAKE_AGY_TRANSCRIPT', 'TRINITY_ORCHESTRATOR', 'CODEX_THREAD_ID', 'CLAUDECODE', 'CLAUDE_CODE_SESSION_ID', 'ANTIGRAVITY_AGENT', 'ANTIGRAVITY_CONVERSATION_ID', 'TRINITY_CODEX_MODEL', 'TRINITY_CODEX_EFFORT', 'TRINITY_SCOPE_GUARD') {
+    foreach ($envName in 'CLAUDE_EXE', 'TRINITY_DISABLE', 'TRINITY_REVIEWER', 'FAKE_CODEX_LOGGED_OUT', 'FAKE_CLAUDE_LOGGED_OUT', 'FAKE_CLAUDE_MODE', 'TRINITY_AGY_HOME', 'FAKE_AGY_TRANSCRIPT', 'TRINITY_ORCHESTRATOR', 'CODEX_THREAD_ID', 'CLAUDECODE', 'CLAUDE_CODE_SESSION_ID', 'ANTIGRAVITY_AGENT', 'ANTIGRAVITY_CONVERSATION_ID', 'TRINITY_CODEX_MODEL', 'TRINITY_CODEX_EFFORT', 'TRINITY_AGY_MODEL', 'TRINITY_AGY_EFFORT', 'TRINITY_SCOPE_GUARD') {
         $savedEnv[$envName] = [Environment]::GetEnvironmentVariable($envName)
         [Environment]::SetEnvironmentVariable($envName, $null)
     }
