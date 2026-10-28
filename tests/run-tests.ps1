@@ -1,10 +1,18 @@
-﻿param([switch]$Keep, [string]$Only)
+﻿param([switch]$Keep, [string]$Only, [string]$Shard)
 
 $ErrorActionPreference = 'Stop'
 $repoSource = Split-Path $PSScriptRoot -Parent
 $passed = 0
 $failed = 0
 $skipped = 0
+$caseCounter = 0
+$shardIndex = -1
+$shardCount = 1
+if ($Shard) {
+    if ($Shard -notmatch '^(\d+)/(\d+)$' -or [int]$Matches[2] -lt 1 -or [int]$Matches[1] -ge [int]$Matches[2]) { Write-Output "bad -Shard '$Shard' (want i/N, 0-based)"; exit 2 }
+    $shardIndex = [int]$Matches[1]
+    $shardCount = [int]$Matches[2]
+}
 $fixtures = New-Object System.Collections.Generic.List[string]
 # GitHub runners hand out an 8.3 TEMP (a RUNNER~1 profile folder) while git and the toolkit report the long form, so the same
 # fixture path would compare unequal. Run the whole suite on the long form.
@@ -125,6 +133,9 @@ function Skip-Case([string]$Reason) {
 
 function Run-Case([string]$Name, [scriptblock]$Body, [string]$TestCommand = 'exit 0') {
     if ($script:Only -and $Name -notlike "*$($script:Only)*") { return }
+    $caseNumber = $script:caseCounter
+    $script:caseCounter++
+    if ($script:shardIndex -ge 0 -and ($caseNumber % $script:shardCount) -ne $script:shardIndex) { return }
     $fixture = $null
     $oldCodex = $env:CODEX_EXE
     $oldAgy = $env:AGY_EXE
