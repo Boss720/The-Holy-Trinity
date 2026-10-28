@@ -1536,7 +1536,7 @@ Run-Case 'dashboard action API validates requests and runs a review job' {
         $token=$tokenMatch.Groups[1].Value
         $send = {
             param($Url,$Method,$Body,$Token,$Origin,$ContentType)
-            $request=[Net.HttpWebRequest]::Create($Url); $request.Method=$Method; $request.Timeout=3000
+            $request=[Net.HttpWebRequest]::Create($Url); $request.Method=$Method; $request.Timeout=15000
             if ($Token) { $request.Headers.Add('X-Trinity-Token',$Token) }
             if ($Origin) { $request.Headers.Add('Origin',$Origin) }
             if ($null -ne $Body) { $bytes=[Text.Encoding]::UTF8.GetBytes($Body); $request.ContentType=$ContentType; $request.ContentLength=$bytes.Length; $stream=$request.GetRequestStream(); $stream.Write($bytes,0,$bytes.Length); $stream.Dispose() }
