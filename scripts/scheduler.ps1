@@ -16,9 +16,14 @@ try {
     $idleSince=$null; $stop=Join-Path $paths.Main '.trinity\scheduler.stop'
     while ($true) {
         if (Test-Path -LiteralPath $stop) { Remove-Item -LiteralPath $stop -Force; break }
-        $null=Invoke-SchedulerTick $paths
+        try { $null=Invoke-SchedulerTick $paths } catch {
+            $message=$_.Exception.Message; [void][IO.Directory]::CreateDirectory($paths.Out)
+            [IO.File]::AppendAllText((Join-Path $paths.Out 'scheduler-error.log'), ((Get-Date).ToString('o') + ' ' + $message + "`r`n"), (New-Object Text.UTF8Encoding($false)))
+            $process=Get-Process -Id $PID
+            Write-TrinityJson $heartbeat @{pid=$PID;startedAt=$process.StartTime.ToString('o');processStart=$process.StartTime.ToString('o');lastTickAt=(Get-Date).ToString('o');now=('error: ' + $message);next=''}
+        }
         if ($Once) { break }
-        $queue=Get-TrinityQueue $paths; $config=Get-TrinityConfig $paths
+        try { $queue=Get-TrinityQueue $paths; $config=Get-TrinityConfig $paths } catch { $idleSince=$null; Start-Sleep -Seconds $IntervalSeconds; continue }
         if (-not $queue.items.Count -and -not $config.autopilot.enabled) { if (-not $idleSince) { $idleSince=Get-Date }; if (((Get-Date)-$idleSince).TotalMinutes -ge 10) { break } } else { $idleSince=$null }
         for ($i=0; $i -lt $IntervalSeconds; $i++) { Start-Sleep -Seconds 1; if (Test-Path -LiteralPath $stop) { break } }
     }

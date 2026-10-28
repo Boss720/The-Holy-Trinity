@@ -14,27 +14,27 @@ Run-Case 'sched-core: config defaults merge validation and corruption' {
 Run-Case 'sched-core: queue order lock and stale lock' {
     param($f)
     $p=Get-SchedulerPaths $f.Repo
-    foreach ($name in @('one','two','three')) { Add-QueueItem $p @{task=$name;agent='codex'} }
+    foreach ($name in @('one','two','three')) { Add-QueueItem $p @{task=$name;agent='codex';promptFile=$f.Prompt} }
     Move-QueueItem $p 'three' 0; Remove-QueueItem $p 'two'; $q=Get-TrinityQueue $p
     Assert-True (($q.items.task -join ',') -eq 'three,one') 'queue order incorrect'
     $lock=Join-Path $f.Repo '.trinity\queue.lock'; [IO.File]::WriteAllText($lock,'stale'); (Get-Item $lock).LastWriteTime=(Get-Date).AddSeconds(-31)
     $null=Get-TrinityQueue $p; Assert-True (-not (Test-Path $lock)) 'stale lock not removed'
     $stream=[IO.File]::Open($lock,[IO.FileMode]::CreateNew,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
     $lib=Join-Path $repoSource 'scripts\lib\scheduler.ps1'
-    $job=Start-Job -ScriptBlock { param($lib,$repo) . $lib; $p=Get-SchedulerPaths $repo; Add-QueueItem $p @{task='later';agent='codex'} } -ArgumentList $lib,$f.Repo
+    $job=Start-Job -ScriptBlock { param($lib,$repo) . $lib; $p=Get-SchedulerPaths $repo; Add-QueueItem $p @{task='later';agent='codex';promptFile=(Join-Path $repo 'tests\prompt.md')} } -ArgumentList $lib,$f.Repo
     try { Start-Sleep -Seconds 2; Assert-True ($job.State -eq 'Running') 'second writer did not wait' } finally { $stream.Dispose(); Remove-Item $lock -Force; $null=Wait-Job $job -Timeout 10 }
     $errors=@(Receive-Job $job -ErrorAction SilentlyContinue -ErrorVariable jobErrors); Remove-Job $job -Force
     Assert-True (-not $jobErrors -and @((Get-TrinityQueue $p).items | Where-Object { $_.task -eq 'later' }).Count -eq 1) 'waiting writer failed'
 }
 Run-Case 'sched-core: pause marks all queued items' {
     param($f)
-    $p=Get-SchedulerPaths $f.Repo; Add-QueueItem $p @{task='one';agent='codex'}; Add-QueueItem $p @{task='two';agent='codex'}; Set-PauseSwitch $p 'user'
+    $p=Get-SchedulerPaths $f.Repo; Add-QueueItem $p @{task='one';agent='codex';promptFile=$f.Prompt}; Add-QueueItem $p @{task='two';agent='codex';promptFile=$f.Prompt}; Set-PauseSwitch $p 'user'
     $r=Invoke-SchedulerTick $p -DispatchCommand { throw 'must not dispatch' }
     Assert-True ($r.waiting.one -eq 'paused' -and $r.waiting.two -eq 'paused' -and @((Get-TrinityQueue $p).items | Where-Object { $_.waiting -eq 'paused' }).Count -eq 2) 'pause failed'
 }
 Run-Case 'sched-core: slots block then dispatch' {
     param($f)
-    $p=Get-SchedulerPaths $f.Repo; $null=Set-TrinityConfig $p @{slots=@{codex=0}}; Add-QueueItem $p @{task='one';agent='codex'}
+    $p=Get-SchedulerPaths $f.Repo; $null=Set-TrinityConfig $p @{slots=@{codex=0}}; Add-QueueItem $p @{task='one';agent='codex';promptFile=$f.Prompt}
     $calls=New-Object Collections.ArrayList; $fake={ param($paths,$item,$config) [void]$calls.Add($item.task); return $true }
     $r=Invoke-SchedulerTick $p -DispatchCommand $fake; Assert-True ($r.waiting.one -eq 'no free slot') 'slot did not block'
     $null=Set-TrinityConfig $p @{slots=@{codex=1}}; $r=Invoke-SchedulerTick $p -DispatchCommand $fake
@@ -43,7 +43,7 @@ Run-Case 'sched-core: slots block then dispatch' {
 Run-Case 'sched-core: running scope blocks overlap' {
     param($f)
     $p=Get-SchedulerPaths $f.Repo; [IO.File]::WriteAllText($p.Board,"## busy`r`n- agent: claude`r`n- scope: src/auth/*`r`n- status: running`r`n")
-    Add-QueueItem $p @{task='one';agent='codex';scope='src/auth/forms/*'}; $r=Invoke-SchedulerTick $p -DispatchCommand { throw 'unexpected dispatch' }
+    Add-QueueItem $p @{task='one';agent='codex';promptFile=$f.Prompt;scope='src/auth/forms/*'}; $r=Invoke-SchedulerTick $p -DispatchCommand { throw 'unexpected dispatch' }
     Assert-True ($r.waiting.one -eq 'scope overlaps busy') 'overlap not blocked'
 }
 Run-Case 'sched-core: autopilot ready resume and limit' {
@@ -83,7 +83,7 @@ Run-Case 'sched-core: old tasks and missing branches are ignored' {
 }
 Run-Case 'sched-core: dispatch failure backoff and half success' {
     param($f)
-    $p=Get-SchedulerPaths $f.Repo; Add-QueueItem $p @{task='retry';agent='codex';scope='src/*'}
+    $p=Get-SchedulerPaths $f.Repo; Add-QueueItem $p @{task='retry';agent='codex';promptFile=$f.Prompt;scope='src/*'}
     $calls=New-Object Collections.ArrayList; $fake={ [void]$calls.Add(1); throw 'failure' }
     $null=Invoke-SchedulerTick $p -DispatchCommand $fake; $r=Invoke-SchedulerTick $p -DispatchCommand $fake
     Assert-True ($calls.Count -eq 1 -and $r.waiting.retry -eq 'retry backoff' -and @((Get-Decisions $p 0) | Where-Object { $_.action -eq 'failed' }).Count -eq 1) 'backoff failed'
@@ -109,8 +109,62 @@ Run-Case 'sched-core: stale rate limit is ignored' {
 }
 Run-Case 'sched-core: default dispatch omits empty options and restores model' {
     param($f)
-    $p=Get-SchedulerPaths $f.Repo; Add-QueueItem $p @{task='model';agent='codex';model='test-model'}
+    $p=Get-SchedulerPaths $f.Repo; Add-QueueItem $p @{task='model';agent='codex';promptFile=$f.Prompt;model='test-model'}
     $script:capturedArgs=$null; $script:capturedModel=''; $old=$env:TRINITY_CODEX_MODEL; $env:TRINITY_CODEX_MODEL='original'
     function Invoke-SchedulerChild($paths,[string[]]$arguments) { $script:capturedArgs=$arguments; $script:capturedModel=$env:TRINITY_CODEX_MODEL; return $true }
-    try { $null=Invoke-SchedulerTick $p; Assert-True ($script:capturedModel -eq 'test-model' -and $env:TRINITY_CODEX_MODEL -eq 'original' -and '-Scope' -notin $script:capturedArgs -and '-PromptFile' -notin $script:capturedArgs -and '-Model' -notin $script:capturedArgs) 'dispatch arguments or model incorrect' } finally { $env:TRINITY_CODEX_MODEL=$old; Remove-Item Function:Invoke-SchedulerChild }
+    try { $null=Invoke-SchedulerTick $p; Assert-True ($script:capturedModel -eq 'test-model' -and $env:TRINITY_CODEX_MODEL -eq 'original' -and '-Scope' -notin $script:capturedArgs -and '-PromptFile' -in $script:capturedArgs -and '-Model' -notin $script:capturedArgs) 'dispatch arguments or model incorrect' } finally { $env:TRINITY_CODEX_MODEL=$old; Remove-Item Function:Invoke-SchedulerChild }
+}
+
+Run-Case 'sched-core: unpause resets failure limit' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; $null=Set-TrinityConfig $p @{autopilot=@{enabled=$true;maxConsecutiveFailures=1}}
+    Add-Decision $p 'old' 'failed' 'failure' 0; $null=Invoke-SchedulerTick $p
+    Assert-True (Test-PauseSwitch $p).paused 'limit did not pause'
+    Clear-PauseSwitch $p; $null=Invoke-SchedulerTick $p
+    Assert-True (-not (Test-PauseSwitch $p).paused -and @((Get-Decisions $p 0) | Where-Object { $_.action -eq 'unpaused' }).Count -eq 1) 'unpause did not reset failure count'
+}
+Run-Case 'sched-core: missing prompt rejected and legacy item waits' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; $threw=$false
+    try { Add-QueueItem $p @{task='bad';agent='codex'} } catch { $threw=$_.Exception.Message -match 'promptFile' }
+    Assert-True $threw 'empty prompt accepted'
+    $threw=$false; try { Add-QueueItem $p @{task='bad';agent='codex';promptFile='missing'} } catch { $threw=$true }; Assert-True $threw 'missing prompt accepted'
+    Write-TrinityJson (Join-Path $p.Main '.trinity\queue.json') @{version=1;items=@(@{task='legacy';agent='codex';promptFile='';scope=''})}
+    $r=Invoke-SchedulerTick $p -DispatchCommand { throw 'unexpected dispatch' }
+    Assert-True ($r.waiting.legacy -eq 'waiting: no prompt file' -and @((Get-Decisions $p 0) | Where-Object { $_.action -eq 'failed' }).Count -eq 0) 'legacy item was attempted'
+}
+Run-Case 'sched-core: recovered dispatch becomes autopilot eligible' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; $null=Set-TrinityConfig $p @{autopilot=@{enabled=$true;maxConsecutiveFailures=1}}
+    Add-Decision $p 'half' 'failed' 'dispatch: failed' 0
+    Add-QueueItem $p @{task='half';agent='codex';promptFile=$f.Prompt}
+    $null=Invoke-Git $f.Repo @('branch','agent/codex/half'); [void][IO.Directory]::CreateDirectory((Join-Path $p.Worktrees 'codex-half'))
+    [IO.File]::WriteAllText($p.Board,"## half`r`n- agent: codex`r`n- status: done`r`n")
+    $r=Invoke-SchedulerTick $p -MergeCommand { $true }; if ($r.autopilot -notcontains 'ready') { $r=Invoke-SchedulerTick $p -MergeCommand { $true } }
+    Assert-True (-not (Test-PauseSwitch $p).paused -and $r.autopilot -contains 'ready' -and @((Get-Decisions $p 0) | Where-Object { $_.task -eq 'half' -and $_.action -eq 'started' }).Count -eq 1) 'recovered task not eligible'
+}
+Run-Case 'sched-core: successful dispatch survives concurrent queue removal' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; Add-QueueItem $p @{task='gone';agent='codex';promptFile=$f.Prompt}
+    $r=Invoke-SchedulerTick $p -DispatchCommand { param($paths,$item) Remove-QueueItem $paths $item.task; $true }
+    $d=@(Get-Decisions $p 0); Assert-True ($r.started -contains 'gone' -and @($d | Where-Object { $_.action -eq 'started' }).Count -eq 1 -and @($d | Where-Object { $_.action -eq 'failed' }).Count -eq 0) 'successful dispatch misclassified'
+}
+Run-Case 'sched-core: corrupt queue recovery' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; [void][IO.Directory]::CreateDirectory((Join-Path $p.Main '.trinity')); [IO.File]::WriteAllText((Join-Path $p.Main '.trinity\queue.json'),'{broken')
+    $q=Get-TrinityQueue $p
+    Assert-True ($q.items.Count -eq 0 -and @(Get-ChildItem (Join-Path $p.Main '.trinity') -Filter 'queue.json.corrupt-*').Count -eq 1 -and @(Get-Decisions $p 1)[0].reason -eq 'corrupt queue recovered') 'corrupt queue recovery failed'
+}
+Run-Case 'sched-core: stalled status takes precedence' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; Assert-True ((Get-SchedulerTaskState $p @{task='x';status='running (stalled: timeout)'}) -eq 'stalled') 'stalled classified running'
+}
+Run-Case 'sched-core: daemon records tick error' {
+    param($f)
+    $dir=Join-Path $f.Repo '.trinity'; [void][IO.Directory]::CreateDirectory($dir)
+    [IO.File]::WriteAllText((Join-Path $dir 'trinity.json'),'{"slots":null}')
+    $exe=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $output=& $exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $f.Repo 'scripts\scheduler.ps1') -Repo $f.Repo -Once 2>&1
+    $h=ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $dir 'scheduler.json')))
+    Assert-True ($LASTEXITCODE -eq 0 -and $h.now -match '^error:' -and (Test-Path (Join-Path $f.Repo '.codex-out\scheduler-error.log'))) "tick error not recorded: $output"
 }

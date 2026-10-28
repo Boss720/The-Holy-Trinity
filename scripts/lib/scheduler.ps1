@@ -20,14 +20,28 @@ function Invoke-QueueLocked($Paths, [scriptblock]$Body) {
 function Read-QueueUnlocked($Paths) {
     $path = Join-Path $Paths.Main '.trinity\queue.json'
     if (-not (Test-Path -LiteralPath $path)) { return @{version=1;items=@()} }
-    $queue = ConvertTo-TrinityMap (ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($path)) -ErrorAction Stop)
-    if ($queue -isnot [hashtable] -or $queue.items -isnot [array]) { throw 'Invalid queue file' }
-    return $queue
+    try {
+        $queue = ConvertTo-TrinityMap (ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($path)) -ErrorAction Stop)
+        if ($queue -isnot [hashtable] -or $queue.items -isnot [array]) { throw 'Invalid queue file' }
+        return $queue
+    } catch {
+        $archive=$path + '.corrupt-' + (Get-Date -Format 'yyyyMMddHHmmssfff') + '-' + [guid]::NewGuid().ToString('N')
+        Move-Item -LiteralPath $path -Destination $archive -ErrorAction Stop
+        $record=@{at=(Get-Date).ToString('o');task='';action='skipped';reason='corrupt queue recovered';round=0} | ConvertTo-Json -Compress
+        [IO.File]::AppendAllText((Join-Path $Paths.Main '.trinity\decisions.jsonl'), $record + "`n", (New-Object Text.UTF8Encoding($false)))
+        return @{version=1;items=@()}
+    }
 }
 function Get-TrinityQueue($Paths) { Invoke-QueueLocked $Paths { Read-QueueUnlocked $Paths } }
+function Test-SchedulerPrompt($Paths, [string]$Prompt) {
+    if ([string]::IsNullOrWhiteSpace($Prompt)) { return $false }
+    $path=if ([IO.Path]::IsPathRooted($Prompt)) { $Prompt } else { Join-Path $Paths.Main $Prompt }
+    return (Test-Path -LiteralPath $path -PathType Leaf)
+}
 function Add-QueueItem($Paths, $Item) {
     $item = ConvertTo-TrinityMap $Item
     if ($item -isnot [hashtable] -or [string]$item.task -cnotmatch '^[a-z0-9][a-z0-9-]{0,39}$') { throw 'Invalid task name' }
+    if (-not (Test-SchedulerPrompt $Paths $item.promptFile)) { throw 'promptFile must name an existing file' }
     if ($item.agent -cnotin @('codex','antigravity','claude')) { throw 'Invalid agent' }
     Invoke-QueueLocked $Paths {
         $q = Read-QueueUnlocked $Paths
@@ -56,7 +70,7 @@ function Test-PauseSwitch($Paths) {
 function Set-PauseSwitch($Paths, [string]$Reason) {
     $path=Join-Path $Paths.Main '.trinity\PAUSE'; [void][IO.Directory]::CreateDirectory((Split-Path $path -Parent)); [IO.File]::WriteAllText($path, (($Reason -replace '[\r\n]+',' ') + "`r`n"), (New-Object Text.UTF8Encoding($false)))
 }
-function Clear-PauseSwitch($Paths) { Remove-Item -LiteralPath (Join-Path $Paths.Main '.trinity\PAUSE') -Force -ErrorAction SilentlyContinue }
+function Clear-PauseSwitch($Paths) { Remove-Item -LiteralPath (Join-Path $Paths.Main '.trinity\PAUSE') -Force -ErrorAction SilentlyContinue; Add-Decision $Paths '' 'unpaused' 'pause cleared' 0 }
 function Add-Decision($Paths, [string]$Task, [string]$Action, [string]$Reason, [int]$Round=0) {
     Invoke-QueueLocked $Paths {
         $path=Join-Path $Paths.Main '.trinity\decisions.jsonl'
@@ -64,6 +78,7 @@ function Add-Decision($Paths, [string]$Task, [string]$Action, [string]$Reason, [
             $archive=Join-Path (Split-Path $path -Parent) ('decisions-' + (Get-Date -Format 'yyyyMMddHHmmss') + '.jsonl')
             while (Test-Path -LiteralPath $archive) { Start-Sleep -Milliseconds 100; $archive=Join-Path (Split-Path $path -Parent) ('decisions-' + (Get-Date -Format 'yyyyMMddHHmmss') + '.jsonl') }
             Move-Item -LiteralPath $path -Destination $archive
+            Get-ChildItem -LiteralPath (Split-Path $path -Parent) -Filter 'decisions-*.jsonl' -File | Sort-Object Name -Descending | Select-Object -Skip 5 | Remove-Item -Force
         }
         $record=@{at=(Get-Date).ToString('o');task=$Task;action=$Action;reason=$Reason;round=$Round} | ConvertTo-Json -Compress
         [IO.File]::AppendAllText($path, $record + "`n", (New-Object Text.UTF8Encoding($false)))
@@ -72,7 +87,7 @@ function Add-Decision($Paths, [string]$Task, [string]$Action, [string]$Reason, [
 function Get-Decisions($Paths, [int]$Last=20) {
     $dir=Join-Path $Paths.Main '.trinity'; $records=New-Object Collections.ArrayList
     if (Test-Path -LiteralPath $dir) {
-        $files=@(Get-ChildItem -LiteralPath $dir -Filter 'decisions-*.jsonl' -File | Sort-Object Name); $current=Join-Path $dir 'decisions.jsonl'; if (Test-Path $current) { $files+=Get-Item $current }
+        $files=@(Get-ChildItem -LiteralPath $dir -Filter 'decisions-*.jsonl' -File | Sort-Object Name -Descending | Select-Object -First 1); $current=Join-Path $dir 'decisions.jsonl'; if (Test-Path $current) { $files+=Get-Item $current }
         foreach ($file in $files) { foreach ($line in [IO.File]::ReadAllLines($file.FullName)) { try { if ($line.Trim()) { [void]$records.Add((ConvertTo-TrinityMap (ConvertFrom-Json $line -ErrorAction Stop))) } } catch { } } }
     }
     $all=@($records.ToArray()); [array]::Reverse($all); if ($Last -gt 0) { $all=@($all | Select-Object -First $Last) }; return $all
@@ -93,8 +108,8 @@ function Get-SchedulerTaskState($Paths, $Entry) {
         }
     }
     $status=[string]$Entry.status
-    if ($alive -or $status -match '^(started|running|working)(\s|:|$)') { return 'running' }
     if ($status -match '\(stalled') { return 'stalled' }
+    if ($alive -or $status -match '^(started|running|working)(\s|:|$)') { return 'running' }
     foreach ($state in @('failed','merged','cancelled','done','ready','waiting')) { if ($status -match "^$state") { return $state } }; return 'other'
 }
 function Get-SlotUse($Paths, $Config) {
@@ -126,27 +141,33 @@ function Invoke-SchedulerTick($Paths, [scriptblock]$DispatchCommand, [scriptbloc
     if (-not $ResumeCommand) { $ResumeCommand={ param($p,$task,$feedback) Invoke-SchedulerChild $p @('resume',$task,'-FeedbackFile',$feedback) } }
     $cfg=Get-TrinityConfig $Paths; $result=@{started=@();waiting=@{};autopilot=@()}; $pause=Test-PauseSwitch $Paths
     $tasks=@(Get-SchedulerTasks $Paths); $slots=Get-SlotUse $Paths $cfg; $availability=if (-not $pause.paused) { Get-AgentAvailability } else { @{} }; $rate=if (-not $pause.paused) { Test-CodexRateLimit } else { $false }
-    $queue=Get-TrinityQueue $Paths
+    $queue=Get-TrinityQueue $Paths; $decisions=@(Get-Decisions $Paths 0)
     foreach ($item in @($queue.items)) {
         $reason=''; $agent=[string]$item.agent
         if ($pause.paused) { $reason='paused' }
-        elseif (Get-BoardEntry $Paths $item.task) { $reason='already dispatched'; Remove-QueueItem $Paths $item.task; $result.waiting[$item.task]=$reason; continue }
+        elseif (Get-BoardEntry $Paths $item.task) { $reason='already dispatched'; try { Remove-QueueItem $Paths $item.task } catch { if ($_.Exception.Message -ne 'Task not queued') { throw } }; Add-Decision $Paths $item.task 'started' 'already dispatched' 0; $decisions=@(@{task=$item.task;action='started';at=(Get-Date).ToString('o')}) + $decisions; $result.waiting[$item.task]=$reason; continue }
+        elseif (-not (Test-SchedulerPrompt $Paths $item.promptFile)) { $reason='waiting: no prompt file' }
         elseif ($item.lastAttemptAt -and ((Get-Date)-[datetimeoffset]::Parse($item.lastAttemptAt).LocalDateTime).TotalSeconds -lt [Math]::Min(900,60*[Math]::Pow(2,[Math]::Max(0,[int]$item.attempts-1)))) { $reason='retry backoff' }
         elseif (-not $availability[$agent].available) { $reason='agent unavailable' }
         elseif ($agent -eq 'codex' -and $rate) { $reason='rate limit' }
         elseif ($slots[$agent].used -ge $slots[$agent].max) { $reason='no free slot' }
         else { foreach ($task in $tasks) { if ((Get-SchedulerTaskState $Paths $task) -eq 'running' -and (Test-SchedulerOverlap $item.scope $task.scope)) { $reason="scope overlaps $($task.task)"; break } } }
         if (-not $reason) {
-            try { $ok=& $DispatchCommand $Paths $item $cfg; if ($ok -eq $false) { throw 'dispatch failed' }; Remove-QueueItem $Paths $item.task; Add-Decision $Paths $item.task 'started' 'dispatched' 0; $result.started+=@($item.task); $slots[$agent].used++; $tasks+=@(@{task=$item.task;agent=$agent;scope=$item.scope;status='running'}); continue }
+            try { $ok=& $DispatchCommand $Paths $item $cfg; if ($ok -eq $false) { throw 'dispatch failed' } }
             catch { $reason='dispatch failed'; $failure="dispatch: " + $_.Exception.Message; if ($failure -notmatch 'agent unavailable' -and (-not $item.attempts -or $item.lastFailure -ne $failure)) { Add-Decision $Paths $item.task 'failed' $failure 0 }; $item.attempts=[int]$item.attempts+1; $item.lastAttemptAt=(Get-Date).ToString('o'); $item.lastFailure=$failure }
+            if (-not $reason) {
+                Add-Decision $Paths $item.task 'started' 'dispatched' 0; $decisions=@(@{task=$item.task;action='started';at=(Get-Date).ToString('o')}) + $decisions
+                try { Remove-QueueItem $Paths $item.task } catch { if ($_.Exception.Message -ne 'Task not queued') { throw } }
+                $result.started+=@($item.task); $slots[$agent].used++; $tasks+=@(@{task=$item.task;agent=$agent;scope=$item.scope;status='running'}); continue
+            }
         }
         $result.waiting[$item.task]=$reason
         Invoke-QueueLocked $Paths { $q=Read-QueueUnlocked $Paths; foreach ($queued in $q.items) { if ($queued.task -eq $item.task) { $queued.waiting=$reason; if ($item.attempts) { $queued.attempts=$item.attempts; $queued.lastAttemptAt=$item.lastAttemptAt; $queued.lastFailure=$item.lastFailure } } }; Write-TrinityJson (Join-Path $Paths.Main '.trinity\queue.json') $q }
     }
-    if ($pause.paused) { $recent=@(Get-Decisions $Paths 0 | Where-Object { $_.action -eq 'paused' -and ([datetimeoffset]::Parse($_.at)) -gt (Get-Date).AddHours(-1) }); if (-not $recent.Count) { Add-Decision $Paths '' 'paused' $pause.reason 0 } }
+    if ($pause.paused) { $recent=@($decisions | Where-Object { $_.action -eq 'paused' -and ([datetimeoffset]::Parse($_.at)) -gt (Get-Date).AddHours(-1) }); if (-not $recent.Count) { Add-Decision $Paths '' 'paused' $pause.reason 0 } }
     elseif ($cfg.autopilot.enabled) {
-        $decisions=@(Get-Decisions $Paths 0); $hour=@($decisions | Where-Object { $_.action -eq 'started' -and ([datetimeoffset]::Parse($_.at)) -gt (Get-Date).AddHours(-1) }).Count
-        $failures=0; foreach ($d in $decisions) { if ($d.action -eq 'failed') { $failures++ } elseif ($d.action -in @('started','resumed','skipped','limit','paused')) { continue } else { break } }
+        $hour=@($decisions | Where-Object { $_.action -eq 'started' -and ([datetimeoffset]::Parse($_.at)) -gt (Get-Date).AddHours(-1) }).Count
+        $failures=0; $recovered=@{}; foreach ($d in $decisions) { if ($d.action -eq 'unpaused') { break } elseif ($d.action -eq 'started') { $recovered[$d.task]=$true } elseif ($d.action -eq 'failed') { if (-not $recovered.ContainsKey([string]$d.task)) { $failures++ } } elseif ($d.action -in @('resumed','skipped','limit','paused')) { continue } else { break } }
         $limit=''; if ($hour -ge $cfg.autopilot.maxTasksPerHour) { $limit="limit: $hour tasks per hour" } elseif ($failures -ge $cfg.autopilot.maxConsecutiveFailures) { $limit="limit: $failures consecutive failures" }
         if ($limit) { Set-PauseSwitch $Paths $limit; Add-Decision $Paths '' 'limit' $limit 0; $result.autopilot+=@('limit') }
         else {
