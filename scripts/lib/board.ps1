@@ -232,12 +232,21 @@ function Resolve-CodexExe {
     Fail 'codex.exe not found. Install the Codex desktop app or set CODEX_EXE.'
 }
 
-# TRINITY_CODEX_MODEL picks the Codex model for workers, reviews and asks (empty = Codex's own default).
+# TRINITY_CODEX_MODEL and TRINITY_CODEX_EFFORT pick the Codex model and reasoning effort for workers, reviews
+# and asks (empty = Codex's own config.toml default; a low default effort makes workers stop half done).
 function Get-CodexModelArgs {
+    $out = @()
     $model = "$env:TRINITY_CODEX_MODEL".Trim()
-    if (-not $model) { return @() }
-    if ($model -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*$') { Fail "invalid TRINITY_CODEX_MODEL '$model'" }
-    return @('-c', "model=$model")
+    if ($model) {
+        if ($model -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*$') { Fail "invalid TRINITY_CODEX_MODEL '$model'" }
+        $out += @('-c', "model=$model")
+    }
+    $effort = "$env:TRINITY_CODEX_EFFORT".Trim().ToLowerInvariant()
+    if ($effort) {
+        if ($effort -notin @('minimal', 'low', 'medium', 'high', 'xhigh')) { Fail "invalid TRINITY_CODEX_EFFORT '$effort' (minimal, low, medium, high, xhigh)" }
+        $out += @('-c', "model_reasoning_effort=$effort")
+    }
+    return $out
 }
 
 # Run a CLI's login check; exit code 0 = usable. The child must not think it is nested in this Claude session.
