@@ -39,6 +39,11 @@ $script:CodexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $e
 $script:AgyHome = if ($env:TRINITY_AGY_HOME) { $env:TRINITY_AGY_HOME } else { Join-Path (Join-Path $env:USERPROFILE '.gemini') 'antigravity-cli' }
 $script:ClaudeHome = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $env:USERPROFILE '.claude' }
 
+function ConvertTo-IntOr($Value, [int]$Default) {
+    $number=0
+    if ([int]::TryParse([string]$Value, [ref]$number)) { return $number }
+    return $Default
+}
 function Get-JsonValue($Object, [string]$Name, $Default = $null) {
     if ($null -eq $Object) { return $Default }
     if ($Object -is [System.Collections.IDictionary]) { if ($Object.Keys -contains $Name) { return $Object[$Name] }; return $Default }
@@ -844,7 +849,7 @@ function Get-TrinityState([string]$Root, $Tasks) {
     } catch { if (-not $errorText) { $errorText=$_.Exception.Message } }
     $pausePath=Join-Path $dir 'PAUSE'; $paused=Test-Path -LiteralPath $pausePath -PathType Leaf
     if ($paused) { try { $reason=(Read-TrinityFile $pausePath).Trim() } catch { if (-not $errorText) { $errorText=$_.Exception.Message } } }
-    $slots=@{}; foreach ($agent in @('codex','antigravity','claude')) { $slots[$agent]=@{used=@($Tasks | Where-Object { $_.agent -eq $agent -and $_.state -in @('running','stalled') }).Count; max=[int](Get-JsonValue $config.slots $agent 0)} }
+    $slots=@{}; foreach ($agent in @('codex','antigravity','claude')) { $slots[$agent]=@{used=@($Tasks | Where-Object { $_.agent -eq $agent -and $_.state -in @('running','stalled') }).Count; max=(ConvertTo-IntOr (Get-JsonValue $config.slots $agent 0) 0)} }
     $items=@(foreach ($item in $queue) {
         $overlaps=New-Object System.Collections.Generic.List[string]
         foreach ($task in @($Tasks | Where-Object { $_.state -in @('running','stalled') })) {
@@ -860,7 +865,7 @@ function Get-TrinityState([string]$Root, $Tasks) {
     for ($i=$decisions.Count-1; $i -ge 0; $i--) { $d=$decisions[$i]; $task=[string](Get-JsonValue $d 'task' ''); $round=[int](Get-JsonValue $d 'round' 0); if ($task -and (-not $rounds.ContainsKey($task) -or $round -gt $rounds[$task])) { $rounds[$task]=$round }; $act=[string](Get-JsonValue $d 'action' ''); if ($counting) { if ($act -eq 'failed') { $counting=$false } elseif ($act -in @('ready','merged')) { $clean++ } } }
     $newest=@(); for ($i=$decisions.Count-1; $i -ge 0 -and $newest.Count -lt 20; $i--) { $newest+=@($decisions[$i]) }
     $breach=''; if ($paused -and $reason -match '^limit:') { $breach=$reason } elseif ($newest.Count -and (Get-JsonValue $newest[0] 'action' '') -eq 'limit') { $breach=[string](Get-JsonValue $newest[0] 'reason' 'limit') }
-    $auto=@{enabled=[bool]$config.autopilot.enabled; approval=[bool]$config.autopilot.approval; autoMergeAllowed=([bool]$config.autoMerge -and -not [bool]$config.autopilot.approval -and $clean -ge [int]$config.autopilot.cleanRunsBeforeAutoMerge); cleanRuns=$clean; paused=$paused; pauseReason=$reason; roundsUsed=$rounds; decisions=$newest; limitBreach=$breach}; if ($skipped -gt 0) { $auto.decisionsSkipped=$skipped }
+    $auto=@{enabled=[bool]$config.autopilot.enabled; approval=[bool]$config.autopilot.approval; autoMergeAllowed=([bool]$config.autoMerge -and -not [bool]$config.autopilot.approval -and $clean -ge (ConvertTo-IntOr $config.autopilot.cleanRunsBeforeAutoMerge ([int]::MaxValue))); cleanRuns=$clean; paused=$paused; pauseReason=$reason; roundsUsed=$rounds; decisions=$newest; limitBreach=$breach}; if ($skipped -gt 0) { $auto.decisionsSkipped=$skipped }
     return @{config=$config; configError=$errorText; queue=$items; slots=$slots; scheduler=@{alive=$alive; lastTickAt=$tick; now=[string](Get-JsonValue $heartbeat 'now' ''); next=[string](Get-JsonValue $heartbeat 'next' '')}; autopilot=$auto }
 }
 
@@ -1224,8 +1229,9 @@ function Test-SettingsPatch($Patch) {
     }
     return $true
 }
-function Write-NewUtf8([string]$Path, [string]$Text) {
-    $stream=New-Object IO.FileStream($Path,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+function Write-NewUtf8([string]$Path, [string]$Text, [switch]$Overwrite) {
+    $mode=if ($Overwrite) { [IO.FileMode]::Create } else { [IO.FileMode]::CreateNew }
+    $stream=New-Object IO.FileStream($Path,$mode,[IO.FileAccess]::Write,[IO.FileShare]::None)
     try { $bytes=[Text.Encoding]::UTF8.GetBytes($Text); $stream.Write($bytes,0,$bytes.Length) } finally { $stream.Dispose() }
 }
 function Quote-ActionLiteral([string]$Value) {
@@ -1534,7 +1540,7 @@ try {
                     if ($response.StatusCode -ge 400) { continue }
                     if ($action -eq 'dispatch') {
                         $promptFile=Join-Path $outDir "prompt-$taskName.md"
-                        try { Write-NewUtf8 $promptFile $promptValue } catch [IO.IOException] { Send-JsonResponse $response 400 @{ error='Could not create a new prompt file' }; continue }
+                        try { Write-NewUtf8 $promptFile $promptValue -Overwrite } catch [IO.IOException] { Send-JsonResponse $response 400 @{ error='Could not create a new prompt file' }; continue }
                         $display='trinity dispatch {0} {1} -Scope {2} -PromptFile {3}' -f $check.effectiveAgent,$taskName,(Quote-ProcessArgument ($check.scopeNormalized -join ',')),(Quote-ProcessArgument $promptFile)
                         Start-ActionProcess $jobId $action $taskName $repoPath '' $display $check.effectiveAgent ($check.scopeNormalized -join ',') $promptFile
                     }
