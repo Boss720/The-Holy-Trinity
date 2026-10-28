@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.6.0 - 2026-10-28
 
 ### Added
 - Any agent can orchestrate: Codex or Antigravity driving the main checkout plan, dispatch, `track`, review and merge like Claude (`docs/orchestrator.md`). Orchestrator is detected from the environment or set with `-Agent` / `TRINITY_ORCHESTRATOR`; `status` prints an `orchestrator:` line; reviews never pick the author or orchestrator when another reviewer can run.
