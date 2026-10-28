@@ -18,10 +18,13 @@ param(
     [switch]$Stop,
     [string]$Feedback,
     [string]$FeedbackFile,
+    [switch]$DryRun,
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest
 )
 
 . (Join-Path $PSScriptRoot 'lib\board.ps1')
+# Repo settings, queue and scheduler (docs/dashboard-gui.md); optional so an older install still runs.
+foreach ($lib in @('config', 'scheduler')) { $libPath = Join-Path $PSScriptRoot "lib\$lib.ps1"; if (Test-Path -LiteralPath $libPath) { . $libPath } }
 # A release copy of the toolkit is not a git repo, so these commands must run without one.
 $repoFree = @('help', 'version', 'doctor', 'init')
 if ($repoFree -contains $Command) { $paths = $null }
@@ -195,12 +198,46 @@ function Get-Git([string[]]$GitArgs) {
     $out
 }
 
+# .trinity\trinity.json with defaults filled, read once per call; $null without a repo or the config library.
+function Get-RepoConfig {
+    if (-not $paths -or -not (Get-Command Get-TrinityConfig -ErrorAction SilentlyContinue)) { return $null }
+    if ($null -eq $script:RepoConfig) {
+        $script:RepoConfig = Get-TrinityConfig $paths
+        if ($script:RepoConfig._error) { Write-Host "warning: .trinity\trinity.json unreadable, using defaults ($($script:RepoConfig._error))" -ForegroundColor Yellow }
+    }
+    $script:RepoConfig
+}
+
+# Test command: trinity.json "test" when set, else the "- Test: `...`" line in AGENTS.md; $null when none or TBD.
+function Get-TestCommand {
+    $cfg = Get-RepoConfig
+    if ($cfg -and "$($cfg.test)".Trim()) { return "$($cfg.test)".Trim() }
+    $agentsMd = Join-Path $paths.Main 'AGENTS.md'
+    if (Test-Path $agentsMd) {
+        foreach ($l in [IO.File]::ReadAllLines($agentsMd)) {
+            if ($l -match '^- Test: `(.+)`$') { if ($Matches[1] -ne 'TBD') { return $Matches[1] }; break }
+        }
+    }
+    $null
+}
+
+# Files the branch changed outside its -Scope globs (* matches across folders, like the dashboard's merge check).
+# A task without a scope ('unspecified' or '-') is not checked.
+function Get-ScopeViolations([string]$TaskScope, [string]$BaseName, [string]$Branch) {
+    if (-not $TaskScope -or $TaskScope -in @('-', 'unspecified')) { return @() }
+    $globs = @($TaskScope.Split(',') | ForEach-Object { $_.Trim().Replace('\', '/') } | Where-Object { $_ } | ForEach-Object { '^' + [regex]::Escape($_).Replace('\*', '.*') + '$' })
+    if (-not $globs) { return @() }
+    $changed = @(Get-Git @('-C', $paths.Main, '-c', 'core.quotepath=false', 'diff', '--name-only', '--no-renames', "$BaseName...$Branch"))
+    @($changed | Where-Object { $file = $_; $_ -and -not @($globs | Where-Object { $file -match $_ }) })
+}
+
 # Branch that dispatch branches from and merge lands on: -Base, else env TRINITY_BASE, else the remote's default
 # branch (origin/HEAD), else main. Returns @{ Name; Source }.
 function Get-BaseBranch {
     $name = "$Base".Trim()
     $source = '-Base'
     if (-not $name) { $name = "$env:TRINITY_BASE".Trim(); $source = 'TRINITY_BASE' }
+    if (-not $name) { $cfg = Get-RepoConfig; if ($cfg) { $name = "$($cfg.base)".Trim(); $source = 'trinity.json' } }
     if (-not $name) {
         $head = @(Get-Git @('-C', $paths.Main, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD'))[0]
         $name = "$head".Trim() -replace '^origin/', ''
@@ -597,8 +634,48 @@ function Find-DashboardListener([int]$port) {
     $first
 }
 
+# A model picked in trinity.json applies when the environment does not pick one (flag > env > trinity.json > default).
+if (-not "$env:TRINITY_CODEX_MODEL".Trim()) { $cfg = Get-RepoConfig; if ($cfg -and "$($cfg.models.codex)".Trim()) { $env:TRINITY_CODEX_MODEL = "$($cfg.models.codex)".Trim() } }
+
 switch ($Command) {
     'status' { Show-Status }
+    'config' {
+        if (-not (Get-Command Set-TrinityConfig -ErrorAction SilentlyContinue)) { Fail 'scripts\lib\config.ps1 is missing; update the toolkit (trinity init)' }
+        $sub = if ($Rest.Count) { $Rest[0] } else { 'get' }
+        if ($sub -eq 'get') {
+            $cfg = Get-TrinityConfig $paths
+            if ($cfg._error) { Write-Host "warning: .trinity\trinity.json unreadable, showing defaults ($($cfg._error))" -ForegroundColor Yellow }
+            $cfg.Remove('_source'); $cfg.Remove('_error')
+            $value = $cfg
+            if ($Rest.Count -gt 1) {
+                foreach ($part in $Rest[1].Split('.')) { if ($value -isnot [hashtable] -or -not $value.ContainsKey($part)) { Fail "no config key '$($Rest[1])'" }; $value = $value[$part] }
+            }
+            if ($value -is [hashtable]) { ConvertTo-Json -InputObject $value -Depth 10 } else { "$value" }
+        }
+        elseif ($sub -eq 'set') {
+            if ($Json) {
+                $file = $Rest[1]
+                if (-not $file -or -not (Test-Path -LiteralPath $file)) { Fail 'usage: trinity config set -Json <file>' }
+                try { $patch = ConvertTo-TrinityMap (ConvertFrom-Json -InputObject ([IO.File]::ReadAllText((Resolve-Path -LiteralPath $file).Path)) -ErrorAction Stop) }
+                catch { Fail "config file is not valid JSON: $($_.Exception.Message)" }
+                if ($patch -isnot [hashtable]) { Fail 'config file must hold a JSON object' }
+            }
+            else {
+                if ($Rest.Count -lt 3) { Fail 'usage: trinity config set <key> <value>   (dotted keys: slots.codex, autopilot.maxRounds, models.codex)' }
+                $raw = ($Rest[2..($Rest.Count - 1)] -join ' ')
+                $parsed = 0
+                $value = if ($raw -eq 'true') { $true } elseif ($raw -eq 'false') { $false } elseif ([int]::TryParse($raw, [ref]$parsed)) { $parsed } else { $raw }
+                $keys = $Rest[1].Split('.')
+                $patch = @{}; $node = $patch
+                for ($i = 0; $i -lt $keys.Count - 1; $i++) { $node[$keys[$i]] = @{}; $node = $node[$keys[$i]] }
+                $node[$keys[-1]] = $value
+            }
+            foreach ($key in @($patch.Keys)) { if ($key -like '_*') { $patch.Remove($key) } }
+            try { $null = Set-TrinityConfig $paths $patch } catch { Fail "config not saved: $($_.Exception.Message)" }
+            Write-Host "Saved .trinity\trinity.json"
+        }
+        else { Fail 'usage: trinity config [get [<key>]] | set <key> <value> | set -Json <file>' }
+    }
 
     'version' {
         $verFile = Join-Path (Split-Path -Parent $PSScriptRoot) 'VERSION'
@@ -720,6 +797,8 @@ switch ($Command) {
         $result = Join-Path $paths.Out "result-$task.md"
 
         $effectiveDeadline = 120
+        $cfg = Get-RepoConfig
+        if ($cfg -and [int]$cfg.deadlineMinutes -gt 0) { $effectiveDeadline = [int]$cfg.deadlineMinutes }
         if ($env:TRINITY_DEADLINE_MINUTES) {
             $parsed = 0
             if ([int]::TryParse($env:TRINITY_DEADLINE_MINUTES, [ref]$parsed) -and $parsed -gt 0) { $effectiveDeadline = $parsed }
@@ -1176,12 +1255,29 @@ switch ($Command) {
         $baseInfo = Get-BaseBranch
         $baseName = $baseInfo.Name
 
-        $cur = Get-Git @('-C', $paths.Main, 'branch', '--show-current')
-        if ($cur -ne $baseName) { Fail "main checkout is on '$cur', switch it to $baseName first (base from $($baseInfo.Source); set TRINITY_BASE or pass -Base to change it)" }
-        $dirty = @(Get-Git @('-C', $paths.Main, 'status', '--porcelain') | Where-Object { $_ })
-        if ($dirty.Count -gt 0) { Fail 'main checkout has uncommitted changes; commit or stash them first' }
+        # -DryRun runs the whole gate (scope, review, tests in the worktree) and merges nothing, so the main checkout
+        # may be anywhere; autopilot uses it to mark a task ready.
+        if (-not $DryRun) {
+            $cur = Get-Git @('-C', $paths.Main, 'branch', '--show-current')
+            if ($cur -ne $baseName) { Fail "main checkout is on '$cur', switch it to $baseName first (base from $($baseInfo.Source); set TRINITY_BASE or pass -Base to change it)" }
+            $dirty = @(Get-Git @('-C', $paths.Main, 'status', '--porcelain') | Where-Object { $_ })
+            if ($dirty.Count -gt 0) { Fail 'main checkout has uncommitted changes; commit or stash them first' }
+        }
+        if ($entry.status -match '^(started|running|working|waiting)\b' -or (Test-TaskRunnerAlive $paths $task).Alive) { Fail "cannot merge $($task): it is still running ($($entry.status))" }
         $n = [int](Get-Git @('-C', $paths.Main, 'rev-list', '--count', "$baseName..$branch"))
         if ($n -eq 0) { Fail "nothing to merge: $branch has no commits ahead of $baseName" }
+
+        # Scope guard: a worker that edited files outside its -Scope blocks the merge until fixed or forced.
+        # TRINITY_SCOPE_GUARD (or trinity.json "scopeGuard") = block (default) | warn | off.
+        $guard = "$env:TRINITY_SCOPE_GUARD".Trim().ToLowerInvariant()
+        if (-not $guard) { $cfg = Get-RepoConfig; if ($cfg) { $guard = "$($cfg.scopeGuard)".Trim().ToLowerInvariant() } }
+        if ($guard -notin @('warn', 'off')) { $guard = 'block' }
+        $outside = @(if ($guard -ne 'off') { Get-ScopeViolations $entry.scope $baseName $branch })
+        if ($outside.Count) {
+            Write-Host "Files outside scope ($($entry.scope)):" -ForegroundColor Yellow
+            $outside | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
+            if ($guard -eq 'block' -and -not $Force) { Fail "$($outside.Count) file(s) outside the task scope; resume the worker to revert them, or use -Force" }
+        }
 
         # Codex reviews when it can; without it Claude Code or Antigravity (read-only) does, else tests alone gate.
         # The base commit is recorded when a review starts; if the base moved by the time the review is judged,
@@ -1240,6 +1336,7 @@ switch ($Command) {
                 }
             }
             if ($high -and -not $Force) { Fail 'P0/P1 findings; fix on the branch or rerun with -Force' }
+            if ($DryRun) { break }
             if ($any -and -not $Yes) {
                 $ans = Read-Host 'Merge anyway? [y/N]'
                 if ($ans -ne 'y') { Fail 'merge cancelled' }
@@ -1257,21 +1354,35 @@ switch ($Command) {
             if ($n -eq 0) { Fail "nothing to merge: $branch has no commits ahead of $baseName" }
         }
 
+        $testCmd = Get-TestCommand
+        if ($DryRun) {
+            $minor = $blocks.Count - $high.Count
+            $parts = @($(if (-not $reviewer) { 'no review' } elseif ($minor) { "review clean ($minor minor)" } else { 'review clean' }))
+            # The worktree may predate the base tip: refuse a branch that would not merge cleanly.
+            & git -C $paths.Main merge-tree --write-tree --quiet $baseName $branch *> $null
+            if ($LASTEXITCODE -ne 0) { Fail "dry run: $branch conflicts with $baseName; merge $baseName into the worktree first" }
+            if ($testCmd) {
+                Write-Host "Running tests in the worktree: $testCmd"
+                Push-Location $entry.worktree
+                cmd.exe /d /c $testCmd
+                $rc = $LASTEXITCODE
+                Pop-Location
+                if ($rc -ne 0) { Fail "dry run: tests failed (exit $rc)" }
+                $parts += 'tests passed'
+            }
+            else { $parts += 'no test command' }
+            $parts += $(if ($guard -eq 'off') { 'scope not checked' } elseif ($outside.Count) { "$($outside.Count) out of scope ($(if ($guard -eq 'warn') { 'warn only' } else { 'forced' }))" } else { 'scope ok' })
+            Write-Host "dry run clean: $($parts -join ', ')"
+            exit 0
+        }
+
         git -C $paths.Main merge --no-ff --no-commit $branch | Out-Host
         if ($LASTEXITCODE -ne 0) {
             git -C $paths.Main merge --abort
             Fail "merge conflicts; aborted. Rebase the branch on $baseName and retry."
         }
 
-        # Test command comes from the "- Test: `...`" line in AGENTS.md.
-        $testCmd = $null
-        $agentsMd = Join-Path $paths.Main 'AGENTS.md'
-        if (Test-Path $agentsMd) {
-            foreach ($l in [IO.File]::ReadAllLines($agentsMd)) {
-                if ($l -match '^- Test: `(.+)`$') { $testCmd = $Matches[1]; break }
-            }
-        }
-        if ($testCmd -and $testCmd -ne 'TBD') {
+        if ($testCmd) {
             Write-Host "Running tests: $testCmd"
             Push-Location $paths.Main
             cmd.exe /d /c $testCmd
