@@ -8,6 +8,7 @@
         }
     ),
     [string]$Only,
+    [string]$Filter,
     [switch]$Keep
 )
 
@@ -42,6 +43,7 @@ for ($i = 0; $i -lt $Jobs; $i++) {
     $err = Join-Path $env:TEMP "trinity-shard-$stamp-$i.err.log"
     $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $runner), '-Shard', "$i/$Jobs", '-TempRoot', ('"{0}"' -f $shardTempRoot))
     if ($Only) { $argList += @('-Only', ('"{0}"' -f $Only)) }
+    if ($Filter) { $argList += @('-Filter', ('"{0}"' -f $Filter)) }
     if ($Keep) { $argList += '-Keep' }
     $proc = Start-Process -FilePath $psExe -ArgumentList $argList -WindowStyle Hidden -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
     # PS 5.1: touching Handle caches the process handle so ExitCode is readable after exit.
