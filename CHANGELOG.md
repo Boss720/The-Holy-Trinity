@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.8.4 - 2026-10-29
+
+### Changed
+- Codex workers in narrow-sandbox mode get write access to their own worktree git directory only (`--add-dir`), not the shared common git directory.
+
 ## v0.8.3 - 2026-10-29
 
 ### Fixed

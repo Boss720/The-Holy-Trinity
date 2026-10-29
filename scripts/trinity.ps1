@@ -1092,7 +1092,10 @@ switch ($Command) {
         else {
             $exe = Resolve-CodexExe
             $modelArgs = @(Get-CodexModelArgs)
-            $cmdLine = '"' + $exe + '" exec ' + $(if ($modelArgs.Count) { $modelArgs -join ' ' } else { '' }) + ' --sandbox workspace-write --add-dir "' + $paths.Common + '" --skip-git-repo-check -C "' + $entry.worktree + '" -o "' + $result + '" - < "' + $taskFile + '" > "' + $log + '" 2>&1'
+            # The runner commits; the worker only needs its own worktree metadata.
+            $worktreeGitDir = & git -C $entry.worktree rev-parse --absolute-git-dir 2>$null
+            if ($LASTEXITCODE -ne 0 -or -not $worktreeGitDir) { Fail "cannot resolve git directory for $($entry.worktree)" }
+            $cmdLine = '"' + $exe + '" exec ' + $(if ($modelArgs.Count) { $modelArgs -join ' ' } else { '' }) + ' --sandbox workspace-write --add-dir "' + $worktreeGitDir + '" --skip-git-repo-check -C "' + $entry.worktree + '" -o "' + $result + '" - < "' + $taskFile + '" > "' + $log + '" 2>&1'
         }
         [IO.File]::WriteAllText($runFile, "@echo off`r`n$cmdLine`r`nexit /b %ERRORLEVEL%`r`n", $script:Utf8)
         $nested = $env:CLAUDECODE
