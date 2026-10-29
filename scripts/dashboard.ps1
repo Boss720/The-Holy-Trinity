@@ -1744,7 +1744,12 @@ try {
                     $bytes = $sharedState.bytes
                     $builtAt = $sharedState.builtAt
                 }
-                elseif (-not $sharedState.bytes) { $bytes=$warmingBytes; $builtAt=$requestStarted }
+                elseif (-not $sharedState.bytes) {
+                    # Cold start: give the first collection a short window, then answer warming so the page is never blank.
+                    $coldDeadline = [datetime]::UtcNow.AddSeconds(3)
+                    while (-not $sharedState.bytes -and [datetime]::UtcNow -lt $coldDeadline) { Start-Sleep -Milliseconds 75 }
+                    if ($sharedState.bytes) { $bytes=$sharedState.bytes; $builtAt=$sharedState.builtAt } else { $bytes=$warmingBytes; $builtAt=$requestStarted }
+                }
                 else {
                     $deadline = [datetime]::UtcNow.AddSeconds(60)
                     while ([datetime]::UtcNow -lt $deadline) {
