@@ -9655,6 +9655,7 @@
       function autoAll() {
         const targets = reposToAuto(lastStateData);
         if (targets.length === 0 || !actionsUiEnabled(lastStateData)) return;
+        if (isSample) { showToast('Sample mode: actions are not sent', 'warn'); return; }
         const lines = targets.map(function (r) {
           const ap = r.autopilot || {};
           return 'cd /d "' + r.path + '" && ' + (ap.paused ? 'trinity unpause && ' : '') + 'trinity autopilot on' + (ap.approval === true ? ' -Approval' : '') + ' && trinity scheduler start';
