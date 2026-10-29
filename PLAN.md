@@ -42,5 +42,5 @@ Per-module checklist. Owner = claude | codex | antigravity.
 - [x] Page: detail rows, availability, sessions, chat drawer - antigravity (task dash-ui2; scroll, stale responses, active flag fixed by claude)
 - [x] No-Codex: availability, dispatch reroute, reviewer fallback, run metadata, tests - claude
 - [x] Live check: real models/tokens/tool calls, Claude session + subagent chat drawer - claude
-- [ ] Claude Code headless reviewer exercised logged in (CLI here is not logged in standalone; covered by fake) - user
+- [x] Claude Code headless reviewer exercised logged in (sched-seed merge gate printed "reviewer: claude")
 - [x] Dashboard header Auto button (unpause, autopilot on, scheduler start) - claude + codex + antigravity (tasks dash-auto, dash-auto-cx; winner codex)
