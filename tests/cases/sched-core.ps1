@@ -461,14 +461,30 @@ Run-Case 'sched-core: concurrent start wins over migration seed' {
     try { $items=@(Get-SchedulerStarted $p); Assert-True ($items.Count -eq 1 -and $items[0].task -eq 'concurrent') 'migration overwrote or returned stale concurrent start' }
     finally { Set-Item Function:Invoke-QueueLocked $original }
 }
-Run-Case 'sched-core: unreadable migration source fails closed' {
+Run-Case 'sched-core: unreadable migration source is skipped' {
     param($f)
     $p=Get-SchedulerPaths $f.Repo; $dir=Join-Path $p.Main '.trinity'; [void][IO.Directory]::CreateDirectory($dir)
     $locked=Join-Path $dir 'decisions-1.jsonl'; [IO.File]::WriteAllText($locked,'locked')
-    [IO.File]::WriteAllText((Join-Path $dir 'decisions.jsonl'), '{"task":"readable","action":"started"}')
-    $stream=[IO.File]::Open($locked,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None); $failed=$false
-    try { try { $null=Get-SchedulerStarted $p } catch { $failed=$true } } finally { $stream.Dispose() }
-    Assert-True ($failed -and -not (Test-Path (Join-Path $dir 'scheduler-tasks.json'))) 'partial migration must not be persisted'
+    [IO.File]::WriteAllText((Join-Path $dir 'decisions.jsonl'), "{bad}`n" + '{"task":"readable","action":"started"}')
+    $null=Invoke-Git $f.Repo @('branch','agent/codex/readable'); [void][IO.Directory]::CreateDirectory((Join-Path $p.Worktrees 'codex-readable'))
+    [IO.File]::WriteAllText($p.Board,"## readable`r`n- agent: codex`r`n- status: done`r`n")
+    $stream=[IO.File]::Open($locked,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+    try { $items=@(Get-SchedulerStarted $p); Assert-True ($items.Count -eq 1 -and $items[0].task -eq 'readable') 'unreadable file prevented migration' } finally { $stream.Dispose() }
+}
+Run-Case 'sched-core: empty seed cache invalidates on board change' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; $dir=Join-Path $p.Main '.trinity'; [void][IO.Directory]::CreateDirectory($dir)
+    [IO.File]::WriteAllText((Join-Path $dir 'decisions.jsonl'), '{"task":"later","action":"started"}')
+    $null=Invoke-Git $f.Repo @('branch','agent/codex/later'); [void][IO.Directory]::CreateDirectory((Join-Path $p.Worktrees 'codex-later'))
+    $original=${function:Get-BoardEntry}; $script:seedChecks=0
+    function Get-BoardEntry($paths,$task) { $script:seedChecks++; & $original $paths $task }
+    try {
+        $null=Get-SchedulerStarted $p; $null=Get-SchedulerStarted $p
+        Assert-True ($script:seedChecks -eq 1) 'unchanged empty seed rescanned'
+        [IO.File]::WriteAllText($p.Board,"## later`r`n- agent: codex`r`n- status: done`r`n")
+        $items=@(Get-SchedulerStarted $p)
+        Assert-True ($script:seedChecks -eq 2 -and $items.Count -eq 1 -and $items[0].task -eq 'later') 'board change did not invalidate empty seed'
+    } finally { Set-Item Function:Get-BoardEntry $original }
 }
 Run-Case 'sched-core: metadata errors cannot persist partial migration' {
     param($f)
