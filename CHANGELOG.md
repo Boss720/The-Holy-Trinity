@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.8.5 - 2026-10-29
+
+### Added
+- Dashboard header Auto button (counterpart of Stop all): turns on autopilot and starts the scheduler in every repository where autopilot is off, paused or the scheduler is not alive; confirm dialog first, unpauses first when paused. Warns in sample mode.
+- `testsun-tests.cmd -Filter <wildcard>` runs only matching test cases.
+- Docs-only merges (every changed file is plain `.md`) skip the Test command; the review still runs. `TRINITY_DOCS_ONLY_SKIP=0` forces tests.
+- Duration-based shard balancing for the test runner.
+
+### Changed
+- Codex workers in narrow-sandbox mode get write access to their own worktree git directory only (`--add-dir`), not the shared common git directory.
+- Dashboard status group wraps at 375px (no horizontal scroll).
+- Docs: README, AGENTS.md, dashboard docs, failure log, PLAN/HANDOFF and recommendations status brought up to date.
+
+### Fixed
+- Worktree removal retries on lock failures during cancel and merge.
+- Scheduler seeding skips unreadable decision files and no longer persists a partial seed when a source read fails.
+- `/api/action` rejection codes (403 origin, 401 token) pinned by tests and documented.
+
 ## v0.8.4 - 2026-10-29
 
 ### Changed
