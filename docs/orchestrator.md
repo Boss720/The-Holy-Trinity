@@ -49,6 +49,7 @@ antigravity `ANTIGRAVITY_CONVERSATION_ID`; only used when it looks like a GUID.
 - `Select-Worker`: requested headless worker unavailable: try the other of codex/antigravity, then headless claude
   if available, else fail as today. When it reroutes to claude, the dispatch runs headless.
   A headless claude dispatch reroutes to codex or antigravity with a notice when claude is unavailable or listed in `TRINITY_DISABLE`.
+  Antigravity workers take `TRINITY_AGY_MODEL`, `TRINITY_AGY_EFFORT` and `TRINITY_AGY_PREFIX` (prefix text put before the worker prompt, e.g. `/teamwork-preview`).
 - `status`: add an `orchestrator: <agent>` line (also in `-Brief`), after the `agents:` line.
 - Usage text: document `-Agent`, `-Headless`, orchestrator detection; `track` line says "your own (orchestrator) work".
 - `init`: add `.agents\skills\trinity\SKILL.md` to the refreshed toolkit list; final message says
