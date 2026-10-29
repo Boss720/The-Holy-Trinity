@@ -748,7 +748,7 @@ switch ($Command) {
                     $script = Join-Path $PSScriptRoot 'scheduler.ps1'; if (-not (Test-Path -LiteralPath $script)) { throw 'scripts\scheduler.ps1 is missing' }
                     $stopFile = Join-Path $paths.Main '.trinity\scheduler.stop'; if (Test-Path -LiteralPath $stopFile) { Remove-Item -LiteralPath $stopFile -Force }
                     $proc = Start-Process powershell.exe -WindowStyle Hidden -PassThru -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$script`"", '-Repo', "`"$($paths.Main)`""
-                    if ($proc.WaitForExit(1000)) { throw "Scheduler failed to start (exit code $($proc.ExitCode))." }
+                    if ($proc.WaitForExit(3000)) { throw "Scheduler failed to start (exit code $($proc.ExitCode))." }
                     Write-Host "Scheduler starting (pid $($proc.Id))."
                 }
                 'stop' {

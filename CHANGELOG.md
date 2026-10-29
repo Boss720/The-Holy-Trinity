@@ -1,8 +1,15 @@
 # Changelog
 
-## Unreleased
+## v0.8.2 - 2026-10-29
+
+### Added
+- Dashboard UI merge (ui-shell, ui-fix, dash-base): `window.Trinity` API, drawer Review/Files tabs and action bar, wizard queue mode, notifications, per-repository base resolution, model propagation, queued badge, Resume byte counter.
+- `TRINITY_AGY_PREFIX` prepends text (for example `/teamwork-preview`) to the Antigravity prompt.
 
 ### Fixed
+- Dashboard Stop all also covers already-paused repositories with a live scheduler.
+- Dashboard: an unsupported action throws instead of falling through to `merge -Yes`.
+- Test harness: per-run temp roots, only run-owned processes are killed, retries for flaky cases.
 - Test harness: `TRINITY_TEST_JOBS` overrides the default shard count (min(4, cores)); values outside 1..64 or unparsable fall back to the default instead of failing at parameter binding. Use 2 under low RAM.
 
 ## v0.8.1 - 2026-10-29
