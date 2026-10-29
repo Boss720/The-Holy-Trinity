@@ -100,12 +100,16 @@ trinity dashboard
 ```
 It opens `http://localhost:7777/` (localhost only, token-protected). Views: Inbox (needs attention, running tasks), board, history, health and settings; task detail tabs for summary, diff, log and a merge dry run; a Dispatch modal with overlap warnings and a confirm step. `trinity dashboard -Stop` stops it (also an orphan server found by its port), `-Json` prints the state once. Claude shows its own chunks there with `trinity track <task> <note>`.
 
+The dashboard header **Auto** button is the counterpart of **Stop all**. After confirmation, it unpauses paused repos, turns on autopilot and starts the scheduler in every repo where autopilot is off, paused or the scheduler is not alive.
+
 When a task shows `done`, review, merge, test, and clean up in one step:
 ```bat
 trinity merge add-search
 ```
 
 `merge` blocks if the review finds P0/P1 issues, reviews again if the base moved meanwhile, blocks on review output that is neither findings nor a clear "No findings" (empty, crash, usage limit) unless `-Force`, rejects failed or dirty worktrees, and aborts if the project's Test command (in `AGENTS.md`) fails. The review is saved as `.codex-out\review-<task>.md`.
+
+When every changed file is plain documentation (`.md` outside `.claude/` and `.agents/`), `merge` skips the test run but still runs review. Set `TRINITY_DOCS_ONLY_SKIP=0` to force tests.
 
 ### Task lifecycle
 
@@ -123,6 +127,8 @@ Watchdog: a worker is killed after `-DeadlineMinutes` (default 120) and marked `
 Base branch: `-Base <branch>`, else `TRINITY_BASE`, else `origin/HEAD`, else `main`. `trinity status` prints which.
 
 Worktree seeding: commit a `trinity-seed.txt` with `copy <path>` lines (gitignored files such as `.env`) and one `run <command>`; each new worker worktree gets them. Output in `.codex-out\seed-<task>.log`.
+
+Run `tests\run-tests.cmd -Filter <wildcard>` to run only matching test cases.
 
 ### Queue, scheduler, autopilot
 
@@ -153,6 +159,8 @@ trinity config set slots.codex 2
 | `TRINITY_CODEX_MODEL`, `TRINITY_CODEX_EFFORT` | Codex model and reasoning effort |
 | `TRINITY_AGY_MODEL`, `TRINITY_AGY_EFFORT`, `TRINITY_AGY_IDLE_SECONDS`, `TRINITY_AGY_PREFIX` | Antigravity model, effort, idle kill, text prepended to the prompt |
 | `CODEX_EXE`, `AGY_EXE` | Agent executable paths |
+
+For Antigravity workers, set `TRINITY_AGY_MODEL` and `TRINITY_AGY_EFFORT` to choose the model and effort, and `TRINITY_AGY_PREFIX` to prepend text such as `/teamwork-preview` to each prompt.
 
 What runs by itself:
 
