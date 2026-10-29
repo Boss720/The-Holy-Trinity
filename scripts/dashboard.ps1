@@ -9,6 +9,10 @@
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Web.Extensions
+$script:DashboardActionAllowList = @('cancel', 'merge', 'review-task', 'open-folder', 'dispatch', 'queue-add', 'resume', 'retry', 'pause', 'unpause')
+$script:DashboardRepoActions = @('pause', 'unpause')
+$script:DashboardCancelAllowedStates = @('queued', 'running', 'failed', 'stalled')
+$script:DashboardRetryAllowedStates = @('failed', 'cancelled')
 $script:JsonSerializer = New-Object System.Web.Script.Serialization.JavaScriptSerializer
 $script:JsonSerializer.MaxJsonLength = [int]::MaxValue
 $script:TranscriptCache = @{}
@@ -683,7 +687,12 @@ function Get-TaskState([string]$Status, [bool]$RunnerAlive) {
 }
 
 function Test-TaskActionState([string]$Action, [string]$State, [bool]$HasWorktree, [string]$Branch) {
-    return -not (($Action -eq 'cancel' -and $State -in @('merged','cancelled')) -or ($Action -eq 'merge' -and $State -notin @('done','ready')) -or ($Action -in @('review-task','open-folder') -and (-not $HasWorktree -or -not $Branch -or $Branch -eq '-')))
+    if ($Action -eq 'cancel') { return $State -cin $script:DashboardCancelAllowedStates }
+    if ($Action -eq 'merge') { return $State -cin @('done','ready') }
+    if ($Action -eq 'resume') { return $State -cin @('done','failed','stalled','ready') }
+    if ($Action -eq 'retry') { return $State -cin $script:DashboardRetryAllowedStates }
+    if ($Action -in @('review-task','open-folder')) { return [bool]($HasWorktree -and $Branch -and $Branch -ne '-') }
+    return $true
 }
 
 function Get-RepoTasks([string]$Main, [string]$Common) {
@@ -1121,6 +1130,32 @@ function Get-DashboardState {
 }
 
 # ASCII-only JSON (non-ASCII as \uXXXX) survives any console code page when -Once output is captured.
+function Quote-PowerShellLiteral([string]$Value) {
+    return "'" + $Value.Replace("'", "''") + "'"
+}
+
+function Test-DashboardTaskActionState([string]$Action, $TaskState, [bool]$HasWorktree) {
+    if (-not $TaskState) { return $false }
+    $branch = if ($TaskState.PSObject.Properties['branch']) { [string]$TaskState.branch } else { '' }
+    return (Test-TaskActionState $Action ([string]$TaskState.state) $HasWorktree $branch)
+}
+
+function Get-DashboardActionCommand([string]$Action, [string]$Task, [string]$JobId, [string]$Agent = '', [string]$Scope = '', [string]$PauseReason = 'user', [string]$Worktree = '', [string]$DispatchCommand = '') {
+    switch ($Action) {
+        'cancel' { return "trinity cancel $Task" }
+        'merge' { return "trinity merge $Task -Yes" }
+        'review-task' { return "trinity merge $Task -DryRun" }
+        'open-folder' { return "explorer.exe `"$Worktree`"" }
+        'resume' { return "trinity resume $Task -FeedbackFile .codex-out\feedback-$Task-$JobId.md" }
+        'retry' { return "trinity retry $Task" }
+        'queue-add' { return "trinity queue add $Agent $Task -Scope `"$Scope`" -PromptFile .codex-out\prompt-$Task.md`ntrinity scheduler start" }
+        'pause' { return "trinity pause `"$PauseReason`"`ntrinity scheduler stop" }
+        'unpause' { return 'trinity unpause' }
+        'dispatch' { return $DispatchCommand }
+    }
+    return ''
+}
+
 function Convert-StateToJson($State) {
     $json = $State | ConvertTo-Json -Depth 12 -Compress
     return [regex]::Replace($json, '[^\x00-\x7F]', { param($m) '\u{0:x4}' -f [int][char]$m.Value })
@@ -1291,7 +1326,11 @@ function Convert-ActionScript([string]$RepoPath, $Commands) {
     return ($parts -join '; if (-not $?) { exit 1 }; ')
 }
 function Get-ResumeCommand([string]$Task, [string]$File) { return ,@('resume',$Task,(New-ActionFlag '-FeedbackFile'),$File) }
-function Get-QueueAddCommand([string]$Agent, [string]$Task, [string]$Scope, [string]$File) { return ,@('queue','add',$Agent,$Task,(New-ActionFlag '-Scope'),$Scope,(New-ActionFlag '-PromptFile'),$File) }
+function Get-QueueAddCommand([string]$Agent, [string]$Task, [string]$Scope, [string]$File, [string]$Model = '') {
+    $c = @('queue','add',$Agent,$Task,(New-ActionFlag '-Scope'),$Scope,(New-ActionFlag '-PromptFile'),$File)
+    if ($Model) { $c += ,(New-ActionFlag '-Model'); $c += $Model }
+    return ,$c
+}
 function Get-ConfigSaveCommand([string]$File) { return ,@('config','set',(New-ActionFlag '-Json'),$File) }
 function Get-AutopilotCommand([bool]$Enabled, [bool]$Approval) {
     $c=@('autopilot',$(if ($Enabled) { 'on' } else { 'off' })); if ($Enabled -and $Approval) { $c+=,(New-ActionFlag '-Approval') }
@@ -1340,11 +1379,58 @@ function Start-ActionProcess([string]$Id, [string]$Action, [string]$Task, [strin
     }
     $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     # trinity.ps1 finds its repo root from its own path, so the review must run the worktree's copy to see the task branch.
-    if ($ActionScript) { $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($ActionScript)); $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-EncodedCommand',$encoded); $cwd=$RepoPath }
-    elseif ($Action -eq 'review-task') { $reviewScript = Join-Path $RepoPath 'scripts\trinity.ps1'; $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$reviewScript,'merge',$Task,'-DryRun'); $cwd=$RepoPath }
-    elseif ($Action -eq 'dispatch') { $dispatchScript=Join-Path $RepoPath 'scripts\trinity.ps1'; if (-not (Test-Path -LiteralPath $dispatchScript -PathType Leaf)) { $dispatchScript=Join-Path $PSScriptRoot 'trinity.ps1' }; $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$dispatchScript,'dispatch',$Agent,$Task,'-Scope',$Scope,'-PromptFile',$PromptFile); $cwd=$RepoPath }
-    elseif ($Action -eq 'cancel') { $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $RepoPath 'scripts\trinity.ps1'),'cancel',$Task); $cwd=$RepoPath }
-    else { $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $RepoPath 'scripts\trinity.ps1'),'merge',$Task,'-Yes'); $cwd=$RepoPath }
+    $trinityScript = Join-Path $RepoPath 'scripts\trinity.ps1'
+    if (-not (Test-Path -LiteralPath $trinityScript -PathType Leaf)) { $trinityScript = Join-Path $PSScriptRoot 'trinity.ps1' }
+    if ($ActionScript) {
+        $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($ActionScript))
+        $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-EncodedCommand',$encoded)
+        $cwd=$RepoPath
+    }
+    elseif ($Action -eq 'review-task') {
+        $reviewScript = Join-Path $RepoPath 'scripts\trinity.ps1'
+        if (-not (Test-Path -LiteralPath $reviewScript -PathType Leaf)) { $reviewScript = $trinityScript }
+        $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$reviewScript,'merge',$Task,'-DryRun')
+        $cwd=$RepoPath
+    }
+    elseif ($Action -eq 'dispatch') {
+        $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$trinityScript,'dispatch',$Agent,$Task,'-Scope',$Scope,'-PromptFile',$PromptFile)
+        $cwd=$RepoPath
+    }
+    elseif ($Action -eq 'cancel') {
+        $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$trinityScript,'cancel',$Task)
+        $cwd=$RepoPath
+    }
+    elseif ($Action -eq 'merge') {
+        $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$trinityScript,'merge',$Task,'-Yes')
+        $cwd=$RepoPath
+    }
+    elseif ($Action -eq 'resume') {
+        $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$trinityScript,'resume',$Task,'-FeedbackFile',$PromptFile)
+        $cwd=$RepoPath
+    }
+    elseif ($Action -eq 'retry') {
+        $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$trinityScript,'retry',$Task)
+        $cwd=$RepoPath
+    }
+    elseif ($Action -eq 'pause') {
+        $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$trinityScript,'scheduler','stop')
+        $cwd=$RepoPath
+    }
+    elseif ($Action -eq 'unpause') {
+        $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$trinityScript,'unpause')
+        $cwd=$RepoPath
+    }
+    elseif ($Action -eq 'queue-add') {
+        $commands = @((Get-QueueAddCommand $Agent $Task $Scope $PromptFile), @('scheduler','start'))
+        $genScript = Convert-ActionScript $RepoPath $commands
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($genScript))
+        $processArguments = @('-NoProfile','-ExecutionPolicy','Bypass','-EncodedCommand',$encoded)
+        $cwd = $RepoPath
+    }
+    else {
+        $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$trinityScript,'merge',$Task,'-Yes')
+        $cwd=$RepoPath
+    }
     $processArguments = @($processArguments | ForEach-Object { Quote-ProcessArgument ([string]$_) })
     [IO.File]::WriteAllText($outputPath, '', (New-Object Text.UTF8Encoding($false)))
     [IO.File]::WriteAllText($errorPath, '', (New-Object Text.UTF8Encoding($false)))
@@ -1501,14 +1587,17 @@ try {
                     $repoState = @($snapshot.repos | Where-Object { [string]::Equals([string]$_.path, $repoRequest, [StringComparison]::OrdinalIgnoreCase) }) | Select-Object -First 1
                     if (-not $repoState) { Add-ActionLog $action $repoRequest $taskName '404'; $actionLogged=$true; Send-JsonResponse $response 404 @{ error='Unknown repository' }; continue }
                     $repoPath = [IO.Path]::GetFullPath([string]$repoState.path)
-                    if ($action -eq 'dispatch') {
-                        $agentValue=Get-JsonValue $body 'agent' ''; $scopeValue=Get-JsonValue $body 'scope' ''; $promptValue=Get-JsonValue $body 'prompt' ''
-                        if (-not $confirm -or $agentValue -isnot [string] -or $scopeValue -isnot [string] -or $promptValue -isnot [string]) { Send-JsonResponse $response 400 @{ error='Dispatch requires confirm:true and string agent, scope and prompt' }; continue }
+                    if ($action -in @('dispatch','queue-add')) {
+                        $agentValue=Get-JsonValue $body 'agent' ''; $scopeValue=Get-JsonValue $body 'scope' ''; $promptValue=Get-JsonValue $body 'prompt' ''; $modelValue=Get-JsonValue $body 'model' ''
+                        if (-not $confirm -or $agentValue -isnot [string] -or $scopeValue -isnot [string] -or $promptValue -isnot [string] -or $modelValue -isnot [string]) { Send-JsonResponse $response 400 @{ error='Dispatch requires confirm:true and string agent, scope and prompt' }; continue }
+                        if ($modelValue -match '[^\x20-\x7e]') { Send-JsonResponse $response 400 @{ error='Invalid model' }; continue }
                         if ($scopeValue -match '[^\x20-\x7e]') { Send-JsonResponse $response 400 @{ error='Scope must be printable ASCII (it reaches the command line)' }; continue }
                         if (-not $promptValue.Trim() -or [Text.Encoding]::UTF8.GetByteCount($promptValue) -gt 32768) { Send-JsonResponse $response 400 @{ error='Prompt must be non-empty and at most 32 KB UTF-8' }; continue }
                         $check=Get-DispatchCheck $repoState $snapshot.availability $agentValue $taskName $scopeValue
                         $dispatchAgent=$check.effectiveAgent
-                        if (-not $check.canDispatch) { Send-JsonResponse $response 400 @{ error=(@($check.taskReason,$check.agentReason,$check.scopeReason) | Where-Object { $_ }) -join '; ' }; continue }
+                        if ($action -eq 'dispatch' -and -not $check.canDispatch) { Send-JsonResponse $response 400 @{ error=(@($check.taskReason,$check.agentReason,$check.scopeReason) | Where-Object { $_ }) -join '; ' }; continue }
+                        if ($action -eq 'queue-add' -and (-not $check.taskOk -or -not $check.agentOk -or -not $check.scopeOk)) { Send-JsonResponse $response 400 @{ error=(@($check.taskReason,$check.agentReason,$check.scopeReason) | Where-Object { $_ }) -join '; ' }; continue }
+                        if (-not $check.scopeNormalized.Count) { Send-JsonResponse $response 400 @{ error='Scope is required for dispatch and queue-add' }; continue }
                     }
                     elseif ($action -notin @('queue-add','queue-remove','queue-move','start-now','settings-save','autopilot','pause','unpause')) {
                     $taskState = @($repoState.tasks | Where-Object { $_.task -ceq $taskName }) | Select-Object -First 1
@@ -1544,12 +1633,15 @@ try {
                         }
                         'retry' { $commands+=,@('retry',$taskName); $display="trinity retry $taskName" }
                         'queue-add' {
-                            $agentValue=Get-JsonValue $body 'agent' $null; $scopeValue=Get-JsonValue $body 'scope' $null; $promptValue=Get-JsonValue $body 'prompt' $null
+                            $agentValue=Get-JsonValue $body 'agent' $null; $scopeValue=Get-JsonValue $body 'scope' $null; $promptValue=Get-JsonValue $body 'prompt' $null; $modelValue=Get-JsonValue $body 'model' ''
+                            if ($modelValue -isnot [string] -or $modelValue -match '[^\x20-\x7e]') { Send-JsonResponse $response 400 @{error='Invalid model'}; continue }
                             if ($scopeValue -is [string] -and $scopeValue -match '[^\x20-\x7e]') { Send-JsonResponse $response 400 @{error='Scope must be printable ASCII (it reaches the command line)'}; continue }
                             if ($agentValue -isnot [string] -or $agentValue -cnotin @('codex','antigravity','claude') -or $scopeValue -isnot [string] -or $promptValue -isnot [string] -or -not $promptValue.Trim() -or [Text.Encoding]::UTF8.GetByteCount($promptValue) -gt 32768 -or $scopeValue -match '[^\x20-\x7e]' -or $scopeValue -match '[:\\\x00-\x1f\x7f]' -or $scopeValue.Contains('..') -or $scopeValue.StartsWith('/') -or @($scopeValue.Split(',')).Count -gt 20 -or @($repoState.tasks | Where-Object { $_.task -eq $taskName -and $_.state -ne 'cancelled' }).Count -or $queueItem) { Send-JsonResponse $response 400 @{error='Invalid queue item'}; continue }
                             $file=Join-Path $outDir "prompt-$taskName-$jobId.md"; Write-NewUtf8 $file $promptValue
-                            $commands+=,(Get-QueueAddCommand $agentValue $taskName $scopeValue $file); $commands+=,@('scheduler','start')
-                            $display="trinity queue add $agentValue $taskName -Scope $(Quote-ProcessArgument $scopeValue) -PromptFile $(Quote-ProcessArgument $file); trinity scheduler start"
+                            $commands+=,(Get-QueueAddCommand $agentValue $taskName $scopeValue $file $modelValue); $commands+=,@('scheduler','start')
+                            $display="trinity queue add $agentValue $taskName -Scope $(Quote-ProcessArgument $scopeValue) -PromptFile $(Quote-ProcessArgument $file)"
+                            if ($modelValue) { $display += " -Model $(Quote-ProcessArgument $modelValue)" }
+                            $display += "; trinity scheduler start"
                         }
                         'queue-remove' { $commands+=,@('queue','remove',$taskName); $display="trinity queue remove $taskName" }
                         'queue-move' { $index=Get-JsonValue $body 'index' $null; if ($index -isnot [int] -or $index -lt 0) { Send-JsonResponse $response 400 @{error='Invalid index'}; continue }; $commands+=,@('queue','move',$taskName,[string]$index); $display="trinity queue move $taskName $index" }
@@ -1573,10 +1665,20 @@ try {
                     }
                     if ($response.StatusCode -ge 400) { continue }
                     if ($action -eq 'dispatch') {
+                        $modelValue=Get-JsonValue $body 'model' ''
+                        if ($modelValue -isnot [string] -or $modelValue -match '[^\x20-\x7e]') { Send-JsonResponse $response 400 @{ error='Invalid model' }; continue }
                         $promptFile=Join-Path $outDir "prompt-$taskName.md"
                         try { Write-NewUtf8 $promptFile $promptValue -Overwrite } catch [IO.IOException] { Send-JsonResponse $response 400 @{ error='Could not create a new prompt file' }; continue }
                         $display='trinity dispatch {0} {1} -Scope {2} -PromptFile {3}' -f $check.effectiveAgent,$taskName,(Quote-ProcessArgument ($check.scopeNormalized -join ',')),(Quote-ProcessArgument $promptFile)
-                        Start-ActionProcess $jobId $action $taskName $repoPath '' $display $check.effectiveAgent ($check.scopeNormalized -join ',') $promptFile
+                        $modelPrefix=Get-ModelPrefix $check.effectiveAgent $agentValue $modelValue
+                        if ($modelPrefix) {
+                            $display=$modelPrefix+$display
+                            $commands=@(,(Get-DispatchCommand $check.effectiveAgent $taskName ($check.scopeNormalized -join ',') $promptFile ''))
+                            $actionScript=$modelPrefix + (Convert-ActionScript $repoPath $commands)
+                            Start-ActionProcess $jobId $action $taskName $repoPath '' $display $check.effectiveAgent ($check.scopeNormalized -join ',') $promptFile $actionScript
+                        } else {
+                            Start-ActionProcess $jobId $action $taskName $repoPath '' $display $check.effectiveAgent ($check.scopeNormalized -join ',') $promptFile
+                        }
                     }
                     else { if ($commands.Count) { $actionScript=$modelPrefix + (Convert-ActionScript $repoPath $commands) }; Start-ActionProcess $jobId $action $taskName $repoPath $worktree $display '' '' '' $actionScript }
                     Add-ActionLog $action $repoPath $taskName $jobId '' ([string]$script:Jobs[$jobId].agent)

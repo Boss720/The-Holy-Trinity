@@ -46,6 +46,33 @@
       "reason": "failed",
       "detail": "Process exited with code 1: Assertion failure",
       "since": "2026-10-25T08:30:00"
+    },
+    {
+      "repo": "Holy trinity",
+      "repoPath": "D:\\AI\\projects\\Dev\\Projects\\Holy trinity",
+      "task": "api-docs",
+      "agent": "codex",
+      "reason": "ready",
+      "detail": "Review clean, tests pass: ready to merge",
+      "since": "2026-10-25T09:20:00"
+    },
+    {
+      "repo": "Holy trinity",
+      "repoPath": "D:\\AI\\projects\\Dev\\Projects\\Holy trinity",
+      "task": "log-rotate",
+      "agent": "antigravity",
+      "reason": "stalled",
+      "detail": "No output for 12 minutes",
+      "since": "2026-10-25T09:40:00"
+    },
+    {
+      "repo": "demo-shop",
+      "repoPath": "D:\\Shop",
+      "task": "",
+      "agent": "",
+      "reason": "limit",
+      "detail": "Autopilot paused: limit: 2 consecutive failures",
+      "since": "2026-10-25T09:31:00"
     }
   ],
   "health": [
@@ -511,6 +538,119 @@
           ],
           "chat": "",
           "subChats": []
+        },
+        {
+          "task": "api-docs",
+          "agent": "codex",
+          "state": "ready",
+          "status": "ready: review clean, tests 47/47 2026-10-25 09:20",
+          "updated": "2026-10-25 09:20",
+          "branch": "agent/codex/api-docs",
+          "worktree": "D:\\AI\\projects\\Dev\\Projects\\Holy trinity.worktrees\\codex-api-docs",
+          "scope": "docs/*.md,scripts/api.ps1",
+          "runnerAlive": false,
+          "commits": 2,
+          "result": "API docs rewritten; review clean.",
+          "logTail": "[08:52:14] Added canvas blend mode diffing\n[08:55:30] Verified on Chrome & Firefox\n[08:58:00] Artifact saved to .codex-out/compare.png",
+          "model": "Gemini 3.8 Flash (High)",
+          "effort": "",
+          "sessionId": "f1a23456-789a-4bc0-def1-23456789abcd",
+          "started": "2026-10-25T08:42:00",
+          "finished": "2026-10-25T08:58:00",
+          "durationSec": 960,
+          "lastActivity": "2026-10-25T08:57:55",
+          "tokens": {
+            "input": 45120,
+            "cached": 16384,
+            "output": 3410,
+            "reasoning": 0,
+            "total": 48530
+          },
+          "contextWindow": 1048576,
+          "toolCalls": 24,
+          "rateLimits": [],
+          "chat": "",
+          "subChats": [],
+          "contextUsed": 38400,
+          "steps": 22,
+          "thinkingSteps": 9,
+          "toolBreakdown": [
+            {
+              "name": "read_file",
+              "count": 12
+            },
+            {
+              "name": "edit_file",
+              "count": 7
+            },
+            {
+              "name": "run_command",
+              "count": 5
+            }
+          ],
+          "lastTool": "run_command",
+          "filesTouched": [
+            "docs/api.md",
+            "docs/usage.md",
+            "scripts/api.ps1"
+          ],
+          "backgroundTasks": 0
+        },
+        {
+          "task": "log-rotate",
+          "agent": "antigravity",
+          "state": "stalled",
+          "status": "running (stalled 12m, no output) 2026-10-25 09:40",
+          "updated": "2026-10-25 09:40",
+          "branch": "agent/antigravity/log-rotate",
+          "worktree": "D:\\AI\\projects\\Dev\\Projects\\Holy trinity.worktrees\\antigravity-log-rotate",
+          "scope": "scripts/lib/log.ps1",
+          "runnerAlive": true,
+          "commits": 0,
+          "result": "",
+          "logTail": "[08:52:14] Added canvas blend mode diffing\n[08:55:30] Verified on Chrome & Firefox\n[08:58:00] Artifact saved to .codex-out/compare.png",
+          "model": "Gemini 3.8 Flash (High)",
+          "effort": "",
+          "sessionId": "f1a23456-789a-4bc0-def1-23456789abcd",
+          "started": "2026-10-25T08:42:00",
+          "finished": "2026-10-25T08:58:00",
+          "durationSec": 960,
+          "lastActivity": "2026-10-25T08:57:55",
+          "tokens": {
+            "input": 45120,
+            "cached": 16384,
+            "output": 3410,
+            "reasoning": 0,
+            "total": 48530
+          },
+          "contextWindow": 1048576,
+          "toolCalls": 24,
+          "rateLimits": [],
+          "chat": "",
+          "subChats": [],
+          "contextUsed": 38400,
+          "steps": 22,
+          "thinkingSteps": 9,
+          "toolBreakdown": [
+            {
+              "name": "read_file",
+              "count": 12
+            },
+            {
+              "name": "edit_file",
+              "count": 7
+            },
+            {
+              "name": "run_command",
+              "count": 5
+            }
+          ],
+          "lastTool": "run_command",
+          "filesTouched": [
+            "scripts/lib/log.ps1",
+            "scripts/trinity.ps1"
+          ],
+          "backgroundTasks": 0
         }
       ],
       "claudeSessions": [
@@ -576,7 +716,427 @@
             }
           ]
         }
-      ]
+      ],
+      "config": {
+        "version": 1,
+        "slots": {
+          "codex": 3,
+          "antigravity": 2,
+          "claude": 1
+        },
+        "base": "",
+        "test": "",
+        "autoMerge": false,
+        "maxRounds": 3,
+        "deadlineMinutes": 120,
+        "models": {
+          "codex": "",
+          "antigravity": "",
+          "claude": ""
+        },
+        "autopilot": {
+          "enabled": true,
+          "approval": true,
+          "maxTasksPerHour": 6,
+          "maxConsecutiveFailures": 3,
+          "cleanRunsBeforeAutoMerge": 10
+        }
+      },
+      "slots": {
+        "codex": {
+          "used": 2,
+          "max": 3
+        },
+        "antigravity": {
+          "used": 1,
+          "max": 2
+        },
+        "claude": {
+          "used": 0,
+          "max": 1
+        }
+      },
+      "queue": [
+        {
+          "task": "login-form",
+          "agent": "codex",
+          "scope": "src/auth/*",
+          "addedAt": "2026-10-25T09:55:00",
+          "waiting": "no free slot",
+          "overlaps": []
+        },
+        {
+          "task": "icc-cleanup",
+          "agent": "codex",
+          "scope": "src/icc.c,src/util/*",
+          "addedAt": "2026-10-25T09:58:00",
+          "waiting": "",
+          "overlaps": [
+            "strip-icc"
+          ]
+        }
+      ],
+      "scheduler": {
+        "alive": true,
+        "lastTickAt": "2026-10-25T10:14:00",
+        "now": "waiting for a free codex slot",
+        "next": "login-form"
+      },
+      "autopilot": {
+        "enabled": true,
+        "approval": true,
+        "autoMergeAllowed": false,
+        "cleanRuns": 3,
+        "paused": false,
+        "pauseReason": "",
+        "roundsUsed": {
+          "test-collector": 2,
+          "dash-ui": 1
+        },
+        "limitBreach": "",
+        "decisions": [
+          {
+            "at": "2026-10-25T10:12:00",
+            "task": "api-docs",
+            "action": "ready",
+            "reason": "ready: review clean, tests 47/47, approval mode",
+            "round": 1
+          },
+          {
+            "at": "2026-10-25T10:05:00",
+            "task": "test-collector",
+            "action": "resumed",
+            "reason": "resumed with 2 P1 findings",
+            "round": 2
+          },
+          {
+            "at": "2026-10-25T09:50:00",
+            "task": "dash-ui",
+            "action": "started",
+            "reason": "started: slot free, scope clear",
+            "round": 1
+          },
+          {
+            "at": "2026-10-25T09:30:00",
+            "task": "log-rotate",
+            "action": "skipped",
+            "reason": "skipped: scope overlaps dash-ui",
+            "round": 0
+          },
+          {
+            "at": "2026-10-25T09:10:00",
+            "task": "dash-server",
+            "action": "merged",
+            "reason": "merged: review clean, tests 47/47, scope ok",
+            "round": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "demo-shop",
+      "path": "D:\\Shop",
+      "branch": "main",
+      "uncommitted": 0,
+      "ahead": 0,
+      "plan": {
+        "done": 12,
+        "total": 14,
+        "open": [
+          "Add live reload indicator to dashboard",
+          "Windows notification seen on screen - user"
+        ]
+      },
+      "handoff": [
+        "Completed: Modules 0-2 (task dispatcher, worktree isolation, agent board)",
+        "In flight: dash-ui on Antigravity",
+        "Next command: trinity status",
+        "Blockers: none"
+      ],
+      "tasks": [
+        {
+          "task": "cart-totals",
+          "agent": "codex",
+          "state": "failed",
+          "status": "failed (exit 1) 2026-10-25 09:00",
+          "updated": "2026-10-25 09:00",
+          "branch": "agent/codex/cart-totals",
+          "worktree": "D:\\Shop.worktrees\\codex-cart-totals",
+          "scope": "src/cart/*",
+          "runnerAlive": false,
+          "commits": 1,
+          "result": "Tests failed: rounding.",
+          "logTail": "[08:52:14] Added canvas blend mode diffing\n[08:55:30] Verified on Chrome & Firefox\n[08:58:00] Artifact saved to .codex-out/compare.png",
+          "model": "Gemini 3.8 Flash (High)",
+          "effort": "",
+          "sessionId": "f1a23456-789a-4bc0-def1-23456789abcd",
+          "started": "2026-10-25T08:42:00",
+          "finished": "2026-10-25T08:58:00",
+          "durationSec": 960,
+          "lastActivity": "2026-10-25T08:57:55",
+          "tokens": {
+            "input": 45120,
+            "cached": 16384,
+            "output": 3410,
+            "reasoning": 0,
+            "total": 48530
+          },
+          "contextWindow": 1048576,
+          "toolCalls": 24,
+          "rateLimits": [],
+          "chat": "",
+          "subChats": [],
+          "contextUsed": 38400,
+          "steps": 22,
+          "thinkingSteps": 9,
+          "toolBreakdown": [
+            {
+              "name": "read_file",
+              "count": 12
+            },
+            {
+              "name": "edit_file",
+              "count": 7
+            },
+            {
+              "name": "run_command",
+              "count": 5
+            }
+          ],
+          "lastTool": "run_command",
+          "filesTouched": [
+            "src/cart/totals.js",
+            "src/checkout/pay.js"
+          ],
+          "backgroundTasks": 0
+        },
+        {
+          "task": "price-fmt",
+          "agent": "claude",
+          "state": "failed",
+          "status": "failed (exit 1) 2026-10-25 09:30",
+          "updated": "2026-10-25 09:30",
+          "branch": "agent/claude/price-fmt",
+          "worktree": "D:\\Shop.worktrees\\claude-price-fmt",
+          "scope": "src/format/*",
+          "runnerAlive": false,
+          "commits": 0,
+          "result": "",
+          "logTail": "[08:52:14] Added canvas blend mode diffing\n[08:55:30] Verified on Chrome & Firefox\n[08:58:00] Artifact saved to .codex-out/compare.png",
+          "model": "Gemini 3.8 Flash (High)",
+          "effort": "",
+          "sessionId": "f1a23456-789a-4bc0-def1-23456789abcd",
+          "started": "2026-10-25T08:42:00",
+          "finished": "2026-10-25T08:58:00",
+          "durationSec": 960,
+          "lastActivity": "2026-10-25T08:57:55",
+          "tokens": {
+            "input": 45120,
+            "cached": 16384,
+            "output": 3410,
+            "reasoning": 0,
+            "total": 48530
+          },
+          "contextWindow": 1048576,
+          "toolCalls": 24,
+          "rateLimits": [],
+          "chat": "",
+          "subChats": [],
+          "contextUsed": 38400,
+          "steps": 22,
+          "thinkingSteps": 9,
+          "toolBreakdown": [
+            {
+              "name": "read_file",
+              "count": 12
+            },
+            {
+              "name": "edit_file",
+              "count": 7
+            },
+            {
+              "name": "run_command",
+              "count": 5
+            }
+          ],
+          "lastTool": "run_command",
+          "filesTouched": [
+            "src/format/price.js"
+          ],
+          "backgroundTasks": 0
+        },
+        {
+          "task": "search-box",
+          "agent": "antigravity",
+          "state": "running",
+          "status": "running 2026-10-25 10:00",
+          "updated": "2026-10-25 10:00",
+          "branch": "agent/antigravity/search-box",
+          "worktree": "D:\\Shop.worktrees\\antigravity-search-box",
+          "scope": "src/search/*",
+          "runnerAlive": true,
+          "commits": 0,
+          "result": "",
+          "logTail": "[08:52:14] Added canvas blend mode diffing\n[08:55:30] Verified on Chrome & Firefox\n[08:58:00] Artifact saved to .codex-out/compare.png",
+          "model": "Gemini 3.8 Flash (High)",
+          "effort": "",
+          "sessionId": "f1a23456-789a-4bc0-def1-23456789abcd",
+          "started": "2026-10-25T08:42:00",
+          "finished": "2026-10-25T08:58:00",
+          "durationSec": 960,
+          "lastActivity": "2026-10-25T08:57:55",
+          "tokens": {
+            "input": 45120,
+            "cached": 16384,
+            "output": 3410,
+            "reasoning": 0,
+            "total": 48530
+          },
+          "contextWindow": 1048576,
+          "toolCalls": 24,
+          "rateLimits": [],
+          "chat": "",
+          "subChats": [],
+          "contextUsed": 38400,
+          "steps": 22,
+          "thinkingSteps": 9,
+          "toolBreakdown": [
+            {
+              "name": "read_file",
+              "count": 12
+            },
+            {
+              "name": "edit_file",
+              "count": 7
+            },
+            {
+              "name": "run_command",
+              "count": 5
+            }
+          ],
+          "lastTool": "run_command",
+          "filesTouched": [
+            "src/search/box.js"
+          ],
+          "backgroundTasks": 0
+        }
+      ],
+      "claudeSessions": [],
+      "config": {
+        "version": 1,
+        "slots": {
+          "codex": 1,
+          "antigravity": 1,
+          "claude": 1
+        },
+        "base": "",
+        "test": "",
+        "autoMerge": false,
+        "maxRounds": 3,
+        "deadlineMinutes": 120,
+        "models": {
+          "codex": "",
+          "antigravity": "",
+          "claude": ""
+        },
+        "autopilot": {
+          "enabled": true,
+          "approval": true,
+          "maxTasksPerHour": 6,
+          "maxConsecutiveFailures": 3,
+          "cleanRunsBeforeAutoMerge": 10
+        }
+      },
+      "queue": [
+        {
+          "task": "wishlist",
+          "agent": "claude",
+          "scope": "src/wishlist/*",
+          "addedAt": "2026-10-25T09:40:00",
+          "waiting": "paused",
+          "overlaps": []
+        },
+        {
+          "task": "coupon-codes",
+          "agent": "codex",
+          "scope": "src/cart/*",
+          "addedAt": "2026-10-25T09:41:00",
+          "waiting": "paused",
+          "overlaps": [
+            "cart-totals"
+          ]
+        }
+      ],
+      "slots": {
+        "codex": {
+          "used": 0,
+          "max": 1
+        },
+        "antigravity": {
+          "used": 1,
+          "max": 1
+        },
+        "claude": {
+          "used": 0,
+          "max": 1
+        }
+      },
+      "scheduler": {
+        "alive": false,
+        "lastTickAt": "2026-10-25T09:31:00",
+        "now": "paused",
+        "next": ""
+      },
+      "autopilot": {
+        "enabled": true,
+        "approval": true,
+        "autoMergeAllowed": false,
+        "cleanRuns": 0,
+        "paused": true,
+        "pauseReason": "limit: 2 consecutive failures",
+        "roundsUsed": {
+          "cart-totals": 3,
+          "price-fmt": 1
+        },
+        "limitBreach": "limit: 2 consecutive failures",
+        "decisions": [
+          {
+            "at": "2026-10-25T09:31:00",
+            "task": "",
+            "action": "limit",
+            "reason": "paused: limit: 2 consecutive failures",
+            "round": 0
+          },
+          {
+            "at": "2026-10-25T09:30:00",
+            "task": "price-fmt",
+            "action": "failed",
+            "reason": "failed: exit 1",
+            "round": 1
+          },
+          {
+            "at": "2026-10-25T09:01:00",
+            "task": "cart-totals",
+            "action": "failed",
+            "reason": "failed at max rounds (3)",
+            "round": 3
+          },
+          {
+            "at": "2026-10-25T08:40:00",
+            "task": "cart-totals",
+            "action": "resumed",
+            "reason": "resumed with test log tail",
+            "round": 2
+          },
+          {
+            "at": "2026-10-25T08:20:00",
+            "task": "cart-totals",
+            "action": "started",
+            "reason": "started: slot free",
+            "round": 1
+          }
+        ]
+      }
     }
   ],
   "sampleChats": {
@@ -1039,6 +1599,64 @@
           "text": "Audit complete: Test suite cleanup verified."
         }
       ]
+    }
+  },
+  "sampleReviews": {
+    "visual-compare": {
+      "parsed": true,
+      "at": "2026-10-25T09:00:00",
+      "findings": [
+        {
+          "severity": "P1",
+          "title": "diff.js ignores alpha channel when comparing pixels",
+          "file": "web/diff.js",
+          "line": 42
+        },
+        {
+          "severity": "P2",
+          "title": "compare.html has no empty-state when no images load",
+          "file": "web/compare.html",
+          "line": 18
+        },
+        {
+          "severity": "P3",
+          "title": "Magic number 255 repeated",
+          "file": "web/diff.js",
+          "line": 77
+        }
+      ],
+      "text": "reviewer: codex\n[P1] web/diff.js:42 diff.js ignores alpha channel when comparing pixels\n[P2] web/compare.html:18 no empty-state when no images load\n[P3] web/diff.js:77 magic number 255 repeated"
+    },
+    "test-collector": {
+      "parsed": true,
+      "at": "2026-10-25 08:35",
+      "findings": [
+        {
+          "severity": "P0",
+          "title": "Assertion helper swallows exceptions so failures pass silently",
+          "file": "tests/test-dashboard.ps1",
+          "line": 12
+        },
+        {
+          "severity": "P1",
+          "title": "Collector never closes its file handle",
+          "file": "tests/test-dashboard.ps1",
+          "line": 60
+        }
+      ],
+      "text": "reviewer: claude\n[P0] tests/test-dashboard.ps1:12 assertion helper swallows exceptions\n[P1] tests/test-dashboard.ps1:60 file handle never closed"
+    },
+    "orchestrator-refactor": {
+      "parsed": false,
+      "at": "2026-10-25 08:55",
+      "findings": [],
+      "text": "reviewer: antigravity\nLooks mostly fine but I could not produce a structured list. The refactor moves board helpers into lib/board.ps1; consider a smoke test for Get-BaseBranch."
+    },
+    "api-docs": {
+      "parsed": true,
+      "at": "2026-10-25 09:20",
+      "findings": [],
+      "text": "reviewer: codex\nNo findings."
     }
   }
 }
