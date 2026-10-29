@@ -88,3 +88,27 @@ Run-Case 'cli-wire: trinity config set/get and base branch from trinity.json' {
     }
     finally { $env:TRINITY_BASE = $null }
 }
+
+Run-Case 'cli-wire: failed or dirty task cannot merge' {
+    param($f)
+    Start-CodexTask $f 'failed-merge'
+    $wait=Invoke-Trinity $f @('wait','failed-merge','-Timeout','30')
+    Assert-True ($wait.ExitCode -eq 0) "fixture failed: $($wait.Output)"
+    . (Join-Path $repoSource 'scripts\lib\board.ps1'); $p=Get-RepoPaths $f.Repo; Set-BoardStatus $p 'failed-merge' 'failed (exit 1)'
+    $r=Invoke-Trinity $f @('merge','failed-merge','-Yes','-Force')
+    Assert-True ($r.ExitCode -ne 0 -and $r.Output -match 'task status is failed') "failed task merged: $($r.Output)"
+    Set-BoardStatus $p 'failed-merge' 'done (1 commits)'
+    [IO.File]::WriteAllText((Join-Path $f.Worktrees 'codex-failed-merge\uncommitted.txt'),'preserve')
+    $r=Invoke-Trinity $f @('merge','failed-merge','-Yes','-Force')
+    Assert-True ($r.ExitCode -ne 0 -and $r.Output -match 'uncommitted changes') "dirty task merged: $($r.Output)"
+}
+Run-Case 'cli-wire: dry run refuses a branch behind base' {
+    param($f)
+    Start-CodexTask $f 'old-base'
+    $wait=Invoke-Trinity $f @('wait','old-base','-Timeout','30')
+    Assert-True ($wait.ExitCode -eq 0) "fixture failed: $($wait.Output)"
+    [IO.File]::WriteAllText((Join-Path $f.Repo 'base-change.txt'),'changed')
+    $null=Invoke-Git $f.Repo @('add','base-change.txt'); $null=Invoke-Git $f.Repo @('commit','-m','advance base')
+    $r=Invoke-Trinity $f @('merge','old-base','-DryRun')
+    Assert-True ($r.ExitCode -ne 0 -and $r.Output -match 'does not contain') "stale dry run accepted: $($r.Output)"
+}

@@ -222,7 +222,7 @@ function Get-SchedulerLimit($Config, $Decisions) {
 function Get-SlotUse($Paths, $Config) {
     $slots=@{}; foreach ($agent in @('codex','antigravity','claude')) { $slots[$agent]=@{used=0;max=[int]$Config.slots[$agent]} }
     foreach ($entry in @(Get-SchedulerTasks $Paths)) {
-        if (-not $slots.ContainsKey([string]$entry.agent) -or (Get-SchedulerTaskState $Paths $entry) -ne 'running') { continue }
+        if (-not $slots.ContainsKey([string]$entry.agent) -or (Get-SchedulerTaskState $Paths $entry) -notin @('running','stalled')) { continue }
         if ($entry.branch -eq '-') {
             if ($entry.status -match '(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\s*$') {
                 $updated=[datetime]::MinValue
@@ -258,7 +258,7 @@ function Invoke-SchedulerTick($Paths, [scriptblock]$DispatchCommand, [scriptbloc
     if (-not $DispatchCommand) { $DispatchCommand={ param($p,$item,$cfg) $argsList=@('dispatch',$item.agent,$item.task); if ($item.scope) { $argsList+=@('-Scope',$item.scope) }; if ($item.promptFile) { $argsList+=@('-PromptFile',$item.promptFile) }; if ($item.base) { $argsList+=@('-Base',$item.base) };  $deadline=$cfg.deadlineMinutes; $envDeadline=0; if ([int]::TryParse($env:TRINITY_DEADLINE_MINUTES,[ref]$envDeadline) -and $envDeadline -gt 0) { $deadline=$envDeadline }; $argsList+=@('-DeadlineMinutes',[string]$deadline); $oldModel=$env:TRINITY_CODEX_MODEL; try { if ($item.agent -eq 'codex') { $model=if ($item.model) { $item.model } else { $cfg.models.codex }; if ($model) { $env:TRINITY_CODEX_MODEL=$model } }; Invoke-SchedulerChild $p $argsList } finally { $env:TRINITY_CODEX_MODEL=$oldModel } } }
     if (-not $MergeCommand) { $MergeCommand={ param($p,$task,$dry) $flag=if ($dry) { '-DryRun' } else { '-Yes' }; if ($dry) { return (Invoke-SchedulerChild $p @('merge',$task,$flag) -Capture) }; return (Invoke-SchedulerChild $p @('merge',$task,$flag)) } }
     if (-not $ResumeCommand) { $ResumeCommand={ param($p,$task,$feedback) Invoke-SchedulerChild $p @('resume',$task,'-FeedbackFile',$feedback) } }
-    $cfg=Get-TrinityConfig $Paths; $result=@{started=@();waiting=@{};autopilot=@()}; $pause=Test-PauseSwitch $Paths
+    $cfg=Get-TrinityConfig $Paths; if ($cfg._error) { throw "Cannot run scheduler: unreadable config: $($cfg._error)" }; $result=@{started=@();waiting=@{};autopilot=@()}; $pause=Test-PauseSwitch $Paths
     $queue=Get-TrinityQueue $Paths; $tasks=@(Get-SchedulerTasks $Paths); $slots=Get-SlotUse $Paths $cfg
     $availability=if (-not $pause.paused -and ($queue.items.Count -or $cfg.autopilot.enabled)) { Get-CachedAgentAvailability } else { @{} }; $rate=if (-not $pause.paused -and ($queue.items.Count -or $cfg.autopilot.enabled)) { Test-CodexRateLimit } else { $false }
     $decisions=@(Get-Decisions $Paths 0); $started=@(Get-SchedulerStarted $Paths)
@@ -272,7 +272,7 @@ function Invoke-SchedulerTick($Paths, [scriptblock]$DispatchCommand, [scriptbloc
         elseif (-not $availability[$agent].available) { $reason='agent unavailable' }
         elseif ($agent -eq 'codex' -and $rate) { $reason='rate limit' }
         elseif ($slots[$agent].used -ge $slots[$agent].max) { $reason='no free slot' }
-        else { foreach ($task in $tasks) { if ((Get-SchedulerTaskState $Paths $task) -eq 'running' -and ($task.schedulerStarted -or (Test-SchedulerWorktree $Paths $task)) -and (Test-SchedulerOverlap $item.scope $task.scope)) { $reason="scope overlaps $($task.task)"; break } } }
+        else { foreach ($task in $tasks) { if ((Get-SchedulerTaskState $Paths $task) -in @('running','stalled') -and ($task.schedulerStarted -or (Test-SchedulerWorktree $Paths $task)) -and (Test-SchedulerOverlap $item.scope $task.scope)) { $reason="scope overlaps $($task.task)"; break } } }
         if (-not $reason -and $cfg.autopilot.enabled) {
             $limit=Get-SchedulerLimit $cfg $decisions
             if ($limit) { Set-PauseSwitch $Paths $limit; Add-Decision $Paths '' 'limit' $limit 0; $result.autopilot+=@('limit'); $pause=Test-PauseSwitch $Paths; $reason='paused' }
@@ -311,7 +311,7 @@ function Invoke-SchedulerTick($Paths, [scriptblock]$DispatchCommand, [scriptbloc
                     $gateError=@($history | Select-Object -First 1 | Where-Object { $_.action -eq 'gate-error' })
                     if ($gateError.Count -and ([datetimeoffset]::Parse($gateError[0].at)) -gt (Get-Date).AddMinutes(-10)) { continue }
                     $gateText=''; try { $gate=& $MergeCommand $Paths $task.task $true; if ($gate -is [hashtable]) { $clean=[bool]$gate.success; $gateText=[string]$gate.output } else { $clean=$gate -ne $false } } catch { $gateText=$_.Exception.Message }
-                    $isGateError=-not $clean -and ($gateText -match '(?im)not recognized|command not found|test runner error|review output unparsed' -or $gateText -notmatch '(?im)(?:^\s*-\s*\[P[01]\]|P0/P1 findings|tests failed|files? outside (?:the task )?scope|file\(s\) outside the task scope|conflicts with)')
+                    $isGateError=-not $clean -and ($gateText -match '(?im)not recognized|command not found|test runner error|review output unparsed' -or $gateText -notmatch '(?im)(?:^\s*-\s*\[P[01]\]|P0/P1 findings|tests failed|files? outside (?:the task )?scope|file\(s\) outside the task scope|conflicts with|does not contain)')
                     $gateKind=if ($clean) { 'clean' } elseif ($isGateError) { 'gate-error' } else { 'findings' }
                     [void][IO.Directory]::CreateDirectory($Paths.Out)
                     [IO.File]::WriteAllText((Join-Path $Paths.Out ("gate-{0}.txt" -f $task.task)), $gateText, (New-Object Text.UTF8Encoding($false)))
@@ -323,6 +323,7 @@ function Invoke-SchedulerTick($Paths, [scriptblock]$DispatchCommand, [scriptbloc
                         if ($streak -ge 3) { Add-Decision $Paths $task.task 'gate-stuck' "merge gate failed $streak times in a row: $reason" $round; $result.autopilot+=@('gate-stuck') }
                         continue
                     }
+                    if ($gateText -match '(?im)does not contain\s+([^;\r\n]+); update the branch') { $conflictBase=$Matches[1].Trim() }
                     if ($gateText -match '(?im)conflicts with\s+([^;\r\n]+?)(?:;\s*merge\s+([^\r\n]+?)\s+into the worktree first|$)') {
                         $conflictBase=if ($Matches[2]) { $Matches[2].Trim() } else { $Matches[1].Trim() }
                     }

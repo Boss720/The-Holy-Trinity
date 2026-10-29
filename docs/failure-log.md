@@ -54,3 +54,4 @@ Status: `open`, `fixed <commit>`, `wontfix <why>`, `mitigated <how>`.
 | 2026-10-28 | merge gate, dash-api | P2 security: Convert-ActionScript escaped only ASCII single quote | PowerShell also ends single-quoted strings on U+2018..U+201B | fixed on branch agent/codex/dash-api (round 3), not merged yet |
 | 2026-10-28 | merge gate, ui-shell | blocked: actions, /ui/ route and /api/task/review missing | those live on the unmerged dash-api branch | open: merge after dash-api |
 | 2026-10-28 | full suite, parallel | "dashboard caches Claude summaries and rejects non-loopback clients" failed once | flaky under parallel load; passes alone | open |
+| 2026-10-29 | release verification | Temporary verification repositories were added to the real Trinity registry | init inherited the user's registry location | fixed in working tree: isolate TRINITY_HOME during verification; removed this run's two entries |

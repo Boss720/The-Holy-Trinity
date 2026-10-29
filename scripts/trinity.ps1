@@ -1430,6 +1430,11 @@ switch ($Command) {
             if ($dirty.Count -gt 0) { Fail 'main checkout has uncommitted changes; commit or stash them first' }
         }
         if ($entry.status -match '^(started|running|working|waiting)\b' -or (Test-TaskRunnerAlive $paths $task).Alive) { Fail "cannot merge $($task): it is still running ($($entry.status))" }
+        if ($entry.status -match '^(failed|cancelled)\b') { Fail "cannot merge ${task}: task status is $($entry.status); resume or recover it first" }
+        if (-not $entry.worktree -or -not (Test-Path -LiteralPath $entry.worktree -PathType Container)) { Fail "cannot merge ${task}: worker worktree is missing" }
+        $workerDirty = @(Get-Git @('-C', $entry.worktree, 'status', '--porcelain', '--untracked-files=all') | Where-Object { $_ })
+        if ($LASTEXITCODE -ne 0) { Fail "cannot merge ${task}: could not inspect worker worktree" }
+        if ($workerDirty.Count) { Fail "cannot merge ${task}: worker worktree has uncommitted changes; recover them first" }
         $n = [int](Get-Git @('-C', $paths.Main, 'rev-list', '--count', "$baseName..$branch"))
         if ($n -eq 0) { Fail "nothing to merge: $branch has no commits ahead of $baseName" }
 
@@ -1448,6 +1453,7 @@ switch ($Command) {
         # Codex reviews when it can; without it Claude Code or Antigravity (read-only) does, else tests alone gate.
         # The base commit is recorded when a review starts; if the base moved by the time the review is judged,
         # the review is stale (it was of a different merge base), so it runs again before anything is merged.
+        $reviewedBranch = Get-Git @('-C', $paths.Main, 'rev-parse', $branch)
         $reviewer = Select-Reviewer $entry.agent
         $reviewedTip = Get-Git @('-C', $paths.Main, 'rev-parse', "refs/heads/$baseName")
         $reviews = 0
@@ -1520,10 +1526,23 @@ switch ($Command) {
             if ($n -eq 0) { Fail "nothing to merge: $branch has no commits ahead of $baseName" }
         }
 
+        $currentEntry = Get-BoardEntry $paths $task
+        if (-not $currentEntry -or $currentEntry.status -match '^(started|running|working|waiting|failed|cancelled)\b' -or (Test-TaskRunnerAlive $paths $task).Alive) { Fail "cannot merge ${task}: task state changed during review" }
+        if ((Get-Git @('-C', $paths.Main, 'rev-parse', $branch)) -ne $reviewedBranch) { Fail 'task branch changed during review; retry the merge' }
+        $workerDirty = @(Get-Git @('-C', $entry.worktree, 'status', '--porcelain', '--untracked-files=all') | Where-Object { $_ })
+        if ($LASTEXITCODE -ne 0 -or $workerDirty.Count) { Fail 'worker worktree cannot be inspected or changed during review; recover changes first' }
+        if ($DryRun -and (Get-Git @('-C', $paths.Main, 'rev-parse', "refs/heads/$baseName")) -ne $reviewedTip) { Fail 'dry run: base changed during review; retry' }
         $testCmd = Get-TestCommand
         if ($DryRun) {
             $minor = $blocks.Count - $high.Count
             $parts = @($(if (-not $reviewer) { 'no review' } elseif ($minor) { "review clean ($minor minor)" } else { 'review clean' }))
+            $testedBase = Get-Git @('-C', $paths.Main, 'rev-parse', $baseName)
+            # Tests in the worker tree are valid only when it contains the current base and branch tip.
+            & git -C $paths.Main merge-base --is-ancestor $baseName $branch
+            if ($LASTEXITCODE -ne 0) { Fail "dry run: $branch does not contain $baseName; update the branch before testing" }
+            $workerHead = Get-Git @('-C', $entry.worktree, 'rev-parse', 'HEAD')
+            $branchHead = Get-Git @('-C', $paths.Main, 'rev-parse', $branch)
+            if ($workerHead -ne $branchHead) { Fail 'dry run: worktree HEAD does not match task branch' }
             # The worktree may predate the base tip: refuse a branch that would not merge cleanly.
             & git -C $paths.Main merge-tree --write-tree --quiet $baseName $branch *> $null
             if ($LASTEXITCODE -ne 0) { Fail "dry run: $branch conflicts with $baseName; merge $baseName into the worktree first" }
@@ -1537,6 +1556,7 @@ switch ($Command) {
                 $parts += 'tests passed'
             }
             else { $parts += 'no test command' }
+            if ((Get-Git @('-C', $paths.Main, 'rev-parse', $baseName)) -ne $testedBase -or (Get-Git @('-C', $paths.Main, 'rev-parse', $branch)) -ne $branchHead) { Fail 'dry run: base or task branch changed during tests; retry' }
             $parts += $(if ($guard -eq 'off') { 'scope not checked' } elseif ($outside.Count) { "$($outside.Count) out of scope ($(if ($guard -eq 'warn') { 'warn only' } else { 'forced' }))" } else { 'scope ok' })
             Write-Host "dry run clean: $($parts -join ', ')"
             exit 0
@@ -1595,7 +1615,7 @@ switch ($Command) {
         # Toolkit files are always refreshed, so rerunning init updates an install.
         $toolkit = @('VERSION', 'trinity.cmd', 'trinity.sh', 'scripts\trinity.ps1', 'scripts\agent-task.ps1', 'scripts\lib\board.ps1', 'scripts\lib\seed.ps1', 'scripts\doctor.ps1',
             'scripts\codex.cmd', 'scripts\codex-review.cmd', 'scripts\codex-ask.cmd', '.githooks\pre-commit',
-            'scripts\dashboard.ps1', 'scripts\dashboard.html',
+            'scripts\dashboard.ps1', 'scripts\dashboard.html', 'scripts\dashboard-sample.json', 'scripts\scheduler.ps1', 'scripts\lib\config.ps1', 'scripts\lib\scheduler.ps1', 'scripts\dashboard-ui\board.css', 'scripts\dashboard-ui\board.js', 'scripts\dashboard-ui\history.js',
             '.claude\agents\codex-worker.md', '.claude\agents\codex-reviewer.md', '.claude\agents\antigravity-worker.md',
             '.claude\skills\army\SKILL.md', '.agents\skills\trinity\SKILL.md')
         foreach ($rel in $toolkit) {
