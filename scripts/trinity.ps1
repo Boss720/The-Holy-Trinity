@@ -38,6 +38,42 @@ else {
     if ($Command -notin @('show', 'clean') -and -not (Test-Path $paths.Out)) { New-Item -ItemType Directory -Path $paths.Out | Out-Null }
 }
 
+function Remove-WorktreeWithRetry {
+    param([string]$Main, [string]$Worktree, [switch]$Force, [scriptblock]$Runner)
+    $delays = @(0.5, 1, 2, 3, 4, 5)
+    if ($env:TRINITY_WT_RETRY_DELAYS) {
+        $values = @($env:TRINITY_WT_RETRY_DELAYS -split ',')
+        if ($values.Count -eq 1 -and $values[0].Trim() -eq '0') { $values = @('0', '0', '0', '0', '0', '0') }
+        $parsed = @()
+        foreach ($value in $values) {
+            $number = 0.0
+            if (-not [double]::TryParse($value.Trim(), [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$number) -or $number -lt 0) { $parsed = @(); break }
+            $parsed += $number
+        }
+        if ($parsed.Count -gt 0) { $delays = @($parsed | Select-Object -First 6) }
+    }
+    if (-not $Runner) {
+        $Runner = {
+            param($mainPath, $worktreePath, $forceRemove)
+            $gitArgs = @('-C', $mainPath, 'worktree', 'remove')
+            if ($forceRemove) { $gitArgs += '--force' }
+            $gitArgs += $worktreePath
+            $ErrorActionPreference = 'Continue'
+            $output = @(git @gitArgs 2>&1)
+            [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $output }
+        }
+    }
+    for ($attempt = 0; ; $attempt++) {
+        $result = & $Runner $Main $Worktree ([bool]$Force)
+        $message = ($result.Output | Out-String).Trim()
+        if ($result.ExitCode -eq 0 -or $attempt -ge $delays.Count -or $message -notmatch 'Permission denied|being used by another process|Device or resource busy') {
+            if ($message) { Write-Host $message }
+            return [int]$result.ExitCode
+        }
+        if ($delays[$attempt] -gt 0) { Start-Sleep -Milliseconds ([int]($delays[$attempt] * 1000)) }
+    }
+}
+
 function Get-Orchestrator {
     if ($Agent) { return $Agent }
     if ($env:TRINITY_ORCHESTRATOR -in @('claude', 'codex', 'antigravity')) { return $env:TRINITY_ORCHESTRATOR.ToLowerInvariant() }
@@ -1445,8 +1481,8 @@ switch ($Command) {
         $registered = @(Get-Git @('-C', $paths.Main, 'worktree', 'list', '--porcelain') | Where-Object { $_ -like 'worktree *' } |
             ForEach-Object { ($_.Substring(9)) -replace '/', '\' }) -contains $entry.worktree
         if ($registered) {
-            git -C $paths.Main worktree remove --force $entry.worktree
-            if ($LASTEXITCODE -ne 0) { Fail "could not remove worktree $($entry.worktree); close programs using it and retry" }
+            $removeCode = Remove-WorktreeWithRetry -Main $paths.Main -Worktree $entry.worktree -Force
+            if ($removeCode -ne 0) { Fail "could not remove worktree $($entry.worktree); close programs using it and retry" }
         }
         git -C $paths.Main worktree prune
         if ($entry.worktree -and (Test-Path $entry.worktree)) {
@@ -1630,8 +1666,8 @@ switch ($Command) {
         git -C $paths.Main commit -m "Merge $branch" | Out-Host
         if ($LASTEXITCODE -ne 0) { Fail 'merge commit failed' }
         Set-BoardStatus $paths $task 'merged'
-        git -C $paths.Main worktree remove $entry.worktree
-        if ($LASTEXITCODE -ne 0) {
+        $removeCode = Remove-WorktreeWithRetry -Main $paths.Main -Worktree $entry.worktree
+        if ($removeCode -ne 0) {
             Write-Host "Merged $branch into $baseName, but the worktree has leftover files. Inspect, then: git worktree remove --force `"$($entry.worktree)`" and git branch -d $branch" -ForegroundColor Yellow
             exit 1
         }
