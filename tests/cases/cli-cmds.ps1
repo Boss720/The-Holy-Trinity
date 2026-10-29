@@ -61,3 +61,113 @@ Run-Case 'cli-cmds: history shows decisions and -Agent filter' {
     Assert-True ($r.ExitCode -eq 0 -and $r.Output -notmatch 'task') "agent filter leaked: $($r.Output)"
     $r = Invoke-Trinity $f @('history','-Outcome','bogus'); Assert-True ($r.ExitCode -ne 0) 'bad outcome accepted'
 }
+
+Run-Case 'cli-cmds: scheduler tick skips when daemon mutex is held and preserves heartbeat' {
+    param($f)
+    $bytes = [Text.Encoding]::UTF8.GetBytes(([IO.Path]::GetFullPath($f.Repo)).ToLowerInvariant())
+    $hash = [Security.Cryptography.SHA256]::Create(); try { $mName = ([BitConverter]::ToString($hash.ComputeHash($bytes))).Replace('-', '') } finally { $hash.Dispose() }
+    $owned = $false
+    $mutex = New-Object Threading.Mutex($true, ('Local\TrinityScheduler-' + $mName), [ref]$owned)
+    try {
+        $r = Invoke-Trinity $f @('scheduler', 'tick')
+        Assert-True ($r.ExitCode -eq 0 -and $r.Output -match 'scheduler is running; tick skipped') "tick with held mutex did not skip: $($r.Output)"
+    } finally {
+        if ($owned) { $mutex.ReleaseMutex() }
+        $mutex.Dispose()
+    }
+    $hbPath = Join-Path $f.Repo '.trinity\scheduler.json'
+    [void][IO.Directory]::CreateDirectory((Split-Path $hbPath))
+    $fake = @{pid=99999;startedAt='2026-10-28T10:00:00Z';processStart='2026-10-28T10:00:00Z';lastTickAt='2026-10-28T10:00:00Z';now='idle';next=''}
+    [IO.File]::WriteAllText($hbPath, (ConvertTo-Json -InputObject $fake -Depth 10), (New-Object Text.UTF8Encoding($false)))
+    $r = Invoke-Trinity $f @('scheduler', 'tick')
+    Assert-True ($r.ExitCode -eq 0) "tick failed: $($r.Output)"
+    $after = ConvertFrom-Json ([IO.File]::ReadAllText($hbPath))
+    Assert-True ($after.pid -eq 99999) "manual tick overwrote heartbeat: $($after.pid)"
+    Remove-Item -LiteralPath $hbPath -Force
+    $r = Invoke-Trinity $f @('scheduler', 'tick')
+    Assert-True ($r.ExitCode -eq 0 -and -not (Test-Path -LiteralPath $hbPath)) 'manual tick wrote a heartbeat when none existed'
+}
+
+Run-Case 'cli-cmds: scheduler stop and start respect processStart regardless of lastTickAt' {
+    param($f)
+    $hbPath = Join-Path $f.Repo '.trinity\scheduler.json'
+    [void][IO.Directory]::CreateDirectory((Split-Path $hbPath))
+    $proc = Get-Process -Id $PID
+    $oldTick = (Get-Date).AddSeconds(-150).ToString('o')
+    $busy = @{pid=$PID;startedAt=$proc.StartTime.ToString('o');processStart=$proc.StartTime.ToString('o');lastTickAt=$oldTick;now='busy gate';next=''}
+    [IO.File]::WriteAllText($hbPath, (ConvertTo-Json -InputObject $busy -Depth 10), (New-Object Text.UTF8Encoding($false)))
+    $r = Invoke-Trinity $f @('scheduler', 'stop')
+    $stopPath = Join-Path $f.Repo '.trinity\scheduler.stop'
+    Assert-True ($r.ExitCode -eq 0 -and $r.Output -match 'Scheduler stop requested.' -and (Test-Path -LiteralPath $stopPath)) "stop failed on busy daemon: $($r.Output)"
+    $r = Invoke-Trinity $f @('scheduler', 'start')
+    Assert-True ($r.ExitCode -ne 0 -and $r.Output -match 'Scheduler already running' -and (Test-Path -LiteralPath $stopPath)) "start did not refuse or deleted stop file: $($r.Output)"
+    $dead = @{pid=999999;startedAt='2026-10-28T10:00:00Z';processStart='2026-10-28T10:00:00Z';lastTickAt=$oldTick;now='dead';next=''}
+    [IO.File]::WriteAllText($hbPath, (ConvertTo-Json -InputObject $dead -Depth 10), (New-Object Text.UTF8Encoding($false)))
+    $r = Invoke-Trinity $f @('scheduler', 'stop')
+    Assert-True ($r.ExitCode -eq 0 -and $r.Output -match 'not running') "stop reported alive for dead pid: $($r.Output)"
+}
+
+Run-Case 'cli-cmds: scheduler tick dispatch model fallback for codex and antigravity' {
+    param($f)
+    $cfgPath = Join-Path $f.Repo '.trinity\trinity.json'
+    $cfg = @{version=1;slots=@{codex=2;antigravity=2;claude=1};models=@{codex='cfg-codex';antigravity='cfg-agy'}}
+    [void][IO.Directory]::CreateDirectory((Split-Path $cfgPath))
+    [IO.File]::WriteAllText($cfgPath, (ConvertTo-Json -InputObject $cfg -Depth 10), (New-Object Text.UTF8Encoding($false)))
+    $r1 = Invoke-Trinity $f @('queue', 'add', 'item-codex', '-Agent', 'codex', '-Scope', 'tests/a/*', '-PromptFile', $f.Prompt)
+    $r2 = Invoke-Trinity $f @('queue', 'add', 'item-agy', '-Agent', 'antigravity', '-Scope', 'tests/b/*', '-PromptFile', $f.Prompt)
+    $r3 = Invoke-Trinity $f @('queue', 'add', 'item-custom', '-Agent', 'antigravity', '-Scope', 'tests/c/*', '-PromptFile', $f.Prompt, '-Model', 'custom-agy')
+    Assert-True ($r1.ExitCode -eq 0 -and $r2.ExitCode -eq 0 -and $r3.ExitCode -eq 0) "queue add failed: $($r1.Output) $($r2.Output) $($r3.Output)"
+    $r = Invoke-Trinity $f @('scheduler', 'tick')
+    Assert-True ($r.ExitCode -eq 0 -and $r.Output -match '3 started') "tick failed to dispatch: $($r.Output)"
+    foreach ($t in @('item-codex', 'item-agy', 'item-custom')) {
+        $w = Invoke-Trinity $f @('wait', $t, '-Timeout', '30')
+        Assert-True ($w.ExitCode -eq 0) "wait $t failed: $($w.Output)"
+    }
+    $runCodex = [IO.File]::ReadAllText((Join-Path $f.Repo '.codex-out\run-item-codex.cmd'))
+    $runAgy = [IO.File]::ReadAllText((Join-Path $f.Repo '.codex-out\run-item-agy.cmd'))
+    $runCustom = [IO.File]::ReadAllText((Join-Path $f.Repo '.codex-out\run-item-custom.cmd'))
+    Assert-True ($runCodex -match '-c model=cfg-codex') "codex model fallback failed: $runCodex"
+    Assert-True ($runAgy -match '--model cfg-agy') "antigravity model fallback failed: $runAgy"
+    Assert-True ($runCustom -match '--model custom-agy') "antigravity custom model failed: $runCustom"
+}
+
+Run-Case 'cli-cmds: autopilot on keeps approval and -NoApproval disables it' {
+    param($f)
+    $cfgPath = Join-Path $f.Repo '.trinity\trinity.json'
+    $r = Invoke-Trinity $f @('autopilot', 'on', '-Approval')
+    $c = ConvertFrom-Json ([IO.File]::ReadAllText($cfgPath))
+    Assert-True ($r.ExitCode -eq 0 -and $c.autopilot.enabled -and $c.autopilot.approval) "autopilot on -Approval failed: $($r.Output)"
+    $r = Invoke-Trinity $f @('autopilot', 'on', '-NoApproval')
+    $c = ConvertFrom-Json ([IO.File]::ReadAllText($cfgPath))
+    Assert-True ($r.ExitCode -eq 0 -and $c.autopilot.enabled -and -not $c.autopilot.approval) "autopilot on -NoApproval failed: $($r.Output)"
+    $r = Invoke-Trinity $f @('autopilot', 'off')
+    $c = ConvertFrom-Json ([IO.File]::ReadAllText($cfgPath))
+    Assert-True ($r.ExitCode -eq 0 -and -not $c.autopilot.enabled -and -not $c.autopilot.approval) "autopilot off altered approval: $($r.Output)"
+    $r = Invoke-Trinity $f @('autopilot', 'on')
+    $c = ConvertFrom-Json ([IO.File]::ReadAllText($cfgPath))
+    Assert-True ($r.ExitCode -eq 0 -and $c.autopilot.enabled -and -not $c.autopilot.approval) "autopilot on did not preserve approval: $($r.Output)"
+    $r = Invoke-Trinity $f @('autopilot', 'on', '-Approval', '-NoApproval')
+    Assert-True ($r.ExitCode -ne 0 -and $r.Output -match 'cannot specify both') "conflicting switches accepted: $($r.Output)"
+    $r = Invoke-Trinity $f @('help')
+    Assert-True ($r.Output -match 'autopilot on\|off \[-Approval\|-NoApproval\]') "help missing -NoApproval: $($r.Output)"
+}
+
+Run-Case 'cli-cmds: history de-duplicates task and decision rows with same outcome' {
+    param($f)
+    Set-CliTask $f 'task-merged' 'merged 2026-10-28 12:00'
+    Set-CliTask $f 'task-failed' 'failed 2026-10-28 11:00'
+    $decPath = Join-Path $f.Repo '.trinity\decisions.jsonl'
+    [void][IO.Directory]::CreateDirectory((Split-Path $decPath))
+    $d1 = @{at='2026-10-28T12:00:00Z';task='task-merged';action='merged';reason='clean';round=0} | ConvertTo-Json -Compress
+    $d2 = @{at='2026-10-28T11:50:00Z';task='task-merged';action='started';reason='started';round=0} | ConvertTo-Json -Compress
+    $d3 = @{at='2026-10-28T11:00:00Z';task='task-failed';action='failed';reason='failed';round=0} | ConvertTo-Json -Compress
+    $d4 = @{at='2026-10-28T10:00:00Z';task='other-task';action='merged';reason='clean';round=0} | ConvertTo-Json -Compress
+    [IO.File]::WriteAllText($decPath, "$d1`r`n$d2`r`n$d3`r`n$d4`r`n", (New-Object Text.UTF8Encoding($false)))
+    $r = Invoke-Trinity $f @('history', '-Json')
+    Assert-True ($r.ExitCode -eq 0) "history failed: $($r.Output)"
+    $items = @(ConvertFrom-Json $r.Output)
+    Assert-True (@($items | Where-Object { $_.task -eq 'task-merged' -and $_.outcome -eq 'merged' }).Count -eq 1) "task-merged not deduplicated: $($r.Output)"
+    Assert-True (@($items | Where-Object { $_.task -eq 'task-merged' -and $_.outcome -eq 'started' }).Count -eq 1) "task-merged started decision lost: $($r.Output)"
+    Assert-True (@($items | Where-Object { $_.task -eq 'task-failed' -and $_.outcome -eq 'failed' }).Count -eq 1) "task-failed not deduplicated: $($r.Output)"
+    Assert-True (@($items | Where-Object { $_.task -eq 'other-task' -and $_.outcome -eq 'merged' }).Count -eq 1) "other-task lost: $($r.Output)"
+}

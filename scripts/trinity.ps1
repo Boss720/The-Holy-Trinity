@@ -21,6 +21,7 @@ param(
     [switch]$DryRun,
     [string]$Model,
     [switch]$Approval,
+    [switch]$NoApproval,
     [ValidateSet('merged', 'failed', 'cancelled')][string]$Outcome,
     [int]$Last = 20,
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest
@@ -143,7 +144,7 @@ function Show-Usage {
     Write-Host '  scheduler start|stop|status|tick      start the detached scheduler, ask it to stop, show its heartbeat, or run one pass'
     Write-Host '  pause [<reason>]                      write .trinity\PAUSE: scheduler and autopilot stop acting'
     Write-Host '  unpause                               remove .trinity\PAUSE (also clears a limit pause)'
-    Write-Host '  autopilot on|off [-Approval]          enable or disable autopilot (-Approval = require approval before merge)'
+    Write-Host '  autopilot on|off [-Approval|-NoApproval]  enable or disable autopilot (-Approval = require approval before merge)'
     Write-Host '  history [-Json] [-Agent a] [-Outcome merged|failed|cancelled] [-Last N]  finished tasks and scheduler decisions, newest first'
     Write-Host '  version                               print the installed toolkit version'
     Write-Host '  -Agent <claude|codex|antigravity>      orchestrator override; else TRINITY_ORCHESTRATOR, env detection, default claude'
@@ -721,35 +722,80 @@ switch ($Command) {
     'scheduler' {
         if (-not (Get-Command Invoke-SchedulerTick -ErrorAction SilentlyContinue)) { Fail 'scheduler library is missing' }
         if ($Rest.Count -ne 1 -or $Rest[0] -notin @('start','stop','status','tick')) { Fail 'usage: trinity scheduler start|stop|status|tick' }
-        $heartbeat = Join-Path $paths.Main '.trinity\scheduler.json'; $alive = $false; $beat = $null
+        $heartbeat = Join-Path $paths.Main '.trinity\scheduler.json'; $alive = $false; $processAlive = $false; $beat = $null
         if (Test-Path -LiteralPath $heartbeat) {
             try {
                 $beat = ConvertFrom-Json ([IO.File]::ReadAllText($heartbeat)) -ErrorAction Stop
                 $proc = Get-Process -Id ([int]$beat.pid) -ErrorAction SilentlyContinue
                 $age = ((Get-Date) - [datetimeoffset]::Parse($beat.lastTickAt).LocalDateTime).TotalSeconds
-                $alive = [bool]($proc -and $proc.StartTime.ToString('o') -eq $beat.processStart -and $age -ge 0 -and $age -lt 90)
-            } catch { $alive = $false }
+                $processAlive = [bool]($proc -and $proc.StartTime.ToString('o') -eq $beat.processStart)
+                $alive = [bool]($processAlive -and $age -ge 0 -and $age -lt 90)
+            } catch { $alive = $false; $processAlive = $false }
         }
         try {
             switch ($Rest[0]) {
                 'status' { if ($alive) { Write-Host "Scheduler running (pid $($beat.pid), last tick $($beat.lastTickAt)): $($beat.now)" } else { Write-Host 'Scheduler is not running.' } }
                 'start' {
-                    if ($alive) { throw 'Scheduler already running' }
+                    if ($processAlive) { throw 'Scheduler already running' }
                     $script = Join-Path $PSScriptRoot 'scheduler.ps1'; if (-not (Test-Path -LiteralPath $script)) { throw 'scripts\scheduler.ps1 is missing' }
                     $stopFile = Join-Path $paths.Main '.trinity\scheduler.stop'; if (Test-Path -LiteralPath $stopFile) { Remove-Item -LiteralPath $stopFile -Force }
                     $proc = Start-Process powershell.exe -WindowStyle Hidden -PassThru -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$script`"", '-Repo', "`"$($paths.Main)`""
                     Write-Host "Scheduler starting (pid $($proc.Id))."
                 }
                 'stop' {
-                    if (-not $alive) { Write-Host 'Scheduler is not running.' }
+                    if (-not $processAlive) { Write-Host 'Scheduler is not running.' }
                     else { [void][IO.Directory]::CreateDirectory((Join-Path $paths.Main '.trinity')); [IO.File]::WriteAllText((Join-Path $paths.Main '.trinity\scheduler.stop'), '', $script:Utf8); Write-Host 'Scheduler stop requested.' }
                 }
                 'tick' {
-                    $dispatch = { param($p,$item,$cfg) $a=@('dispatch',$item.agent,$item.task,'-Scope',$item.scope,'-PromptFile',$item.promptFile); if ($item.base) { $a+=@('-Base',$item.base) }; $deadline=$cfg.deadlineMinutes; $envDeadline=0; if ([int]::TryParse($env:TRINITY_DEADLINE_MINUTES,[ref]$envDeadline) -and $envDeadline -gt 0) { $deadline=$envDeadline }; $a+=@('-DeadlineMinutes',[string]$deadline); $old=$env:TRINITY_CODEX_MODEL; try { if ($item.agent -eq 'codex' -and $item.model) { $env:TRINITY_CODEX_MODEL=$item.model }; Invoke-SchedulerChild $p $a } finally { $env:TRINITY_CODEX_MODEL=$old } }
-                    $merge = { param($p,$task,$dry) $flag=if ($dry) { '-DryRun' } else { '-Yes' }; Invoke-SchedulerChild $p @('merge',$task,$flag) }
-                    $resume = { param($p,$task,$feedback) Invoke-SchedulerChild $p @('resume',$task,'-FeedbackFile',$feedback) }
-                    $result = Invoke-SchedulerTick $paths $dispatch $merge $resume
-                    Write-Host "Scheduler tick: $(@($result.started).Count) started, $($result.waiting.Count) waiting."
+                    $bytes = [Text.Encoding]::UTF8.GetBytes(([IO.Path]::GetFullPath($paths.Main)).ToLowerInvariant())
+                    $hash = [Security.Cryptography.SHA256]::Create(); try { $mName = ([BitConverter]::ToString($hash.ComputeHash($bytes))).Replace('-', '') } finally { $hash.Dispose() }
+                    $schedMutex = New-Object Threading.Mutex($false, ('Local\TrinityScheduler-' + $mName)); $owned = $false
+                    try {
+                        try { $owned = $schedMutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $owned = $true }
+                        if (-not $owned) { Write-Host 'scheduler is running; tick skipped'; exit 0 }
+                        $savedHeartbeat = if (Test-Path -LiteralPath $heartbeat) { [IO.File]::ReadAllText($heartbeat) } else { $null }
+                        try {
+                            $dispatch = {
+                                param($p, $item, $cfg)
+                                $a = @('dispatch', $item.agent, $item.task)
+                                if ($item.scope) { $a += @('-Scope', $item.scope) }
+                                if ($item.promptFile) { $a += @('-PromptFile', $item.promptFile) }
+                                if ($item.base) { $a += @('-Base', $item.base) }
+                                $deadline = $cfg.deadlineMinutes
+                                $envDeadline = 0
+                                if ([int]::TryParse($env:TRINITY_DEADLINE_MINUTES, [ref]$envDeadline) -and $envDeadline -gt 0) { $deadline = $envDeadline }
+                                $a += @('-DeadlineMinutes', [string]$deadline)
+                                $oldCodex = $env:TRINITY_CODEX_MODEL
+                                $oldAgy = $env:TRINITY_AGY_MODEL
+                                try {
+                                    if ($item.agent -eq 'codex') {
+                                        $m = if ($item.model) { $item.model } else { $cfg.models.codex }
+                                        if ($m) { $env:TRINITY_CODEX_MODEL = $m }
+                                    } elseif ($item.agent -eq 'antigravity') {
+                                        $m = if ($item.model) { $item.model } else { $cfg.models.antigravity }
+                                        if ($m) { $env:TRINITY_AGY_MODEL = $m }
+                                    }
+                                    Invoke-SchedulerChild $p $a
+                                } finally {
+                                    $env:TRINITY_CODEX_MODEL = $oldCodex
+                                    $env:TRINITY_AGY_MODEL = $oldAgy
+                                }
+                            }
+                            $merge = { param($p, $task, $dry) $flag = if ($dry) { '-DryRun' } else { '-Yes' }; Invoke-SchedulerChild $p @('merge', $task, $flag) }
+                            $resume = { param($p, $task, $feedback) Invoke-SchedulerChild $p @('resume', $task, '-FeedbackFile', $feedback) }
+                            $result = Invoke-SchedulerTick $paths $dispatch $merge $resume
+                            Write-Host "Scheduler tick: $(@($result.started).Count) started, $($result.waiting.Count) waiting."
+                        } finally {
+                            if ($savedHeartbeat -ne $null) {
+                                [IO.File]::WriteAllText($heartbeat, $savedHeartbeat, (New-Object Text.UTF8Encoding($false)))
+                            } elseif (Test-Path -LiteralPath $heartbeat) {
+                                Remove-Item -LiteralPath $heartbeat -Force -ErrorAction SilentlyContinue
+                            }
+                        }
+                    } finally {
+                        if ($owned) { $schedMutex.ReleaseMutex() }
+                        $schedMutex.Dispose()
+                    }
                 }
             }
         } catch { Fail $_.Exception.Message }
@@ -762,9 +808,12 @@ switch ($Command) {
         try { Clear-PauseSwitch $paths; Write-Host 'Unpaused.' } catch { Fail $_.Exception.Message }
     }
     'autopilot' {
-        if ($Rest.Count -ne 1 -or $Rest[0] -notin @('on','off')) { Fail 'usage: trinity autopilot on|off [-Approval]' }
+        if ($Rest.Count -ne 1 -or $Rest[0] -notin @('on','off')) { Fail 'usage: trinity autopilot on|off [-Approval|-NoApproval]' }
+        if ($Approval -and $NoApproval) { Fail 'cannot specify both -Approval and -NoApproval' }
         try {
-            $patch = @{enabled=($Rest[0] -eq 'on')}; if ($Approval) { $patch.approval = $true }
+            $patch = @{enabled=($Rest[0] -eq 'on')}
+            if ($Approval) { $patch.approval = $true }
+            elseif ($NoApproval) { $patch.approval = $false }
             $null = Set-TrinityConfig $paths @{autopilot=$patch}
             Add-Decision $paths '' 'skipped' "autopilot $($Rest[0])" 0
             Write-Host "Autopilot $($Rest[0])."
@@ -774,12 +823,17 @@ switch ($Command) {
         if ($Rest.Count -or $Last -lt 0) { Fail 'usage: trinity history [-Json] [-Agent a] [-Outcome merged|failed|cancelled] [-Last N]' }
         try {
             $items = @()
+            $taskOutcomes = @{}
             foreach ($entry in @(Get-SchedulerTasks $paths)) {
                 if ($entry.status -notmatch '^(merged|failed|cancelled)\b') { continue }; $outcomeName = $Matches[1]
                 $at = ''; if ($entry.status -match '(\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)') { $at = $Matches[1] }
                 $items += @{at=$at;task=$entry.task;agent=$entry.agent;outcome=$outcomeName;status=$entry.status;type='task'}
+                $tName = [string]$entry.task; if ($tName) { $taskOutcomes[$tName.ToLowerInvariant() + '|' + $outcomeName.ToLowerInvariant()] = $true }
             }
             foreach ($decision in @(Get-Decisions $paths 0)) {
+                $dTask = [string]$decision.task; $dAct = [string]$decision.action
+                $taskKey = if ($dTask -and $dAct) { $dTask.ToLowerInvariant() + '|' + $dAct.ToLowerInvariant() } else { '' }
+                if ($taskKey -and $taskOutcomes.ContainsKey($taskKey)) { continue }
                 $entry = if ($decision.task) { Get-BoardEntry $paths $decision.task } else { $null }
                 $items += @{at=$decision.at;task=$decision.task;agent=$(if ($entry) { $entry.agent } else { '' });outcome=$decision.action;action=$decision.action;reason=$decision.reason;round=$decision.round;type='decision'}
             }
