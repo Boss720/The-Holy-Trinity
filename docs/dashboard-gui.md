@@ -54,7 +54,7 @@ Task names follow the board rule `^[a-z0-9][a-z0-9-]*$`, max 40 chars, unique ac
 
 ### `.trinity\PAUSE` (kill switch)
 Exists = scheduler and autopilot do nothing but log `paused`. Content: one line, the reason (`user`, `limit: 3 consecutive failures`, ...).
-Written by the GUI Stop button, by `trinity pause`, and by autopilot on a limit breach. Removed only by `trinity resume-autopilot` / GUI Unpause.
+Written by the GUI Stop button, by `trinity pause`, and by autopilot on a limit breach. Removed only by `trinity unpause` / GUI Unpause or the GUI Auto button.
 
 ### `.trinity\scheduler.json` (scheduler heartbeat)
 `{ "pid": 1234, "startedAt": "<iso>", "processStart": "<iso, for pid reuse check>", "lastTickAt": "<iso>", "now": "<what it is doing>", "next": "<next queued task or ''>" }`
@@ -158,7 +158,9 @@ The sample route (`?sample=1`) must work offline: the module tolerates missing f
 - **Task drawer** (shell): existing Log, Diff, Chat; add Review (findings from `/api/task/review` as severity chips) and Files (files touched vs scope globs, out-of-scope red). Buttons: Resume with feedback (textarea, prefilled with review findings), Retry, Review (`review-task`), Merge, Cancel, Open folder; each disabled with a reason when state does not allow it.
 - **New task wizard** (shell, existing dispatch form): add mode radio Start now / Add to queue (`queue-add`), model field, glob preview (files matching the scope, from existing dispatch check), live check stays; Start disabled until check passes.
 - **Needs attention** (shell, existing Inbox strip): each item gets one-click fix buttons by kind: failed -> Resume / Retry; stalled -> Resume / Cancel; done-not-merged -> Review / Merge; ready -> Merge; limit -> Open autopilot / Unpause.
-- **Header** (shell): slots summary across repos, Stop-all button (pause every repo with autopilot on), notifications toggle.
+- **Header** (shell): slots summary across repos, Auto button, Stop-all button (pause every repo with autopilot on), notifications toggle.
+  - **Auto** (before Stop all): targets repos where autopilot is off, paused, or the scheduler is not alive. Disabled with a tooltip when actions are off or there are no targets. Click opens the confirm dialog listing per repo `cd /d "<path>" && [trinity unpause && ]trinity autopilot on[ -Approval] && trinity scheduler start` (`trinity unpause` only if paused; `-Approval` only if the repo's `autopilot.approval` is true). On confirm the page POSTs `/api/action` `unpause` (if paused), then `autopilot` with `enabled:true, approval:<repo setting>`, and toasts "Auto: started N of M repos". Sample mode never POSTs.
+  - **Stop all**: pauses each target repo via `pause`.
 - **Notifications** (shell): Browser Notification API (ask permission on toggle), fire on a task entering done, failed, stalled, ready or a new attention item; click focuses the task. Remember toggle in localStorage.
 - **History** (`history.js`, view id `history`): table from `/api/history`, filters repo / agent / outcome, Export CSV (client side, RFC 4180 quoting).
 
