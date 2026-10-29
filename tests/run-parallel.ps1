@@ -19,6 +19,14 @@ $psExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.e
 $stamp = [Guid]::NewGuid().ToString('N')
 $runTempRoot = Join-Path $env:TEMP "trinity-selftest-$stamp"
 
+# All shards read the same immutable snapshot, even if another run updates the cache.
+$durationCache = Join-Path (Split-Path $PSScriptRoot -Parent) '.codex-out\test-durations.json'
+$durationSnapshot = Join-Path $runTempRoot 'duration-snapshot.json'
+try {
+    [IO.Directory]::CreateDirectory($runTempRoot) | Out-Null
+    if (Test-Path -LiteralPath $durationCache) { Copy-Item -LiteralPath $durationCache -Destination $durationSnapshot -ErrorAction Stop }
+} catch { }
+
 function Stop-RunProcesses([string]$Path) {
     if ([string]::IsNullOrWhiteSpace($Path)) { return }
     $normBack = $Path.Replace('/', '\').TrimEnd('\')
@@ -41,7 +49,7 @@ for ($i = 0; $i -lt $Jobs; $i++) {
     $shardTempRoot = Join-Path $runTempRoot "s$i"
     $out = Join-Path $env:TEMP "trinity-shard-$stamp-$i.out.log"
     $err = Join-Path $env:TEMP "trinity-shard-$stamp-$i.err.log"
-    $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $runner), '-Shard', "$i/$Jobs", '-TempRoot', ('"{0}"' -f $shardTempRoot))
+    $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $runner), '-Shard', "$i/$Jobs", '-TempRoot', ('"{0}"' -f $shardTempRoot), '-DurationFile', ('"{0}"' -f $durationSnapshot))
     if ($Only) { $argList += @('-Only', ('"{0}"' -f $Only)) }
     if ($Filter) { $argList += @('-Filter', ('"{0}"' -f $Filter)) }
     if ($Keep) { $argList += '-Keep' }
@@ -84,6 +92,34 @@ try {
             if ($errText.Count -gt 0 -and $code -ne 0) { $errText | Select-Object -First 10 | ForEach-Object { Write-Output "  stderr: $_" } }
         }
     }
+    # Preserve timings for cases omitted by a filtered run.
+    $merged = @{}
+    try {
+        $old = Get-Content -LiteralPath $durationSnapshot -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        if ($old -is [pscustomobject]) {
+            foreach ($p in $old.PSObject.Properties) {
+                if ($p.Value -isnot [ValueType] -or $p.Value -is [bool]) { throw 'invalid duration' }
+                $value = [double]$p.Value
+                if ($value -lt 0 -or [double]::IsNaN($value) -or [double]::IsInfinity($value)) { throw 'invalid duration' }
+                $merged[$p.Name] = $value
+            }
+        }
+    } catch { $merged = @{} }
+    $shardSeconds = @()
+    foreach ($s in $shards) {
+        $seconds = 0.0
+        try {
+            $data = Get-Content -LiteralPath (Join-Path $runTempRoot "case-durations-$($s.Index).json") -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            foreach ($p in $data.PSObject.Properties) { $merged[$p.Name] = $p.Value; $seconds += [double]$p.Value }
+        } catch { }
+        $shardSeconds += ('s{0}={1}' -f $s.Index, [Math]::Round($seconds, 1))
+    }
+    if ($merged.Count -gt 0) {
+        try {
+            [IO.Directory]::CreateDirectory((Split-Path $durationCache -Parent)) | Out-Null
+            [IO.File]::WriteAllText($durationCache, ($merged | ConvertTo-Json), (New-Object Text.UTF8Encoding($false)))
+        } catch { }
+    }
 }
 finally {
     Stop-RunProcesses $runTempRoot
@@ -104,6 +140,7 @@ elseif ($bad) {
     foreach ($s in $shards) { Write-Output "shard $($s.Index) log: $($s.Out)" }
 }
 
+Write-Output ("shard seconds: " + ($shardSeconds -join " "))
 Write-Output "$passed passed, $failed failed, $skipped skipped"
 if ($bad) { exit 1 }
 exit 0

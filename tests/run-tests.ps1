@@ -1,4 +1,4 @@
-﻿param([switch]$Keep, [string]$Only, [string]$Filter, [string]$Shard, [string]$TempRoot)
+﻿param([switch]$Keep, [string]$Only, [string]$Filter, [string]$Shard, [string]$TempRoot, [string]$DurationFile)
 
 $ErrorActionPreference = 'Stop'
 $repoSource = Split-Path $PSScriptRoot -Parent
@@ -166,12 +166,80 @@ function Skip-Case([string]$Reason) {
     throw $skip
 }
 
+# Return a case-to-shard map. A missing or invalid timing file keeps the old order.
+function Get-ShardAssignment([string[]]$Names, [int]$Count, [string]$Path) {
+    $assignment = @{}
+    $durations = $null
+    try {
+        $data = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        if ($null -eq $data -or $data -isnot [pscustomobject]) { throw 'invalid durations' }
+        $durations = @{}
+        foreach ($property in $data.PSObject.Properties) {
+            if ($property.Value -isnot [ValueType] -or $property.Value -is [bool]) { throw 'invalid duration' }
+            $value = [double]$property.Value
+            if ($value -lt 0 -or [double]::IsNaN($value) -or [double]::IsInfinity($value)) { throw 'invalid duration' }
+            $durations[$property.Name] = $value
+        }
+        if ($durations.Count -eq 0) { throw 'empty durations' }
+    } catch { $durations = $null }
+    if ($null -eq $durations) {
+        for ($i = 0; $i -lt $Names.Count; $i++) { $assignment[$Names[$i]] = $i % $Count }
+        return $assignment
+    }
+    $values = @($durations.Values | Sort-Object)
+    $middle = [int][Math]::Floor($values.Count / 2)
+    $median = if ($values.Count % 2) { $values[$middle] } else { ($values[$middle - 1] + $values[$middle]) / 2.0 }
+    $cases = foreach ($name in $Names) {
+        $seconds = if ($durations.ContainsKey($name)) { $durations[$name] } else { $median }
+        [pscustomobject]@{ Name = $name; Seconds = $seconds }
+    }
+    $totals = New-Object 'double[]' $Count
+    foreach ($case in @($cases | Sort-Object @{Expression='Seconds'; Descending=$true}, @{Expression='Name'; Descending=$false})) {
+        $target = 0
+        for ($i = 1; $i -lt $Count; $i++) { if ($totals[$i] -lt $totals[$target]) { $target = $i } }
+        $assignment[$case.Name] = $target
+        $totals[$target] += $case.Seconds
+    }
+    return $assignment
+}
+
+# Parse case declarations without executing their bodies, preserving the original order.
+function Get-CaseNames([string[]]$Files) {
+    foreach ($file in $Files) {
+        $tokens = $null; $errors = $null
+        $tree = [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$errors)
+        if ($errors.Count -gt 0) { throw 'case discovery failed' }
+        foreach ($command in $tree.FindAll({ param($node) $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Run-Case' }, $true)) {
+            if ($command.CommandElements.Count -lt 2 -or $command.CommandElements[1] -isnot [System.Management.Automation.Language.StringConstantExpressionAst]) { throw 'nonliteral case name' }
+            $name = $command.CommandElements[1].Value
+            if ($script:Only -and $name -notlike "*$($script:Only)*") { continue }
+            if ($script:Filter -and $name -notlike $script:Filter) { continue }
+            $name
+        }
+    }
+}
+
+$script:caseDurations = @{}
+$script:assignment = $null
+if ($shardIndex -ge 0) {
+    if (-not $DurationFile) { $DurationFile = Join-Path $repoSource '.codex-out\test-durations.json' }
+    try {
+        $caseFiles = @($PSCommandPath) + @(Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'cases') -Filter '*.ps1' -File | Sort-Object Name | ForEach-Object { $_.FullName })
+        $names = @(Get-CaseNames $caseFiles)
+        $script:assignment = Get-ShardAssignment $names $shardCount $DurationFile
+    } catch { $script:assignment = $null }
+}
+
 function Run-Case([string]$Name, [scriptblock]$Body, [string]$TestCommand = 'exit 0') {
     if ($script:Only -and $Name -notlike "*$($script:Only)*") { return }
     if ($script:Filter -and $Name -notlike $script:Filter) { return }
     $caseNumber = $script:caseCounter
     $script:caseCounter++
-    if ($script:shardIndex -ge 0 -and ($caseNumber % $script:shardCount) -ne $script:shardIndex) { return }
+    if ($script:shardIndex -ge 0) {
+        $assigned = if ($null -ne $script:assignment -and $script:assignment.ContainsKey($Name)) { $script:assignment[$Name] } else { $caseNumber % $script:shardCount }
+        if ($assigned -ne $script:shardIndex) { return }
+    }
+    $caseWatch = [Diagnostics.Stopwatch]::StartNew()
     $fixture = $null
     $oldCodex = $env:CODEX_EXE
     $oldAgy = $env:AGY_EXE
@@ -221,6 +289,8 @@ function Run-Case([string]$Name, [scriptblock]$Body, [string]$TestCommand = 'exi
         $env:FAKE_REVIEW_OUTPUT = $oldReview
         foreach ($envName in $savedEnv.Keys) { [Environment]::SetEnvironmentVariable($envName, $savedEnv[$envName]) }
         Remove-Fixture $fixture
+        $caseWatch.Stop()
+        $script:caseDurations[$Name] = [Math]::Round($caseWatch.Elapsed.TotalSeconds, 3)
     }
 }
 
@@ -1814,6 +1884,13 @@ foreach ($caseFile in @(Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'cas
 }
 }
 finally {
+    if ($shardIndex -ge 0) {
+        try {
+            $durationOutput = Join-Path (Split-Path $script:runTempRoot -Parent) "case-durations-$shardIndex.json"
+            [IO.Directory]::CreateDirectory((Split-Path $durationOutput -Parent)) | Out-Null
+            [IO.File]::WriteAllText($durationOutput, ($script:caseDurations | ConvertTo-Json), (New-Object Text.UTF8Encoding($false)))
+        } catch { }
+    }
     Stop-FixtureProcesses $script:runTempRoot
     if (-not $Keep) {
         foreach ($root in @($fixtures)) {
