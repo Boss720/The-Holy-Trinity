@@ -1,4 +1,4 @@
-﻿param([switch]$Keep, [string]$Only, [string]$Shard, [string]$TempRoot)
+﻿param([switch]$Keep, [string]$Only, [string]$Filter, [string]$Shard, [string]$TempRoot)
 
 $ErrorActionPreference = 'Stop'
 $repoSource = Split-Path $PSScriptRoot -Parent
@@ -168,6 +168,7 @@ function Skip-Case([string]$Reason) {
 
 function Run-Case([string]$Name, [scriptblock]$Body, [string]$TestCommand = 'exit 0') {
     if ($script:Only -and $Name -notlike "*$($script:Only)*") { return }
+    if ($script:Filter -and $Name -notlike $script:Filter) { return }
     $caseNumber = $script:caseCounter
     $script:caseCounter++
     if ($script:shardIndex -ge 0 -and ($caseNumber % $script:shardCount) -ne $script:shardIndex) { return }

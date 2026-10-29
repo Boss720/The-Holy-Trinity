@@ -235,6 +235,15 @@ function Get-TestCommand {
     $null
 }
 
+# Only Markdown files are safe to skip; assets and executable files still require tests.
+function Test-DocsOnly([string[]]$Paths) {
+    if (-not $Paths -or $Paths.Count -eq 0) { return $false }
+    foreach ($path in $Paths) {
+        if (-not $path -or $path -notmatch '\.md$') { return $false }
+    }
+    return $true
+}
+
 # Files the branch changed outside its -Scope globs (* matches across folders, like the dashboard's merge check).
 # A task without a scope ('unspecified' or '-') is not checked.
 function Get-ScopeViolations([string]$TaskScope, [string]$BaseName, [string]$Branch) {
@@ -1602,7 +1611,10 @@ switch ($Command) {
             Fail "merge conflicts; aborted. Rebase the branch on $baseName and retry."
         }
 
-        if ($testCmd) {
+        $changed = @(Get-Git @('-C', $paths.Main, 'diff', '--name-only', '--no-renames', "$baseName...$branch"))
+        $docsOnly = $LASTEXITCODE -eq 0 -and $env:TRINITY_DOCS_ONLY_SKIP -ne '0' -and (Test-DocsOnly $changed)
+        if ($testCmd -and $docsOnly) { Write-Host 'docs-only change: tests skipped' }
+        elseif ($testCmd) {
             Write-Host "Running tests: $testCmd"
             Push-Location $paths.Main
             cmd.exe /d /c $testCmd
