@@ -1,7 +1,8 @@
 ﻿param(
     [int]$Jobs = $(
-        if ($env:TRINITY_TEST_JOBS -match '^\d+$' -and [int]$env:TRINITY_TEST_JOBS -gt 0) {
-            [int]$env:TRINITY_TEST_JOBS
+        $envJobs = 0
+        if ([int]::TryParse([string]$env:TRINITY_TEST_JOBS, [ref]$envJobs) -and $envJobs -gt 0) {
+            $envJobs
         } else {
             [Math]::Min(4, [Environment]::ProcessorCount)
         }
