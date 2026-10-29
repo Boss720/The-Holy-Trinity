@@ -1,4 +1,4 @@
-﻿param([switch]$Keep, [string]$Only, [string]$Shard)
+﻿param([switch]$Keep, [string]$Only, [string]$Shard, [string]$TempRoot)
 
 $ErrorActionPreference = 'Stop'
 $repoSource = Split-Path $PSScriptRoot -Parent
@@ -19,8 +19,35 @@ $fixtures = New-Object System.Collections.Generic.List[string]
 Add-Type -Namespace TrinitySelfTest -Name Win32 -MemberDefinition '[System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)] public static extern uint GetLongPathName(string shortPath, System.Text.StringBuilder longPath, uint bufferSize);'
 $longTemp = New-Object System.Text.StringBuilder 1024
 if ([TrinitySelfTest.Win32]::GetLongPathName($env:TEMP, $longTemp, 1024) -gt 0) { $env:TEMP = $longTemp.ToString(); $env:TMP = $env:TEMP }
+if (-not $TempRoot) {
+    $TempRoot = Join-Path $env:TEMP ("trinity-selftest-" + [Guid]::NewGuid().ToString('N'))
+}
+else {
+    $longRoot = New-Object System.Text.StringBuilder 1024
+    if (Test-Path -LiteralPath $TempRoot) {
+        if ([TrinitySelfTest.Win32]::GetLongPathName($TempRoot, $longRoot, 1024) -gt 0) { $TempRoot = $longRoot.ToString() }
+    }
+}
+$script:runTempRoot = $TempRoot
 # Keep the user's real repo registry and dashboard pid out of the tests.
-$env:TRINITY_HOME = Join-Path $env:TEMP ("trinity-selftest-home-" + [Guid]::NewGuid().ToString('N'))
+$env:TRINITY_HOME = Join-Path $script:runTempRoot ("trinity-selftest-home-" + [Guid]::NewGuid().ToString('N'))
+
+function Stop-FixtureProcesses([string]$Path) {
+    if ([string]::IsNullOrWhiteSpace($Path)) { return }
+    $normBack = $Path.Replace('/', '\').TrimEnd('\')
+    $normFwd = $Path.Replace('\', '/').TrimEnd('/')
+    try {
+        $procs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+            $_.ProcessId -ne $PID -and $_.CommandLine -and (
+                $_.CommandLine.IndexOf($normBack, [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+                $_.CommandLine.IndexOf($normFwd, [StringComparison]::OrdinalIgnoreCase) -ge 0
+            )
+        }
+        foreach ($p in $procs) {
+            try { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue } catch { }
+        }
+    } catch { }
+}
 
 function Assert-True([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
@@ -38,7 +65,7 @@ function Invoke-Git([string]$Directory, [string[]]$GitArgs) {
 
 function New-Fixture([string]$TestCommand = 'exit 0') {
     $id = [Guid]::NewGuid().ToString('N')
-    $root = Join-Path $env:TEMP "trinity-selftest-$id"
+    $root = Join-Path $script:runTempRoot "trinity-selftest-$id"
     $repo = Join-Path $root 'repo with spaces'
     New-Item -ItemType Directory -Path $repo -Force | Out-Null
     $script:fixtures.Add($root)
@@ -120,7 +147,14 @@ function Remove-Fixture($Fixture) {
             & git -C $Fixture.Repo worktree prune 2>&1 | Out-Null
         }
     }
-    if (Test-Path $Fixture.Root) { Remove-Item -LiteralPath $Fixture.Root -Recurse -Force }
+    if (Test-Path -LiteralPath $Fixture.Root) {
+        for ($try = 1; $try -le 5; $try++) {
+            Remove-Item -LiteralPath $Fixture.Root -Recurse -Force -ErrorAction SilentlyContinue
+            if (-not (Test-Path -LiteralPath $Fixture.Root)) { break }
+            if ($try -eq 3) { Stop-FixtureProcesses $Fixture.Root }
+            if ($try -lt 5) { Start-Sleep -Milliseconds 300 }
+        }
+    }
     $ErrorActionPreference = $oldPreference
 }
 
@@ -214,6 +248,7 @@ function Set-CliTask($f, [string]$task, [string]$status, [string]$agent = 'codex
     [IO.File]::AppendAllText($board, $text, (New-Object Text.UTF8Encoding($false)))
 }
 
+try {
 Run-Case 'orchestrator detection order and status brief' {
     param($f)
     $env:CLAUDECODE = '1'
@@ -1765,12 +1800,23 @@ Run-Case 'dashboard action API validates requests and runs a review job' {
 foreach ($caseFile in @(Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'cases') -Filter '*.ps1' -File -ErrorAction SilentlyContinue | Sort-Object Name)) {
     . ($caseFile.FullName)
 }
-
-Write-Output "$passed passed, $failed failed, $skipped skipped"
-if (-not $Keep) {
-    foreach ($root in @($fixtures)) {
-        Remove-Fixture ([pscustomobject]@{ Root = $root; Repo = (Join-Path $root 'repo with spaces') })
+}
+finally {
+    Stop-FixtureProcesses $script:runTempRoot
+    if (-not $Keep) {
+        foreach ($root in @($fixtures)) {
+            Remove-Fixture ([pscustomobject]@{ Root = $root; Repo = (Join-Path $root 'repo with spaces') })
+        }
+        if (Test-Path -LiteralPath $script:runTempRoot) {
+            for ($try = 1; $try -le 5; $try++) {
+                Remove-Item -LiteralPath $script:runTempRoot -Recurse -Force -ErrorAction SilentlyContinue
+                if (-not (Test-Path -LiteralPath $script:runTempRoot)) { break }
+                if ($try -lt 5) { Start-Sleep -Milliseconds 300 }
+            }
+        }
     }
 }
+
+Write-Output "$passed passed, $failed failed, $skipped skipped"
 if ($failed -gt 0) { exit 1 }
 exit 0
