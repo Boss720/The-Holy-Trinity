@@ -3684,6 +3684,7 @@
         <div class="status-group">
           <div class="header-ctl-group">
             <span id="slots-chip" class="slots-chip" style="display: none;" title="Agent slots in use across repos"></span>
+            <button type="button" id="header-auto-btn" class="btn-chat primary" title="Connecting..." disabled>Auto</button>
             <button type="button" id="header-stop-all-btn" class="btn-chat danger" title="Connecting..." disabled>Stop all</button>
             <button type="button" id="header-notify-btn" class="btn-chat" aria-pressed="false" title="Desktop notifications when a task finishes or needs you">Notifications: off</button>
           </div>
@@ -4264,6 +4265,7 @@
 
       // Header controls
       const slotsChip = document.getElementById('slots-chip');
+      const headerAutoBtn = document.getElementById('header-auto-btn');
       const headerStopAllBtn = document.getElementById('header-stop-all-btn');
       const headerNotifyBtn = document.getElementById('header-notify-btn');
 
@@ -9627,6 +9629,63 @@
         slotsChip.style.display = 'inline-block';
       }
 
+      function reposToAuto(state) {
+        return ((state && state.repos) || []).filter(function (r) {
+          const ap = r.autopilot || {};
+          const sc = r.scheduler || {};
+          return !ap.enabled || ap.paused || !sc.alive;
+        });
+      }
+
+      function updateAutoButton(state) {
+        if (!headerAutoBtn) return;
+        const targets = reposToAuto(state);
+        if (!actionsUiEnabled(state)) {
+          headerAutoBtn.disabled = true;
+          headerAutoBtn.title = 'Actions disabled (missing token or actions off on the server)';
+        } else if (targets.length === 0) {
+          headerAutoBtn.disabled = true;
+          headerAutoBtn.title = 'Nothing to start: autopilot and the scheduler are already on';
+        } else {
+          headerAutoBtn.disabled = false;
+          headerAutoBtn.title = 'Turn on autopilot and start the scheduler in ' + targets.length + (targets.length === 1 ? ' repo' : ' repos');
+        }
+      }
+
+      function autoAll() {
+        const targets = reposToAuto(lastStateData);
+        if (targets.length === 0 || !actionsUiEnabled(lastStateData)) return;
+        if (isSample) { showToast('Sample mode: actions are not sent', 'warn'); return; }
+        const lines = targets.map(function (r) {
+          const ap = r.autopilot || {};
+          return 'cd /d "' + r.path + '" && ' + (ap.paused ? 'trinity unpause && ' : '') + 'trinity autopilot on' + (ap.approval === true ? ' -Approval' : '') + ' && trinity scheduler start';
+        });
+        confirmCommand('Auto: start autopilot', lines.join('\n'), {
+          body: 'Start autopilot and the scheduler in ' + targets.length + (targets.length === 1 ? ' repo' : ' repos') + ': ' + targets.map(function (r) { return r.name; }).join(', ') + '.',
+          runText: 'Auto',
+          originBtn: headerAutoBtn
+        }).then(function (ok) {
+          if (!ok) return;
+          return Promise.all(targets.map(async function (r) {
+            try {
+              const ap = r.autopilot || {};
+              if (ap.paused) {
+                const unpause = await postAction({ action: 'unpause', repo: r.path, task: '', confirm: true });
+                const result = await unpause.done;
+                if (!result || result.state !== 'done' || result.exitCode !== 0) return false;
+              }
+              const started = await postAction({ action: 'autopilot', repo: r.path, task: '', enabled: true, approval: ap.approval === true, confirm: true });
+              const result = await started.done;
+              return !!result && result.state === 'done' && result.exitCode === 0;
+            } catch (err) { return false; }
+          })).then(function (results) {
+            const okCount = results.filter(Boolean).length;
+            showToast('Auto: started ' + okCount + ' of ' + targets.length + (targets.length === 1 ? ' repo' : ' repos'), okCount === targets.length ? 'ok' : 'warn');
+            pollState();
+          });
+        });
+      }
+
       function reposToStop(state) {
         return ((state && state.repos) || []).filter(function (r) {
           const ap = r.autopilot || {};
@@ -9836,6 +9895,7 @@
 
       function updateHeaderControls(state) {
         updateSlotsChip(state);
+        updateAutoButton(state);
         updateStopAllButton(state);
       }
 
@@ -9854,6 +9914,12 @@
         headerStopAllBtn.addEventListener('click', function (e) {
           e.stopPropagation();
           stopAll();
+        });
+      }
+      if (headerAutoBtn) {
+        headerAutoBtn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          autoAll();
         });
       }
       if (headerNotifyBtn) {

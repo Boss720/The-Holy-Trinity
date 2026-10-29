@@ -9,8 +9,8 @@
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Web.Extensions
-$script:DashboardActionAllowList = @('cancel', 'merge', 'review-task', 'open-folder', 'dispatch', 'queue-add', 'resume', 'retry', 'pause', 'unpause')
-$script:DashboardRepoActions = @('pause', 'unpause')
+$script:DashboardActionAllowList = @('cancel', 'merge', 'review-task', 'open-folder', 'dispatch', 'queue-add', 'resume', 'retry', 'pause', 'unpause', 'autopilot')
+$script:DashboardRepoActions = @('pause', 'unpause', 'autopilot')
 $script:DashboardCancelAllowedStates = @('queued', 'running', 'failed', 'stalled')
 $script:DashboardRetryAllowedStates = @('failed', 'cancelled')
 $script:JsonSerializer = New-Object System.Web.Script.Serialization.JavaScriptSerializer
