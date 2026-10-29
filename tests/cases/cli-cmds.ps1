@@ -171,3 +171,33 @@ Run-Case 'cli-cmds: history de-duplicates task and decision rows with same outco
     Assert-True (@($items | Where-Object { $_.task -eq 'task-failed' -and $_.outcome -eq 'failed' }).Count -eq 1) "task-failed not deduplicated: $($r.Output)"
     Assert-True (@($items | Where-Object { $_.task -eq 'other-task' -and $_.outcome -eq 'merged' }).Count -eq 1) "other-task lost: $($r.Output)"
 }
+
+Run-Case 'cli-cmds: scheduler tick respects environment model overrides' {
+    param($f)
+    $cfgPath = Join-Path $f.Repo '.trinity\trinity.json'
+    [void][IO.Directory]::CreateDirectory((Split-Path $cfgPath))
+    $cfg = @{version=1;slots=@{codex=1;antigravity=1;claude=1};models=@{codex='cfg-codex';antigravity='cfg-agy'}}
+    [IO.File]::WriteAllText($cfgPath, (ConvertTo-Json -InputObject $cfg -Depth 10), (New-Object Text.UTF8Encoding($false)))
+    $env:TRINITY_CODEX_MODEL = 'env-codex'; $env:TRINITY_AGY_MODEL = 'env-agy'
+    foreach ($pair in @(@('codex','env-codex-task'), @('antigravity','env-agy-task'))) {
+        $r = Invoke-Trinity $f @('queue','add',$pair[1],'-Agent',$pair[0],'-Scope',('tests/' + $pair[0] + '/*'),'-PromptFile',$f.Prompt)
+        Assert-True ($r.ExitCode -eq 0) "queue failed: $($r.Output)"
+    }
+    $r = Invoke-Trinity $f @('scheduler','tick')
+    Assert-True ($r.ExitCode -eq 0 -and $r.Output -match '2 started') "tick failed: $($r.Output)"
+    foreach ($task in @('env-codex-task','env-agy-task')) {
+        $r = Invoke-Trinity $f @('wait',$task,'-Timeout','30')
+        Assert-True ($r.ExitCode -eq 0) "wait failed: $($r.Output)"
+    }
+    $codex = [IO.File]::ReadAllText((Join-Path $f.Repo '.codex-out\run-env-codex-task.cmd'))
+    $agy = [IO.File]::ReadAllText((Join-Path $f.Repo '.codex-out\run-env-agy-task.cmd'))
+    Assert-True ($codex -match '-c model=env-codex' -and $agy -match '--model env-agy') "environment models lost: $codex $agy"
+}
+
+Run-Case 'cli-cmds: scheduler start reports immediate daemon failure' {
+    param($f)
+    $scheduler = Join-Path $f.Repo 'scripts\scheduler.ps1'
+    [IO.File]::WriteAllText($scheduler, "exit 23`r`n", (New-Object Text.UTF8Encoding($true)))
+    $r = Invoke-Trinity $f @('scheduler','start')
+    Assert-True ($r.ExitCode -ne 0 -and $r.Output -match 'Scheduler failed to start' -and $r.Output -notmatch 'Scheduler starting') "immediate failure misreported: $($r.Output)"
+}

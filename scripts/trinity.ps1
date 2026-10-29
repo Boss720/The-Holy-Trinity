@@ -740,6 +740,7 @@ switch ($Command) {
                     $script = Join-Path $PSScriptRoot 'scheduler.ps1'; if (-not (Test-Path -LiteralPath $script)) { throw 'scripts\scheduler.ps1 is missing' }
                     $stopFile = Join-Path $paths.Main '.trinity\scheduler.stop'; if (Test-Path -LiteralPath $stopFile) { Remove-Item -LiteralPath $stopFile -Force }
                     $proc = Start-Process powershell.exe -WindowStyle Hidden -PassThru -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$script`"", '-Repo', "`"$($paths.Main)`""
+                    if ($proc.WaitForExit(1000)) { throw "Scheduler failed to start (exit code $($proc.ExitCode))." }
                     Write-Host "Scheduler starting (pid $($proc.Id))."
                 }
                 'stop' {
@@ -769,10 +770,10 @@ switch ($Command) {
                                 $oldAgy = $env:TRINITY_AGY_MODEL
                                 try {
                                     if ($item.agent -eq 'codex') {
-                                        $m = if ($item.model) { $item.model } else { $cfg.models.codex }
+                                        $m = if ($item.model) { $item.model } elseif (-not "$env:TRINITY_CODEX_MODEL".Trim()) { $cfg.models.codex } else { $null }
                                         if ($m) { $env:TRINITY_CODEX_MODEL = $m }
                                     } elseif ($item.agent -eq 'antigravity') {
-                                        $m = if ($item.model) { $item.model } else { $cfg.models.antigravity }
+                                        $m = if ($item.model) { $item.model } elseif (-not "$env:TRINITY_AGY_MODEL".Trim()) { $cfg.models.antigravity } else { $null }
                                         if ($m) { $env:TRINITY_AGY_MODEL = $m }
                                     }
                                     Invoke-SchedulerChild $p $a
