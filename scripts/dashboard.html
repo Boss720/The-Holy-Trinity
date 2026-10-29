@@ -9915,6 +9915,12 @@
           stopAll();
         });
       }
+      if (headerAutoBtn) {
+        headerAutoBtn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          autoAll();
+        });
+      }
       if (headerNotifyBtn) {
         headerNotifyBtn.addEventListener('click', function (e) {
           e.stopPropagation();
