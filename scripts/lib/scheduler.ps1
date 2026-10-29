@@ -109,11 +109,24 @@ function Get-Decisions($Paths, [int]$Last=20) {
 function Get-SchedulerStarted($Paths, [switch]$QueueLocked) {
     $tasksPath=Join-Path $Paths.Main '.trinity\scheduler-tasks.json'
     if (-not (Test-Path -LiteralPath $tasksPath)) {
-        $dir=Join-Path $Paths.Main '.trinity'; $seeded=@()
-        if (Test-Path -LiteralPath $dir) {
-            $files=@(Get-ChildItem -LiteralPath $dir -Filter 'decisions*.jsonl' -File -ErrorAction Stop | Sort-Object Name); $seen=@{}
+        $dir=Join-Path $Paths.Main '.trinity'; $seeded=@(); $files=@(); $readFailed=$false
+        if (-not (Get-Variable schedulerEmptySeedStamps -Scope Script -ErrorAction SilentlyContinue)) { $script:schedulerEmptySeedStamps=@{} }
+        try {
+            if (Test-Path -LiteralPath $dir) { $files=@(Get-ChildItem -LiteralPath $dir -Filter 'decisions*.jsonl' -File -ErrorAction Stop | Sort-Object Name) }
+            $parts=@($files | ForEach-Object { $_.Name + ':' + $_.Length + ':' + $_.LastWriteTimeUtc.Ticks })
+            foreach ($path in @($Paths.Board,$Paths.Worktrees)) {
+                if (Test-Path -LiteralPath $path) { $item=Get-Item -LiteralPath $path -Force -ErrorAction Stop; $parts+=(([string]$item.Length) + ':' + $item.LastWriteTimeUtc.Ticks) } else { $parts+='missing' }
+            }
+            # Branches can appear independently of their worktrees or board entries.
+            $refs=@(git -C $Paths.Main show-ref --heads 2>$null); if ($LASTEXITCODE -gt 1) { $readFailed=$true }
+            $stamp=($parts + $refs | ConvertTo-Json -Compress)
+        } catch { $readFailed=$true }
+        if (-not $readFailed -and $script:schedulerEmptySeedStamps[$Paths.Main] -eq $stamp) { return @() }
+        if ($files.Count) {
+            $seen=@{}
             foreach ($file in $files) {
-                foreach ($line in [IO.File]::ReadAllLines($file.FullName)) {
+                try { $lines=[IO.File]::ReadAllLines($file.FullName) } catch { $readFailed=$true; continue }
+                foreach ($line in $lines) {
                     if (-not $line.Trim()) { continue }
                     try { $d=ConvertFrom-Json $line -ErrorAction Stop } catch { continue }
                         if ($d.action -ne 'started' -or -not $d.task -or $seen.ContainsKey([string]$d.task)) { continue }
@@ -136,6 +149,7 @@ function Get-SchedulerStarted($Paths, [switch]$QueueLocked) {
             }
             # Another writer may have populated the file while we waited for the lock.
         }
+        if (-not $seeded.Count -and -not $readFailed) { $script:schedulerEmptySeedStamps[$Paths.Main]=$stamp } else { $script:schedulerEmptySeedStamps.Remove($Paths.Main) }
         if (-not (Test-Path -LiteralPath $tasksPath)) { return @() }
     }
     $content=''
