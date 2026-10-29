@@ -525,7 +525,7 @@ $("#scrim").onclick = closeTask; $("#close").onclick = closeTask;
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeTask(); });
 const AUTO_CMD = 'cd /d "D:\\AI\\projects\\Dev\\Projects\\Holy trinity" && trinity autopilot on && trinity scheduler start\n' +
   'cd /d "D:\\AI\\projects\\Dev\\Projects\\other-repo" && trinity unpause && trinity autopilot on && trinity scheduler start';
-$("#header-auto").onclick = () => confirmRun("Auto: start 2 repositories", AUTO_CMD, "Auto: started 2 of 2 repos");
+$("#header-auto").onclick = () => confirmRun("Auto: start 2 repositories", AUTO_CMD, "Sample mode: nothing ran. Live, this reads: Auto: started 2 of 2 repos");
 $("#header-dispatch").onclick = () => $("#dispatch").showModal();
 $("#dispatch-cancel").onclick = () => $("#dispatch").close();
 $("#dispatch-submit").onclick = () => { $("#dispatch").close(); toast("Dispatch: started"); };

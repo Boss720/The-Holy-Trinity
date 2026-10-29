@@ -1,10 +1,18 @@
 # Changelog
 
+## v0.8.6 - 2026-10-29
+
+### Added
+- `docs/reco/mock-6-dark.html`: dark dashboard mock matching the v0.8.5 interface (Inbox, Overview, Board, Tasks, Health and History tabs; Auto, Stop all, Notifications and Dispatch in the header; confirm dialog with Copy cmd; Dispatch dialog). Design reference only, not served by the dashboard.
+
+### Fixed
+- Changelog: the v0.8.5 `-Filter` entry names `tests\run-tests.cmd` correctly.
+
 ## v0.8.5 - 2026-10-29
 
 ### Added
 - Dashboard header Auto button (counterpart of Stop all): turns on autopilot and starts the scheduler in every repository where autopilot is off, paused or the scheduler is not alive; confirm dialog first, unpauses first when paused. Warns in sample mode.
-- `testsun-tests.cmd -Filter <wildcard>` runs only matching test cases.
+- `tests\run-tests.cmd -Filter <wildcard>` runs only matching test cases.
 - Docs-only merges (every changed file is plain `.md`) skip the Test command; the review still runs. `TRINITY_DOCS_ONLY_SKIP=0` forces tests.
 - Duration-based shard balancing for the test runner.
 
