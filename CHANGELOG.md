@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.8.1 - 2026-10-29
+
+### Fixed
+- Antigravity delegation: agy review and ask output uses the last assistant message instead of the joined interim text; a review with no findings list and no "No findings" line counts as incomplete and blocks the merge.
+- Runner kills an Antigravity worker that is only waiting on its own background tasks (`TRINITY_AGY_IDLE_SECONDS`, default 900); the worker prompt tells it to run commands in the foreground.
+- Runner watchdog test no longer carries a stray CR in a path.
+
+## v0.8.0 - 2026-10-29
+
+### Added
+- Queue and scheduler commands, per-repository configuration, pause controls, autopilot and task history.
+- Dashboard API and interface components for task actions, board, settings and history.
+
+### Fixed
+- Include scheduler, configuration, sample data and dashboard assets in releases and `trinity init`.
+- Keep stalled workers in slot and scope accounting, and stop scheduler dispatch when configuration is unreadable.
+- Reject failed or dirty task worktrees at the merge gate. Dry runs require the task branch to include the current base before testing.
+- Isolate the temporary repository registry during release verification.
+
 ## v0.7.0 - 2026-10-28
 
 ### Added
