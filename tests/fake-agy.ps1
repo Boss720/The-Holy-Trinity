@@ -36,6 +36,19 @@ if ($mode -eq 'stall-then-resume') {
 }
 
 [IO.File]::WriteAllText((Join-Path (Get-Location).Path 'agy-output.txt'), 'fake agy output' + "`r`n", $utf8)
+if ($mode -eq 'idle-wait') {
+    # Real agy -p answers, then waits up to 30 min for a background task it left running; the runner must end it.
+    if ($logIndex -ge 0) { [IO.File]::AppendAllText($args[$logIndex + 1], "conversation=11111111-2222-3333-4444-555555555555`r`n", $utf8) }
+    if ($env:TRINITY_AGY_HOME) {
+        $logs = Join-Path $env:TRINITY_AGY_HOME 'brain\11111111-2222-3333-4444-555555555555\.system_generated\logs'
+        New-Item -ItemType Directory -Path $logs -Force | Out-Null
+        $rec = [ordered]@{ step_index = 1; source = 'MODEL'; type = 'PLANNER_RESPONSE'; content = 'Fake idle summary.' }
+        [IO.File]::WriteAllText((Join-Path $logs 'transcript.jsonl'), (($rec | ConvertTo-Json -Compress) + "`n"), $utf8)
+    }
+    [Console]::Error.WriteLine('Root agent idle; waiting up to 30m0s for 1 background task(s)')
+    [Console]::Error.Flush()
+    while ($true) { Start-Sleep -Seconds 10 }
+}
 if ($mode -eq 'narrate') {
     # Real agy -p joins the text of every turn: a pause for background tests comes before the summary.
     # The session transcript (written unless FAKE_AGY_TRANSCRIPT=none) keeps the turns apart.

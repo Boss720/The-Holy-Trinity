@@ -736,6 +736,18 @@ Run-Case 'no Codex or Claude: Antigravity reviews, then tests alone gate' {
     Assert-True ($merge.ExitCode -eq 0 -and $merge.Output -match 'Tests alone gate') "unreviewed merge should pass on tests: $($merge.Output)"
 }
 
+Run-Case 'Antigravity review with only interim text counts as incomplete' {
+    param($f)
+    Start-CodexTask $f 'task-rp'
+    $wait = Invoke-Trinity $f @('wait', 'task-rp', '-Timeout', '50')
+    Assert-True ($wait.ExitCode -eq 0) "wait exit $($wait.ExitCode): $($wait.Output)"
+    $env:TRINITY_DISABLE = 'codex'
+    $env:FAKE_CLAUDE_LOGGED_OUT = '1'
+    $env:FAKE_REVIEW_OUTPUT = 'Reading the patch now. Waiting for the file viewer.'
+    $blocked = Invoke-Trinity $f @('merge', 'task-rp', '-Yes')
+    Assert-True ($blocked.ExitCode -ne 0 -and $blocked.Output -match 'treating review as incomplete') "partial review should block: $($blocked.Output)"
+}
+
 Run-Case 'init installs the toolkit with subagents and the army skill' {
     param($f)
     foreach ($rel in @('.claude', '.agent', 'CLAUDE.md', 'GEMINI.md')) { Copy-Item -LiteralPath (Join-Path $script:repoSource $rel) -Destination $f.Repo -Recurse -Force }

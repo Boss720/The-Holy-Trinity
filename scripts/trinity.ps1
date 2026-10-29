@@ -328,7 +328,7 @@ function Invoke-ReadOnlyAgent([string]$agent, [string]$dir, [string]$promptFile,
     if ($agent -eq 'antigravity') {
         try {
             $j = $text | ConvertFrom-Json
-            $text = "$($j.response)"
+            $text = Get-AgyFinalMessage "$($j.conversation_id)" "$($j.response)"
             if ($j.status -ne 'SUCCESS' -or -not $text.Trim()) { $rc = [Math]::Max($rc, 1) }
         }
         catch { $rc = [Math]::Max($rc, 1) }
@@ -355,7 +355,7 @@ function Get-AgyFinalMessage([string]$session, [string]$response) {
         }
     }
     catch { return $response }
-    if ($last -and $response.TrimEnd().EndsWith($last, [StringComparison]::Ordinal)) { return $last + "`n" }
+    if ($last -and (-not $response.Trim() -or $response.TrimEnd().EndsWith($last, [StringComparison]::Ordinal))) { return $last + "`n" }
     $response
 }
 
@@ -397,7 +397,14 @@ function Invoke-Review([string]$reviewer, [string]$dir, [string]$mode, [string]$
     ) -join "`r`n"
     $promptFile = Join-Path $paths.Out "review-prompt-$tag.md"
     [IO.File]::WriteAllText($promptFile, $prompt + "`r`n", $script:Utf8)
-    Invoke-ReadOnlyAgent $reviewer $dir $promptFile "review-$tag"
+    $r = Invoke-ReadOnlyAgent $reviewer $dir $promptFile "review-$tag"
+    # agy --print-timeout can return SUCCESS with interim text ("waiting for..."): accept only a finished review.
+    $body = $r.Lines -join "`n"
+    if ($r.ExitCode -eq 0 -and $body -notmatch '(?m)^\s*(?:[-*]|\d+\.)?\s*\**\[P[0-3]\]' -and $body -notmatch '(?m)^\s*\**No findings\.?\**\s*$') {
+        Write-Host "reviewer $reviewer returned no findings list and no 'No findings': treating review as incomplete." -ForegroundColor Yellow
+        $r.ExitCode = 1
+    }
+    $r
 }
 
 function Show-Status {
@@ -535,7 +542,8 @@ function Start-Dispatch([string]$agent, [string]$task, [string]$prompt, [int]$de
         '- Read AGENTS.md first.',
         '- Edit only files within the scope.',
         $(if ($isHeadless) { '- Work only inside your current directory (your worktree). Do not run git commit or push; the runner commits your changes when you finish, using your final summary as the message.',
-             '- Do not start GUI apps or long-running servers; you run headless.' }
+             '- Do not start GUI apps or long-running servers; you run headless.',
+             '- Run every command in the foreground and wait for it; never leave a background task running when you finish.' }
           else { '- Commit your work on this branch with clear messages (no Co-Authored-By trailers).',
              "- When finished: write your summary to $resultPath, then run in your worktree: trinity done $task <one-line summary>" }),
         '- Do not push.',
@@ -1043,6 +1051,13 @@ switch ($Command) {
         $nested = $env:CLAUDECODE
         if ($entry.agent -eq 'claude') { $env:CLAUDECODE = $null }
         $timedOut = $false
+        $idleKilled = $false
+        # agy -p waits up to 30 min for background tasks it left running after its final answer; once the
+        # root agent is idle and nothing moves, end it instead of holding the task in "running".
+        # The wait may be for the agent's own test run, so give it time (the suite takes minutes) before ending it.
+        $agyIdleSeconds = 900
+        $parsedIdle = 0
+        if ([int]::TryParse("$env:TRINITY_AGY_IDLE_SECONDS", [ref]$parsedIdle) -and $parsedIdle -gt 0) { $agyIdleSeconds = $parsedIdle }
         $rc = 0
         try {
             $agentProc = Start-Process -FilePath $env:ComSpec -ArgumentList @('/c', "`"$runFile`"") -PassThru -WindowStyle Hidden
@@ -1098,6 +1113,13 @@ switch ($Command) {
                         Set-BoardStatus $paths $task 'running'
                     }
                 }
+                elseif ($entry.agent -eq 'antigravity' -and (($now - $lastLogGrowth).TotalSeconds -ge $agyIdleSeconds) -and
+                    (Test-Path -LiteralPath $log) -and (@(Get-Content -LiteralPath $log -Tail 5 -ErrorAction SilentlyContinue | Where-Object { "$_".Trim() } | Select-Object -Last 1) -match 'Root agent idle; waiting')) {
+                    # Only the newest log line counts: an idle notice from before agy resumed must not end later work.
+                    $idleKilled = $true
+                    taskkill.exe /PID $agentProc.Id /T /F 2>&1 | Out-Null
+                    break
+                }
                 elseif (-not $isStalled -and (($now - $lastLogGrowth).TotalSeconds -ge $stallSeconds)) {
                     $isStalled = $true
                     Set-BoardStatus $paths $task "running (stalled: no output $stallMinutes min)"
@@ -1108,6 +1130,10 @@ switch ($Command) {
 
             if ($timedOut) {
                 $rc = 124
+            }
+            elseif ($idleKilled) {
+                $rc = 0
+                $meta.idleKilled = $true
             }
             else {
                 $agentProc.WaitForExit()
@@ -1136,6 +1162,12 @@ switch ($Command) {
                 }
             }
             catch { }
+            if ($idleKilled -and -not "$text".Trim() -and (Test-Path $agyLog)) {
+                # Killed before agy wrote its JSON: take the final answer from the session transcript.
+                $m = [regex]::Match([IO.File]::ReadAllText($agyLog), 'conversation=([0-9a-fA-F-]{36})')
+                if ($m.Success) { $meta.sessionId = $m.Groups[1].Value; $text = Get-AgyFinalMessage $meta.sessionId '' }
+                if (-not "$text".Trim()) { $text = 'Antigravity finished; runner ended its idle wait for background tasks.' }
+            }
             # agy -p echoes its internal background-task notices; keep only the agent's own summary.
             $text = $text -replace '(?s)The following is a <SYSTEM_MESSAGE>.*?</SYSTEM_MESSAGE>\s*', ''
             [IO.File]::WriteAllText($result, $text, $script:Utf8)

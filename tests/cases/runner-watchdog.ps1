@@ -152,3 +152,19 @@ Run-Case 'runner watchdog: changing files without log output is not a stall' {
     }
     finally { $env:TRINITY_STALL_SECONDS = $oldStall }
 }
+
+Run-Case 'runner watchdog: antigravity idle wait for background task ends as done' {
+    param($f)
+    $oldIdle = $env:TRINITY_AGY_IDLE_SECONDS
+    try {
+        $env:TRINITY_AGY_IDLE_SECONDS = '3'
+        $env:FAKE_AGY_MODE = 'idle-wait'
+        $res = Invoke-Trinity $f @('dispatch', 'antigravity', 'idle-task', '-Scope', '*', '-PromptFile', $f.Prompt)
+        Assert-True ($res.ExitCode -eq 0) "dispatch failed: $($res.Output)"
+        $wait = Invoke-Trinity $f @('wait', 'idle-task', '-Timeout', '40')
+        Assert-True ($wait.ExitCode -eq 0 -and $wait.Output -match 'done') "idle agy not ended as done: $($wait.Output)"
+        $result = [IO.File]::ReadAllText((Join-Path $f.Repo '.codex-out\result-idle-task.md'))
+        Assert-True ($result -match 'Fake idle summary') "summary not taken from transcript: $result"
+    }
+    finally { $env:TRINITY_AGY_IDLE_SECONDS = $oldIdle }
+}
