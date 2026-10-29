@@ -2,6 +2,17 @@
 
 Update before you stop. Newest entry on top.
 
+## 2026-10-29 Auto button + worker routing
+
+- Auto button (dashboard header: unpause, autopilot on, scheduler start) was built twice as a race: `dash-auto` on Antigravity and `dash-auto-cx` on Codex. Winner: codex.
+- Codex workers ran gpt-6.1-terra at medium effort (`TRINITY_CODEX_EFFORT=medium`).
+- Antigravity workers ran gemini-3.8-flash-high with `TRINITY_AGY_PREFIX=/teamwork-preview`.
+- Live `trinity dispatch claude ... -Headless` path proven on claude-sonnet-5-5 (runner committed, board updated).
+- Merged: gui-auto-doc (docs), fail-log-sync, token-codes.
+- sched-followups cancelled (`cancel -Force`) as superseded by 3864994 after merge conflicts.
+- Gates run with `TRINITY_TEST_JOBS=2`.
+- Next step: live click-through of the Auto button at http://localhost:7777/ (start with `trinity dashboard`), screenshots as evidence, then tick the PLAN.md box if it passes.
+
 ## 2026-10-29 session 2 (harness fixes + docs), PAUSED by user, nothing committed
 - Spec: `.codex-out/session-2-harness-fixes-docs.md`. Main, uncommitted edits (session 2 scope only):
   - `tests/run-parallel.ps1`: TRINITY_TEST_JOBS accepted only if TryParse ok and 1..64, else default min(4, cores). Checked: `TRINITY_TEST_JOBS=99999999999` run exits 0, no binding throw.

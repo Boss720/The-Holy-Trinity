@@ -43,3 +43,4 @@ Per-module checklist. Owner = claude | codex | antigravity.
 - [x] No-Codex: availability, dispatch reroute, reviewer fallback, run metadata, tests - claude
 - [x] Live check: real models/tokens/tool calls, Claude session + subagent chat drawer - claude
 - [ ] Claude Code headless reviewer exercised logged in (CLI here is not logged in standalone; covered by fake) - user
+- [x] Dashboard header Auto button (unpause, autopilot on, scheduler start) - claude + codex + antigravity (tasks dash-auto, dash-auto-cx; winner codex)
