@@ -417,3 +417,65 @@ Run-Case 'sched-core: dry run gate writes output file and prints status' {
     Assert-True (([IO.File]::ReadAllText($gatePathGerr)).Trim() -eq 'reviewer unavailable') 'gate file content incorrect'
     Assert-True (($outGerr -join "`n") -match 'gate task-gerr: gate-error \(see \.codex-out\\gate-task-gerr\.txt\)') "printed line incorrect for gate-error: $outGerr"
 }
+
+Run-Case 'sched-core: stalled worker reserves slot and scope' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; $null=Set-TrinityConfig $p @{slots=@{claude=1;codex=2}}
+    [void][IO.Directory]::CreateDirectory((Join-Path $p.Worktrees 'claude-busy'))
+    [IO.File]::WriteAllText($p.Board,"## busy`r`n- agent: claude`r`n- scope: src/auth/*`r`n- status: running (stalled: no output 5 min)`r`n")
+    Add-QueueItem $p @{task='slot';agent='claude';promptFile=$f.Prompt;scope='other/*'}
+    Add-QueueItem $p @{task='overlap';agent='codex';promptFile=$f.Prompt;scope='src/auth/forms/*'}
+    $r=Invoke-SchedulerTick $p -DispatchCommand { throw 'unexpected dispatch' }
+    Assert-True ($r.waiting.slot -eq 'no free slot' -and $r.waiting.overlap -eq 'scope overlaps busy') 'stalled worker did not reserve slot and scope'
+}
+Run-Case 'sched-core: unreadable config stops dispatch' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; Add-QueueItem $p @{task='one';agent='codex';promptFile=$f.Prompt}
+    [IO.File]::WriteAllText((Join-Path $p.Main '.trinity\trinity.json'),'{broken')
+    $failed=$false; try { $null=Invoke-SchedulerTick $p -DispatchCommand { throw 'unexpected dispatch' } } catch { $failed=$_.Exception.Message -match 'unreadable config' }
+    Assert-True ($failed -and (Get-TrinityQueue $p).items.Count -eq 1) 'corrupt config did not stop dispatch'
+}
+Run-Case 'sched-core: outdated base requests worker update' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; $null=Set-TrinityConfig $p @{autopilot=@{enabled=$true}}
+    $null=Invoke-Git $f.Repo @('branch','agent/codex/outdated'); [void][IO.Directory]::CreateDirectory((Join-Path $p.Worktrees 'codex-outdated'))
+    Set-SchedulerStarted $p 'outdated' $true; Add-Decision $p 'outdated' 'started' 'dispatched' 0
+    [IO.File]::WriteAllText($p.Board,"## outdated`r`n- agent: codex`r`n- status: done`r`n")
+    $script:feedbackText=''; $gate={ @{success=$false;output='dry run: agent/codex/outdated does not contain main; update the branch before testing'} }
+    $resume={ param($paths,$task,$file) $script:feedbackText=[IO.File]::ReadAllText($file); return $true }
+    $r=Invoke-SchedulerTick $p -MergeCommand $gate -ResumeCommand $resume
+    Assert-True ($r.autopilot -contains 'resumed' -and $script:feedbackText -match 'merge main into your worktree') "outdated branch not resumed: $($r.autopilot) $script:feedbackText"
+}
+
+Run-Case 'sched-core: concurrent start wins over migration seed' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; $dir=Join-Path $p.Main '.trinity'; [void][IO.Directory]::CreateDirectory($dir)
+    [IO.File]::WriteAllText((Join-Path $dir 'decisions.jsonl'), '{"task":"seed","action":"started"}')
+    $null=Invoke-Git $f.Repo @('branch','agent/codex/seed'); [void][IO.Directory]::CreateDirectory((Join-Path $p.Worktrees 'codex-seed'))
+    [IO.File]::WriteAllText($p.Board,"## seed`r`n- agent: codex`r`n- status: done`r`n")
+    $original=${function:Invoke-QueueLocked}; $script:raceInjected=$false
+    function Invoke-QueueLocked($paths,$body) {
+        if (-not $script:raceInjected) { $script:raceInjected=$true; & $original $paths { Write-TrinityJson (Join-Path $paths.Main '.trinity\scheduler-tasks.json') @(@{task='concurrent';startedAt='now'}) } }
+        & $original $paths $body
+    }
+    try { $items=@(Get-SchedulerStarted $p); Assert-True ($items.Count -eq 1 -and $items[0].task -eq 'concurrent') 'migration overwrote or returned stale concurrent start' }
+    finally { Set-Item Function:Invoke-QueueLocked $original }
+}
+Run-Case 'sched-core: unreadable migration source fails closed' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; $dir=Join-Path $p.Main '.trinity'; [void][IO.Directory]::CreateDirectory($dir)
+    $locked=Join-Path $dir 'decisions-1.jsonl'; [IO.File]::WriteAllText($locked,'locked')
+    [IO.File]::WriteAllText((Join-Path $dir 'decisions.jsonl'), '{"task":"readable","action":"started"}')
+    $stream=[IO.File]::Open($locked,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None); $failed=$false
+    try { try { $null=Get-SchedulerStarted $p } catch { $failed=$true } } finally { $stream.Dispose() }
+    Assert-True ($failed -and -not (Test-Path (Join-Path $dir 'scheduler-tasks.json'))) 'partial migration must not be persisted'
+}
+Run-Case 'sched-core: metadata errors cannot persist partial migration' {
+    param($f)
+    $p=Get-SchedulerPaths $f.Repo; $dir=Join-Path $p.Main '.trinity'; [void][IO.Directory]::CreateDirectory($dir)
+    [IO.File]::WriteAllText((Join-Path $dir 'decisions.jsonl'), '{"task":"broken","action":"started"}')
+    $original=${function:Get-BoardEntry}; $failed=$false
+    function Get-BoardEntry($paths,$task) { throw 'board unavailable' }
+    try { try { $null=Get-SchedulerStarted $p } catch { $failed=$true } } finally { Set-Item Function:Get-BoardEntry $original }
+    Assert-True ($failed -and -not (Test-Path (Join-Path $dir 'scheduler-tasks.json'))) 'metadata failure must not be swallowed'
+}

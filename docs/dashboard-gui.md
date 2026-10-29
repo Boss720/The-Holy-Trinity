@@ -92,7 +92,7 @@ Library functions (dot-sourced; `$Paths` is the object from `Get-Paths` in trini
 Commands (Claude wires; each prints what it did, exit 1 on error):
 `trinity config [get [<key>]] | set <key> <value> | set -Json <file>`, `trinity queue [list] | add <agent> <task> -Scope .. -PromptFile .. | remove <task> | move <task> <index>`,
 `trinity scheduler start|stop|status|tick`, `trinity pause [<reason>]`, `trinity unpause`, `trinity autopilot on|off`, `trinity history [-Json]`,
-`trinity merge <task> -DryRun`. `start` launches `scheduler.ps1` detached (Start-Process -WindowStyle Hidden).
+`trinity merge <task> -DryRun`. A dry run requires a clean worker worktree whose branch includes the current base; update the branch with the base before retrying if it has fallen behind. `start` launches `scheduler.ps1` detached (Start-Process -WindowStyle Hidden).
 `dispatch` and `merge` read `trinity.json` for base, test, deadline and model.
 
 ## 3. Server additions (owner: `scripts/dashboard.ps1`)

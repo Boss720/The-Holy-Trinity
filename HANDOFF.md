@@ -2,6 +2,11 @@
 
 Update before you stop. Newest entry on top.
 
+## 2026-10-29 review fixes (Codex)
+- Uncommitted in main checkout: release/init assets, stalled-worker slot and scope safety, corrupt-config scheduler stop, failed/dirty merge refusal, and current-base dry-run verification. Parallel follow-up branches remain unmerged.
+- Verification: final full suite 172 passed, 0 failed, 0 skipped; CLI wiring group 8 passed; isolated release build and extracted install verification passed.
+- Dry runs now require the worker branch to contain the current base. Update the worker branch before retrying when main has advanced.
+
 ## 2026-10-28 23:22 handoff (Claude, current; supersedes the Status list below where they differ)
 - main 3f69566, clean. Merged today: cli-cmds (3f69566, suite 144/144), sched-fix (06b1ad8), sched-core (8d96470), 87d1a03 flaky-test fix, 30e9b71 agy model args.
 - Antigravity workers, Gemini 3.8 Flash High, effort high. Both still running at 23:22 (pids in `.codex-out/pid-<task>.txt`); no commits on their branches yet, no `result-*.md` yet.

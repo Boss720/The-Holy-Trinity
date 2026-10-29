@@ -17,7 +17,9 @@ $fixed = @(
     'trinity.cmd', 'trinity.sh', 'install.cmd', 'install.ps1', '.agent/rules/holy-trinity.md',
     '.claude/settings.json', '.claude/skills/army/SKILL.md', '.agents/skills/trinity/SKILL.md', '.githooks/pre-commit',
     'scripts/agent-task.ps1', 'scripts/codex.cmd', 'scripts/codex-ask.cmd', 'scripts/codex-review.cmd',
-    'scripts/dashboard.ps1', 'scripts/dashboard.html', 'scripts/doctor.ps1', 'scripts/trinity.ps1',
+    'scripts/dashboard.ps1', 'scripts/dashboard.html', 'scripts/dashboard-sample.json', 'scripts/doctor.ps1', 'scripts/trinity.ps1',
+    'scripts/scheduler.ps1', 'scripts/lib/config.ps1', 'scripts/lib/scheduler.ps1',
+    'scripts/dashboard-ui/board.css', 'scripts/dashboard-ui/board.js', 'scripts/dashboard-ui/history.js',
     'scripts/lib/board.ps1', 'scripts/lib/seed.ps1', 'docs/dashboard.md', 'docs/claude-install-prompt.md'
 )
 $paths = New-Object 'System.Collections.Generic.List[string]'
@@ -109,6 +111,8 @@ try {
     if ($Verify) {
         $verifyRoot = Join-Path $env:TEMP ('trinity-release-verify-' + [guid]::NewGuid().ToString('N'))
         $folder = Join-Path $verifyRoot 'folder with spaces'
+        $oldTrinityHome = $env:TRINITY_HOME
+        $env:TRINITY_HOME = Join-Path $verifyRoot 'registry'
         try {
             New-Item -ItemType Directory -Path $folder -Force | Out-Null
             [IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $folder)
@@ -125,15 +129,25 @@ try {
             & $cmd help *> $null; if ($LASTEXITCODE -ne 0) { throw 'verify: help' }
             & (Join-Path $copy 'install.cmd') -Check *> $null; if ($LASTEXITCODE -gt 1) { throw 'verify: install-check' }
             & $cmd init $repo; if ($LASTEXITCODE -ne 0) { throw 'verify: init' }
-            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'scripts/trinity.ps1') status *> $null
-            if ($LASTEXITCODE -ne 0) { throw 'verify: status' }
+            foreach ($rel in @('scripts/scheduler.ps1', 'scripts/lib/config.ps1', 'scripts/lib/scheduler.ps1', 'scripts/dashboard-sample.json', 'scripts/dashboard-ui/board.js', 'scripts/dashboard-ui/board.css', 'scripts/dashboard-ui/history.js')) {
+                if (-not (Test-Path -LiteralPath (Join-Path $repo $rel) -PathType Leaf)) { throw "verify: init missing $rel" }
+            }
+            Push-Location -LiteralPath $repo
+            try {
+                & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'scripts/trinity.ps1') config get *> $null
+                if ($LASTEXITCODE -ne 0) { throw 'verify: config' }
+                & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'scripts/trinity.ps1') queue list *> $null
+                if ($LASTEXITCODE -ne 0) { throw 'verify: queue' }
+                & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'scripts/trinity.ps1') status *> $null
+                if ($LASTEXITCODE -ne 0) { throw 'verify: status' }
+            } finally { Pop-Location }
             & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'scripts/trinity.ps1') version
             if ($LASTEXITCODE -ne 0) { throw 'verify: installed-version' }
             Write-Host 'verify: PASS'
         } catch {
             Write-Host ('verify: FAIL ' + $_.Exception.Message)
             throw
-        } finally { Remove-Item -LiteralPath $verifyRoot -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { $env:TRINITY_HOME = $oldTrinityHome; Remove-Item -LiteralPath $verifyRoot -Recurse -Force -ErrorAction SilentlyContinue }
     }
     Write-Host "zip: $zipPath"
     Write-Host "sha256: $hashPath"
