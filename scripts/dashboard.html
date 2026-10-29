@@ -281,6 +281,24 @@
       font-size: 12px;
     }
 
+    @media (max-width: 480px) {
+      .status-group {
+        flex: 0 1 100%;
+        min-width: 0;
+        flex-wrap: wrap;
+      }
+
+      .header-ctl-group, .data-age-chip {
+        max-width: 100%;
+        min-width: 0;
+      }
+
+      .status-group .data-age-chip {
+        white-space: normal;
+        overflow-wrap: anywhere;
+      }
+    }
+
     .indicator-pill {
       display: inline-flex;
       align-items: center;
