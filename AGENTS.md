@@ -41,6 +41,7 @@ Codex and Antigravity load the playbook from `.agents/skills/trinity/SKILL.md` (
   or create only with `scripts\agent-task.ps1`.
 - Worktrees live in `..\Holy trinity.worktrees\`. Main checkout stays on `main`.
 - Only the orchestrator (or the user) merges `agent/*` branches into `main`, always through `trinity merge`.
+- Workers run only their own new or changed test cases, with `tests\run-tests.cmd -Filter <wildcard>`. The merge gate runs the full suite. Never run several full suites at once: parallel runs cause false timing failures in dashboard HTTP tests.
 - Commit a checkpoint before handing work to another agent.
 
 ## trinity command (one entry point, cmd from repo root)
@@ -54,7 +55,7 @@ Codex and Antigravity load the playbook from `.agents/skills/trinity/SKILL.md` (
 - `trinity run <agent> <task> -PromptFile <file>` : dispatch, then wait for it to finish and print summary, commits, diffstat. Use `-PromptFile` for any prompt with quotes.
 - `trinity wait <task> [-Timeout 1800]` : block until a task leaves running; exit 0 done, 1 failed, 2 still running.
 - `trinity done <task> "<summary>"` : finish a `track`ed chunk, or a task done in an interactive session. Headless workers (any agent): never run this; the runner commits your work and marks the task itself.
-- `trinity merge <task>` : review of the branch (Codex, else the fallback reviewer below), blocks on P0/P1 findings, merge into `main`, run the Test command, remove worktree and branch.
+- `trinity merge <task>` : review of the branch (Codex, else the fallback reviewer below), blocks on P0/P1 findings, merge into `main`, run the Test command, remove worktree and branch. Docs-only merges (every changed file is `.md`) skip the Test command; the review still runs. Any other file, even under `docs/`, still runs tests. `TRINITY_DOCS_ONLY_SKIP=0` forces tests.
   Findings that only concern "Shared files" (Project commands below) on a branch that left them untouched are deferred, not blocking: the orchestrator wires them after the merge (`.codex-out\deferred-<task>.txt`).
   Refuses a task that is still running. Files changed outside the task's `-Scope` block the merge unless `-Force` (`TRINITY_SCOPE_GUARD=block|warn|off`, or `scopeGuard` in `.trinity\trinity.json`).
   `-DryRun`: review, conflict check against the base, tests and scope check only; merges nothing, prints `dry run clean: ...` (the dashboard Review button).
@@ -91,7 +92,7 @@ Fill these in when code lands. Every agent runs them before claiming done.
 
 - Install: none (`trinity setup` once per clone)
 - Typecheck/build: none (PowerShell 5.1 scripts; the test suite parse-checks them)
-- Test: `tests\run-tests.cmd` (shards default to min(4, cores); set `TRINITY_TEST_JOBS` to 1..64 to override, use 2 under low RAM)
+- Test: `tests\run-tests.cmd` (shards default to min(4, cores); set `TRINITY_TEST_JOBS` to 1..64 to override, use 2 under low RAM). Filter: `tests\run-tests.cmd -Filter <wildcard>` runs only matching test cases, e.g. `-Filter dash-auto*`; same summary line.
 - Run: `trinity help`
 - Shared files: `AGENTS.md`, `CLAUDE.md`, `scripts/lib/board.ps1`
 
