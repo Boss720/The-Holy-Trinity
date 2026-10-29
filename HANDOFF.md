@@ -8,10 +8,11 @@ Update before you stop. Newest entry on top.
 - Codex workers ran gpt-6.1-terra at medium effort (`TRINITY_CODEX_EFFORT=medium`).
 - Antigravity workers ran gemini-3.8-flash-high with `TRINITY_AGY_PREFIX=/teamwork-preview`.
 - Live `trinity dispatch claude ... -Headless` path proven on claude-sonnet-5-5 (runner committed, board updated).
-- Merged: gui-auto-doc (docs), fail-log-sync, token-codes.
+- Merged (all through `trinity merge`): fail-log-sync, fast-gate (+fast-gate-fix), docs-auto, sched-seed (+seed-partial, fix a4d276b), token-codes, test-robust, test-robust2, dash-auto-cx (Auto button 2725357; allow-list fix f34b7ab), shard-balance, readme-sync, failure-rows, agents-doc, plan-handoff, wt-retry, auto-mobile, auto-behavior (main 4743175). gui-auto-doc cancelled (docs-auto covered it).
 - sched-followups cancelled (`cancel -Force`) as superseded by 3864994 after merge conflicts.
-- Gates run with `TRINITY_TEST_JOBS=2`.
-- Next step: live click-through of the Auto button at http://localhost:7777/ (start with `trinity dashboard`), screenshots as evidence, then tick the PLAN.md box if it passes.
+- Gates run with `TRINITY_TEST_JOBS=2`. Timing tests failed under parallel worker load; keep workers off the full suite while a gate runs.
+- Live click-through done 2026-10-29 on http://localhost:7777/ by both sessions: Auto enabled ("Turn on autopilot and start the scheduler in 3 repos"), confirm dialog lists per-repo `trinity autopilot on -Approval && trinity scheduler start`, Cancel runs nothing. Confirm itself not pressed (real repos).
+- Open: PLAN.md box "Windows notification seen on screen" (user). Leftover worktrees: antigravity-failure-log, antigravity-gui-auto-doc2, codex-suite-profile; locked folders codex-sched-seed, codex-dash-auto-cx (branches deleted).
 
 ## 2026-10-29 session 2 (harness fixes + docs), PAUSED by user, nothing committed
 - Spec: `.codex-out/session-2-harness-fixes-docs.md`. Main, uncommitted edits (session 2 scope only):
