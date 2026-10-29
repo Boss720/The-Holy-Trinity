@@ -265,7 +265,7 @@ function Get-TestCommand {
     $agentsMd = Join-Path $paths.Main 'AGENTS.md'
     if (Test-Path $agentsMd) {
         foreach ($l in [IO.File]::ReadAllLines($agentsMd)) {
-            if ($l -match '^- Test: `(.+)`$') { if ($Matches[1] -ne 'TBD') { return $Matches[1] }; break }
+            if ($l -match '^- Test: `([^`]+)`') { if ($Matches[1] -ne 'TBD') { return $Matches[1] }; break }
         }
     }
     $null
@@ -836,7 +836,7 @@ switch ($Command) {
                                     $env:TRINITY_AGY_MODEL = $oldAgy
                                 }
                             }
-                            $merge = { param($p, $task, $dry) $flag = if ($dry) { '-DryRun' } else { '-Yes' }; Invoke-SchedulerChild $p @('merge', $task, $flag) }
+                            $merge = { param($p, $task, $dry) $flag = if ($dry) { '-DryRun' } else { '-Yes' }; if ($dry) { return (Invoke-SchedulerChild $p @('merge', $task, $flag) -Capture) }; return (Invoke-SchedulerChild $p @('merge', $task, $flag)) }
                             $resume = { param($p, $task, $feedback) Invoke-SchedulerChild $p @('resume', $task, '-FeedbackFile', $feedback) }
                             $result = Invoke-SchedulerTick $paths $dispatch $merge $resume
                             Write-Host "Scheduler tick: $(@($result.started).Count) started, $($result.waiting.Count) waiting."
@@ -1582,7 +1582,7 @@ switch ($Command) {
                 $touched = @(Get-Git @('-C', $paths.Main, 'diff', '--name-only', "$baseName...$branch"))
                 $touchesShared = @($touched | Where-Object { $f = $_; $shared | Where-Object { $f -like $_ } })
                 if (-not $touchesShared) {
-                    $deferred = @($high | Where-Object { $b = $_ -replace '\\', '/'; $shared | Where-Object { $b -like "*$_*" } })
+                    $deferred = @($high | Where-Object { $b = ($_ -split "`n")[0] -replace '\\', '/'; $shared | Where-Object { $b -like "*$_*" } })
                     if ($deferred) {
                         $high = @($high | Where-Object { $deferred -notcontains $_ })
                         [IO.File]::WriteAllText((Join-Path $paths.Out "deferred-$task.txt"), (($deferred -join "`r`n`r`n") + "`r`n"), $script:Utf8)

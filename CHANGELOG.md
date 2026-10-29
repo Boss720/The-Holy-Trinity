@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.8.7 - 2026-10-29
+
+### Fixed
+- Release build: `tests/` is packaged from `git ls-files`, so untracked local files can no longer ship; `-Version` must match the VERSION file, and `-Verify` checks the reported version.
+- Scheduler: the pause switch is re-checked before dispatch, merge gate and autopilot merge; an unreadable PAUSE file counts as paused.
+- Scheduler: Claude queue items dispatch with `-Headless`; `TRINITY_CODEX_MODEL` set in the environment is no longer overridden by the configured model.
+- Scheduler tick merge gate returns captured output on dry runs.
+- `Get-TestCommand` reads the Test line even when the line carries trailing text after the backticks.
+- Merge gate: deferred shared-file findings match on the finding's first line only.
+
 ## v0.8.6 - 2026-10-29
 
 ### Added

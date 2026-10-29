@@ -211,8 +211,11 @@ Run-Case 'sched-core: configured models and ignored explicit model' {
     $old=$env:TRINITY_CODEX_MODEL; $env:TRINITY_CODEX_MODEL='original'
     try {
         Add-QueueItem $p @{task='c';agent='codex';promptFile=$f.Prompt;scope='c/*'}; $null=Invoke-SchedulerTick $p
+        $env:TRINITY_CODEX_MODEL=$null
+        Add-QueueItem $p @{task='d';agent='codex';promptFile=$f.Prompt;scope='d/*'}; $null=Invoke-SchedulerTick $p
+        $env:TRINITY_CODEX_MODEL='original'
         Add-QueueItem $p @{task='a';agent='claude';promptFile=$f.Prompt;model='explicit';scope='a/*'}; $null=Invoke-SchedulerTick $p
-        Assert-True ($script:modelsSeen[0] -eq 'configured' -and $script:modelsSeen[1] -eq 'original' -and $env:TRINITY_CODEX_MODEL -eq 'original') 'model environment incorrect'
+        Assert-True ($script:modelsSeen[0] -eq 'original' -and $script:modelsSeen[1] -eq 'configured' -and $script:modelsSeen[2] -eq 'original' -and $env:TRINITY_CODEX_MODEL -eq 'original') 'model environment incorrect'
         Assert-True (@((Get-Decisions $p 0) | Where-Object { $_.task -eq 'a' -and $_.reason -eq 'model ignored for claude' }).Count -eq 1) 'ignored model decision missing'
     } finally { $env:TRINITY_CODEX_MODEL=$old; Remove-Item Function:Invoke-SchedulerChild }
 }

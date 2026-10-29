@@ -6,7 +6,9 @@
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-if (-not $Version) { $Version = [IO.File]::ReadAllText((Join-Path $root 'VERSION')).Trim() }
+$fileVersion = [IO.File]::ReadAllText((Join-Path $root 'VERSION')).Trim()
+if (-not $Version) { $Version = $fileVersion }
+if ($Version -ne $fileVersion) { throw "version mismatch: -Version $Version but VERSION file is $fileVersion" }
 if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw "invalid version: $Version" }
 $tag = "trinity-v$Version"
 $zipPath = Join-Path $OutDir "$tag.zip"
@@ -34,11 +36,10 @@ if (-not (Test-Path -LiteralPath $agentsDir -PathType Container)) { throw 'missi
 $agentFiles = @(Get-ChildItem -LiteralPath $agentsDir -Filter '*.md' -File | Sort-Object Name)
 if ($agentFiles.Count -eq 0) { throw 'missing allowlisted path: .claude/agents/*.md' }
 foreach ($file in $agentFiles) { $paths.Add('.claude/agents/' + $file.Name) }
-$testsDir = Join-Path $root 'tests'
-if (-not (Test-Path -LiteralPath $testsDir -PathType Container)) { throw 'missing allowlisted path: tests/*' }
-foreach ($file in @(Get-ChildItem -LiteralPath $testsDir -File -Recurse | Sort-Object FullName)) {
-    $paths.Add($file.FullName.Substring($root.Length + 1).Replace('\', '/'))
-}
+$testFiles = @(& git -C $root ls-files -- tests | Sort-Object)
+if ($LASTEXITCODE -ne 0) { throw 'git ls-files tests failed' }
+if ($testFiles.Count -eq 0) { throw 'missing allowlisted path: tests/*' }
+foreach ($rel in $testFiles) { $paths.Add($rel) }
 
 if (-not (Test-Path -LiteralPath $OutDir)) { New-Item -ItemType Directory -Path $OutDir -Force | Out-Null }
 $OutDir = (Resolve-Path -LiteralPath $OutDir).Path
@@ -125,7 +126,8 @@ try {
             [IO.File]::WriteAllText((Join-Path $repo 'README.md'), "verify`n")
             & git -C $repo add README.md; & git -C $repo commit -m verify | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'verify: git commit' }
             $cmd = Join-Path $copy 'trinity.cmd'
-            & $cmd version; if ($LASTEXITCODE -ne 0) { throw 'verify: version' }
+            $verOut = (& $cmd version | Out-String).Trim(); if ($LASTEXITCODE -ne 0) { throw 'verify: version' }
+            if ($verOut -ne "trinity $Version") { throw "verify: version output '$verOut' != 'trinity $Version'" }
             & $cmd help *> $null; if ($LASTEXITCODE -ne 0) { throw 'verify: help' }
             & (Join-Path $copy 'install.cmd') -Check *> $null; if ($LASTEXITCODE -gt 1) { throw 'verify: install-check' }
             & $cmd init $repo; if ($LASTEXITCODE -ne 0) { throw 'verify: init' }
@@ -141,8 +143,9 @@ try {
                 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'scripts/trinity.ps1') status *> $null
                 if ($LASTEXITCODE -ne 0) { throw 'verify: status' }
             } finally { Pop-Location }
-            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'scripts/trinity.ps1') version
+            $instOut = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'scripts/trinity.ps1') version | Out-String).Trim()
             if ($LASTEXITCODE -ne 0) { throw 'verify: installed-version' }
+            if ($instOut -ne "trinity $Version") { throw "verify: installed version output '$instOut' != 'trinity $Version'" }
             Write-Host 'verify: PASS'
         } catch {
             Write-Host ('verify: FAIL ' + $_.Exception.Message)

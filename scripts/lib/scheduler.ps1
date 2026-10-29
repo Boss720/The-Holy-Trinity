@@ -72,7 +72,7 @@ function Move-QueueItem($Paths, [string]$Task, [int]$Index) {
     }
 }
 function Test-PauseSwitch($Paths) {
-    $path=Join-Path $Paths.Main '.trinity\PAUSE'; if (Test-Path -LiteralPath $path) { return @{paused=$true;reason=([IO.File]::ReadAllText($path)).Trim()} }; return @{paused=$false;reason=''}
+    $path=Join-Path $Paths.Main '.trinity\PAUSE'; if (Test-Path -LiteralPath $path) { try { return @{paused=$true;reason=([IO.File]::ReadAllText($path)).Trim()} } catch { return @{paused=$true;reason='pause file busy'} } }; return @{paused=$false;reason=''}
 }
 function Set-PauseSwitch($Paths, [string]$Reason) {
     $path=Join-Path $Paths.Main '.trinity\PAUSE'; [void][IO.Directory]::CreateDirectory((Split-Path $path -Parent)); [IO.File]::WriteAllText($path, (($Reason -replace '[\r\n]+',' ') + "`r`n"), (New-Object Text.UTF8Encoding($false)))
@@ -273,7 +273,7 @@ function Invoke-SchedulerChild($Paths, [string[]]$Arguments, [switch]$Capture) {
     try { if ($Capture) { $savedPreference=$ErrorActionPreference; $ErrorActionPreference='Continue'; try { $output=@(& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Paths.Main 'scripts\trinity.ps1') @Arguments 2>&1 | ForEach-Object { "$_" }); $code=$LASTEXITCODE } finally { $ErrorActionPreference=$savedPreference }; return @{success=($code -eq 0);output=($output -join "`n")} }; & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Paths.Main 'scripts\trinity.ps1') @Arguments | Out-Host; return ($LASTEXITCODE -eq 0) } finally { Pop-Location }
 }
 function Invoke-SchedulerTick($Paths, [scriptblock]$DispatchCommand, [scriptblock]$MergeCommand, [scriptblock]$ResumeCommand) {
-    if (-not $DispatchCommand) { $DispatchCommand={ param($p,$item,$cfg) $argsList=@('dispatch',$item.agent,$item.task); if ($item.scope) { $argsList+=@('-Scope',$item.scope) }; if ($item.promptFile) { $argsList+=@('-PromptFile',$item.promptFile) }; if ($item.base) { $argsList+=@('-Base',$item.base) };  $deadline=$cfg.deadlineMinutes; $envDeadline=0; if ([int]::TryParse($env:TRINITY_DEADLINE_MINUTES,[ref]$envDeadline) -and $envDeadline -gt 0) { $deadline=$envDeadline }; $argsList+=@('-DeadlineMinutes',[string]$deadline); $oldModel=$env:TRINITY_CODEX_MODEL; try { if ($item.agent -eq 'codex') { $model=if ($item.model) { $item.model } else { $cfg.models.codex }; if ($model) { $env:TRINITY_CODEX_MODEL=$model } }; Invoke-SchedulerChild $p $argsList } finally { $env:TRINITY_CODEX_MODEL=$oldModel } } }
+    if (-not $DispatchCommand) { $DispatchCommand={ param($p,$item,$cfg) $argsList=@('dispatch',$item.agent,$item.task); if ($item.scope) { $argsList+=@('-Scope',$item.scope) }; if ($item.promptFile) { $argsList+=@('-PromptFile',$item.promptFile) }; if ($item.base) { $argsList+=@('-Base',$item.base) }; if ($item.agent -eq 'claude') { $argsList+=@('-Headless') }; $deadline=$cfg.deadlineMinutes; $envDeadline=0; if ([int]::TryParse($env:TRINITY_DEADLINE_MINUTES,[ref]$envDeadline) -and $envDeadline -gt 0) { $deadline=$envDeadline }; $argsList+=@('-DeadlineMinutes',[string]$deadline); $oldModel=$env:TRINITY_CODEX_MODEL; try { if ($item.agent -eq 'codex') { $model=if ($item.model) { $item.model } elseif (-not "$env:TRINITY_CODEX_MODEL".Trim()) { $cfg.models.codex } else { $null }; if ($model) { $env:TRINITY_CODEX_MODEL=$model } }; Invoke-SchedulerChild $p $argsList } finally { $env:TRINITY_CODEX_MODEL=$oldModel } } }
     if (-not $MergeCommand) { $MergeCommand={ param($p,$task,$dry) $flag=if ($dry) { '-DryRun' } else { '-Yes' }; if ($dry) { return (Invoke-SchedulerChild $p @('merge',$task,$flag) -Capture) }; return (Invoke-SchedulerChild $p @('merge',$task,$flag)) } }
     if (-not $ResumeCommand) { $ResumeCommand={ param($p,$task,$feedback) Invoke-SchedulerChild $p @('resume',$task,'-FeedbackFile',$feedback) } }
     $cfg=Get-TrinityConfig $Paths; if ($cfg._error) { throw "Cannot run scheduler: unreadable config: $($cfg._error)" }; $result=@{started=@();waiting=@{};autopilot=@()}; $pause=Test-PauseSwitch $Paths
@@ -295,6 +295,7 @@ function Invoke-SchedulerTick($Paths, [scriptblock]$DispatchCommand, [scriptbloc
             $limit=Get-SchedulerLimit $cfg $decisions
             if ($limit) { Set-PauseSwitch $Paths $limit; Add-Decision $Paths '' 'limit' $limit 0; $result.autopilot+=@('limit'); $pause=Test-PauseSwitch $Paths; $reason='paused' }
         }
+        if (-not $reason) { $pause=Test-PauseSwitch $Paths; if ($pause.paused) { $reason='paused' } }
         if (-not $reason) {
             if ($agent -ne 'codex' -and $item.model) {
                 $notice="model ignored for $agent"
@@ -317,6 +318,7 @@ function Invoke-SchedulerTick($Paths, [scriptblock]$DispatchCommand, [scriptbloc
         if ($limit) { Set-PauseSwitch $Paths $limit; Add-Decision $Paths '' 'limit' $limit 0; $result.autopilot+=@('limit') }
         else {
             foreach ($task in $tasks) {
+                $pause=Test-PauseSwitch $Paths; if ($pause.paused) { break }
                 $state=Get-SchedulerTaskState $Paths $task; if ($state -notin @('done','failed')) { continue }
                 $worktree=if ($task.worktree) { $task.worktree } else { Join-Path $Paths.Worktrees ("$($task.agent)-$($task.task)") }
                 $branch=if ($task.branch) { $task.branch } else { "agent/$($task.agent)/$($task.task)" }
@@ -329,6 +331,7 @@ function Invoke-SchedulerTick($Paths, [scriptblock]$DispatchCommand, [scriptbloc
                     $gateError=@($history | Select-Object -First 1 | Where-Object { $_.action -eq 'gate-error' })
                     if ($gateError.Count -and ([datetimeoffset]::Parse($gateError[0].at)) -gt (Get-Date).AddMinutes(-10)) { continue }
                     $gateText=''; try { $gate=& $MergeCommand $Paths $task.task $true; if ($gate -is [hashtable]) { $clean=[bool]$gate.success; $gateText=[string]$gate.output } else { $clean=$gate -ne $false } } catch { $gateText=$_.Exception.Message }
+                    $pause=Test-PauseSwitch $Paths; if ($pause.paused) { break }
                     $isGateError=-not $clean -and ($gateText -match '(?im)not recognized|command not found|test runner error|review output unparsed' -or $gateText -notmatch '(?im)(?:^\s*-\s*\[P[01]\]|P0/P1 findings|tests failed|files? outside (?:the task )?scope|file\(s\) outside the task scope|conflicts with|does not contain)')
                     $gateKind=if ($clean) { 'clean' } elseif ($isGateError) { 'gate-error' } else { 'findings' }
                     [void][IO.Directory]::CreateDirectory($Paths.Out)
@@ -346,6 +349,7 @@ function Invoke-SchedulerTick($Paths, [scriptblock]$DispatchCommand, [scriptbloc
                         $conflictBase=if ($Matches[2]) { $Matches[2].Trim() } else { $Matches[1].Trim() }
                     }
                 }
+                $pause=Test-PauseSwitch $Paths; if ($pause.paused) { break }
                 if ($clean) {
                     $cleanRuns=0; foreach ($d in $decisions) { if ($d.action -eq 'failed') { break }; if ($d.action -in @('merged','ready')) { $cleanRuns++ } }
                     if ($cfg.autoMerge -and -not $cfg.autopilot.approval -and $cleanRuns -ge $cfg.autopilot.cleanRunsBeforeAutoMerge) { try { if ((& $MergeCommand $Paths $task.task $false) -eq $false) { throw 'merge failed' }; Set-SchedulerStarted $Paths $task.task $false; Add-Decision $Paths $task.task 'merged' 'merge gate clean' $round; $result.autopilot+=@('merged') } catch { Add-Decision $Paths $task.task 'failed' $_.Exception.Message $round; $result.autopilot+=@('failed') } }

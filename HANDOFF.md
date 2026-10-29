@@ -98,3 +98,9 @@ Update before you stop. Newest entry on top.
 ## From Codex
 
 ## From Antigravity
+
+## 2026-10-29 read-only codebase review
+- Base: main 0f85f60. Claude Haiku installation/release review and GPT orchestration/scheduler review completed without commits; reports are .codex-out/result-review-haiku.md and .codex-out/result-review-gpt.md. Confirm findings in source before fixing.
+- Antigravity task review-gemini remains running; inspect with trinity wait review-gemini and read .codex-out/result-review-gemini.md when finished. Requested literal prefix was /teamwwork-preview (the documented spelling is /teamwork-preview).
+- Claude first failed because an inherited API key was invalid; round 2 succeeded after unsetting it for the worker. No full tests run for this read-only review.
+

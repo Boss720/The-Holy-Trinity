@@ -29,3 +29,9 @@ Final verification: tests\run-tests.cmd completed with 172 passed, 0 failed, 0 s
 - UI branch read-only review found Stop all excludes already-paused repos with a live scheduler. Correct and verify during UI integration; no UI changes made yet.
 - Independent review found migration enumeration and metadata errors could otherwise be swallowed; tightened enumeration to stop on errors and limited the per-record catch to JSON parsing. Added a metadata-error regression. The first full-suite run began before this refinement and is not sufficient to validate the final contents; scheduler regression rerun is in progress.
 - Follow-up review confirmed enumeration and metadata errors now propagate. Scheduler regression group: 47 passed, 0 failed, 0 skipped. Repository review (Codex Luna medium) reported no actionable findings; it emitted MCP 403 diagnostics, so those connector failures are not evidence of additional checks.
+
+## 2026-10-29 codebase review
+- Objective: read-only review of current main 0f85f60. Lanes: Claude Haiku installation/release; Gemini 3.8 dashboard; GPT orchestration/scheduler. No source edits requested; independently verify findings.
+- Existing untracked root file preserved. Dispatch and provider access subject to sandbox and provider availability.
+
+- Haiku and GPT completed without commits; source-confirmed release and scheduler/merge-gate issues. Gemini remains running. Reports and next command are in HANDOFF.md. No full suite run for read-only review.
