@@ -141,6 +141,8 @@ function Get-SchedulerStarted($Paths, [switch]$QueueLocked) {
                 }
             }
         }
+        # A source could not be read: use what was found this pass, but do not persist a partial seed.
+        if ($readFailed) { $script:schedulerEmptySeedStamps.Remove($Paths.Main); return @($seeded | ForEach-Object { [pscustomobject]$_ }) }
         if ($seeded.Count) {
             if ($QueueLocked) {
                 if (-not (Test-Path -LiteralPath $tasksPath)) { Write-TrinityJson $tasksPath @($seeded) }
