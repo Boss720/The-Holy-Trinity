@@ -552,7 +552,8 @@ function Read-TaskGit([string]$Repo, [string[]]$Arguments, [int]$Limit = 262144)
 }
 
 function Get-TaskDiff([string]$Repo, $Task) {
-    $range = 'main...' + $Task.branch
+    $base = Get-RepoBase $Repo
+    $range = $base + '...' + $Task.branch
     $names = Read-TaskGit $Repo @('-c','core.quotepath=false','diff','--no-ext-diff','--no-textconv','--name-status','-z','--find-renames',$range,'--')
     $nums = Read-TaskGit $Repo @('-c','core.quotepath=false','diff','--no-ext-diff','--no-textconv','--numstat','-z','--find-renames',$range,'--')
     $statuses=@{}; $parts=$names.Split([char]0)
@@ -576,7 +577,7 @@ function Get-TaskDiff([string]$Repo, $Task) {
     # Limit UTF-8 bytes too, and always cut a truncated patch at a line boundary.
     while ([Text.Encoding]::UTF8.GetByteCount($text) -gt 204800) { $text=$text.Substring(0,[Math]::Max(0,$text.Length-1024)); $truncated=$true }
     if ($truncated) { $last=$text.LastIndexOf("`n"); if ($last -ge 0) { $text=$text.Substring(0,$last+1) } else { $text='' } }
-    return @{ task=$Task.task; branch=$Task.branch; base='main'; files=@($files); stat=@{ files=$files.Count; added=$added; deleted=$deleted }; patch=$text; truncated=$truncated }
+    return @{ task=$Task.task; branch=$Task.branch; base=$base; files=@($files); stat=@{ files=$files.Count; added=$added; deleted=$deleted }; patch=$text; truncated=$truncated }
 }
 
 function Get-TaskLog([string]$Repo, $Task, [long]$Offset) {
@@ -610,30 +611,31 @@ function Get-TaskLog([string]$Repo, $Task, [long]$Offset) {
 }
 
 function Get-TaskMergeCheck([string]$Repo, $Task) {
+    $base=Get-RepoBase $Repo
     $blockers=New-Object Collections.Generic.List[object]
     if ($Task.state -ne 'done') { $blockers.Add(@{ id='not-done'; label='Task is not done'; severity='block'; detail=[string]$Task.state }) }
     $pidPath=Join-Path $Repo ('.codex-out\pid-' + $Task.task + '.txt'); $alive=$false
     if (Test-Path -LiteralPath $pidPath) { $pidText=(Get-HeadText $pidPath 64).Trim(); $runnerId=0; if ([int]::TryParse($pidText,[ref]$runnerId) -and $runnerId -gt 0) { $alive=[bool](Get-Process -Id $runnerId -ErrorAction SilentlyContinue) } }
     if ($alive) { $blockers.Add(@{ id='runner-alive'; label='Runner is alive'; severity='block'; detail='Runner process is still running' }) }
-    $counts=(Read-TaskGit $Repo @('rev-list','--left-right','--count',('main...' + $Task.branch),'--')).Trim() -split '\s+'
+    $counts=(Read-TaskGit $Repo @('rev-list','--left-right','--count',($base + '...' + $Task.branch),'--')).Trim() -split '\s+'
     $behind=[int]$counts[0]; $ahead=[int]$counts[1]
-    if ($ahead -eq 0) { $blockers.Add(@{ id='no-commits'; label='No commits'; severity='block'; detail='Branch has no commits ahead of main' }) }
+    if ($ahead -eq 0) { $blockers.Add(@{ id='no-commits'; label='No commits'; severity='block'; detail="Branch has no commits ahead of $base" }) }
     if ((Read-TaskGit $Repo @('status','--porcelain','--untracked-files=normal')).Trim()) { $blockers.Add(@{ id='main-dirty'; label='Main is dirty'; severity='block'; detail='Main checkout has uncommitted changes' }) }
-    $head=(Read-TaskGit $Repo @('rev-parse','--short','main')).Trim()
-    $conflicts=@(); $merge=Invoke-GitRead $Repo @('merge-tree','--write-tree','--name-only','main',('refs/heads/' + $Task.branch)) -Bounded
+    $head=(Read-TaskGit $Repo @('rev-parse','--short',$base)).Trim()
+    $conflicts=@(); $merge=Invoke-GitRead $Repo @('merge-tree','--write-tree','--name-only',$base,('refs/heads/' + $Task.branch)) -Bounded
     if ($merge.truncated) { throw 'Merge check exceeded output limit' }
     if ($merge.code -eq 1) {
         $lines=$merge.text -split "`n"; foreach ($line in ($lines | Select-Object -Skip 1)) { if (-not $line.Trim()) { break }; $conflicts+=$line.TrimEnd("`r") }
-        $blockers.Add(@{ id='conflicts'; label='Merge conflicts'; severity='block'; detail='Branch conflicts with main' })
+        $blockers.Add(@{ id='conflicts'; label='Merge conflicts'; severity='block'; detail="Branch conflicts with $base" })
     } elseif ($merge.code -eq 129) { $blockers.Add(@{ id='conflicts-unchecked'; label='Conflicts unchecked'; severity='warn'; detail='Git merge-tree --write-tree is unavailable' }) } elseif ($merge.code -ne 0) { throw 'Git merge check failed' }
     $violations=@(); $scope=[string]$Task.scope
     if ($scope -and $scope -ne '-' -and $scope -ne 'unspecified') {
         $globs=@($scope.Split(',') | ForEach-Object { '^' + [regex]::Escape($_.Trim().Replace('\','/')).Replace('\*','.*') + '$' })
-        $paths=Read-TaskGit $Repo @('-c','core.quotepath=false','diff','--name-only','--no-renames',('main...' + $Task.branch),'--')
+        $paths=Read-TaskGit $Repo @('-c','core.quotepath=false','diff','--name-only','--no-renames',($base + '...' + $Task.branch),'--')
         foreach ($path in ($paths -split "`n")) { if (-not $path) { continue }; $matched=$false; foreach ($glob in $globs) { if ($path -match $glob) { $matched=$true; break } }; if (-not $matched) { $violations+=$path } }
         if ($violations.Count) { $blockers.Add(@{ id='scope-violation'; label='Outside scope'; severity='block'; detail='Branch changes files outside task scope' }) }
     }
-    if ($behind -gt 0) { $blockers.Add(@{ id='behind-main'; label='Behind main'; severity='warn'; detail='re-review recommended' }) }
+    if ($behind -gt 0) { $blockers.Add(@{ id='behind-main'; label="Behind $base"; severity='warn'; detail='re-review recommended' }) }
     return @{ task=$Task.task; branch=$Task.branch; canMerge=(@($blockers | Where-Object { $_.severity -eq 'block' }).Count -eq 0); blockers=@($blockers.ToArray()); conflicts=@($conflicts); scopeViolations=@($violations); ahead=$ahead; behind=$behind; mainHead=$head; checkedAt=(Get-Date).ToString('o') }
 }
 
@@ -685,6 +687,7 @@ function Test-TaskActionState([string]$Action, [string]$State, [bool]$HasWorktre
 }
 
 function Get-RepoTasks([string]$Main, [string]$Common) {
+    $base=Get-RepoBase $Main
     $boardPath = Join-Path $Common 'agent-board.md'
     if (-not (Test-Path -LiteralPath $boardPath -PathType Leaf)) { return @() }
     $sections = New-Object System.Collections.Generic.List[object]
@@ -703,7 +706,7 @@ function Get-RepoTasks([string]$Main, [string]$Common) {
     $outDir = Join-Path $Main '.codex-out'
     # Commits ahead of main for every branch in one git call (git 2.41+); older git falls back to rev-list per task.
     $aheadOf = @{}
-    $refs = Invoke-GitRead $Main @('for-each-ref', '--format=%(refname:short) %(ahead-behind:main)', 'refs/heads')
+    $refs = Invoke-GitRead $Main @('for-each-ref', ('--format=%(refname:short) %(ahead-behind:' + $base + ')'), 'refs/heads')
     $batched = [bool]$refs
     if (-not $batched) { $refs = Invoke-GitRead $Main @('for-each-ref', '--format=%(refname:short)', 'refs/heads') }
     if ($refs) {
@@ -734,7 +737,7 @@ function Get-RepoTasks([string]$Main, [string]$Common) {
         if ($item.branch -and $item.branch -ne '-' -and $aheadOf.ContainsKey($item.branch)) {
             if ($null -ne $aheadOf[$item.branch]) { $commits = $aheadOf[$item.branch] }
             else {
-                $count = Invoke-GitRead $Main @('rev-list', '--count', "main..$($item.branch)")
+                $count = Invoke-GitRead $Main @('rev-list', '--count', "$base..$($item.branch)")
                 if ($count -match '^\d+$') { $commits = [int]$count }
             }
         }
@@ -814,6 +817,13 @@ function Get-RepoTasks([string]$Main, [string]$Common) {
 
 $script:TrinityFileCache = @{}
 $script:DecisionCache = @{}
+$script:BaseCache = @{}
+function Get-RepoBase([string]$Repo) {
+    try { $raw=Read-TrinityFile (Join-Path $Repo '.trinity\trinity.json'); if ($raw) { $config=$script:JsonSerializer.DeserializeObject($raw); $base=Get-JsonValue $config 'base' ''; if ($base -is [string] -and $base.Trim()) { return $base.Trim() } } } catch { }
+    $key=[IO.Path]::GetFullPath($Repo).ToLowerInvariant()
+    if (-not $script:BaseCache.ContainsKey($key)) { $ref=[string](Invoke-GitRead $Repo @('symbolic-ref','--short','refs/remotes/origin/HEAD')); $value='main'; if ($ref.Trim() -match '^origin/(.+)$') { $value=$Matches[1] }; $script:BaseCache[$key]=$value }
+    return $script:BaseCache[$key]
+}
 function Read-TrinityFile([string]$Path) {
     try {
         $file = Get-Item -LiteralPath $Path -ErrorAction Stop
@@ -871,6 +881,7 @@ function Get-TrinityState([string]$Root, $Tasks) {
 
 function Get-RepoState([string]$Path) {
     # Every poll rebuilds state, and each git spawn costs ~50 ms on Windows: three calls per repo in total.
+    $sectionWatch=[Diagnostics.Stopwatch]::StartNew()
     $revParse = Invoke-GitRead $Path @('rev-parse', '--show-toplevel', '--path-format=absolute', '--git-common-dir')
     $revLines = @(if ($revParse) { $revParse -split "`n" })
     if ($revLines.Count -lt 2) { return $null }
@@ -891,6 +902,8 @@ function Get-RepoState([string]$Path) {
             elseif ($line -and $line -notmatch '^#') { $uncommitted++ }
         }
     }
+    Write-ColdTiming $root 'git status and paths' $sectionWatch.ElapsedMilliseconds
+    $sectionWatch.Restart()
     $plan = [ordered]@{ done = 0; total = 0; open = @() }
     $planPath = Join-Path $root 'PLAN.md'
     if (Test-Path -LiteralPath $planPath -PathType Leaf) {
@@ -910,13 +923,21 @@ function Get-RepoState([string]$Path) {
             if ($inStatus -and $line -match '^\s*-\s+(.+?)\s*$') { $handoff += $Matches[1] }
         }
     }
+    Write-ColdTiming $root 'plan and handoff' $sectionWatch.ElapsedMilliseconds
+    $sectionWatch.Restart()
     $tasks = @(Get-RepoTasks $root $common)
+    Write-ColdTiming $root 'tasks' $sectionWatch.ElapsedMilliseconds
+    $sectionWatch.Restart()
     $claudeSessions = @(Get-ClaudeSessions $root $tasks)
+    Write-ColdTiming $root 'claudeSessions' $sectionWatch.ElapsedMilliseconds
+    $sectionWatch.Restart()
     $extra = Get-TrinityState $root $tasks
+    Write-ColdTiming $root 'trinityState' $sectionWatch.ElapsedMilliseconds
     return [pscustomobject]@{
         name = (Split-Path $root -Leaf)
         path = $root
         branch = $branch
+        base = (Get-RepoBase $root)
         uncommitted = $uncommitted
         ahead = $ahead
         plan = [pscustomobject]$plan
@@ -969,6 +990,10 @@ function Get-Availability($Defaults) {
     return [pscustomobject]$out
 }
 
+function Write-ColdTiming([string]$Repo, [string]$Section, [long]$Milliseconds) {
+    if ($script:CollectDurations.Count -gt 0) { return }
+    try { $dir=Join-Path (Split-Path $PSScriptRoot -Parent) '.codex-out'; [void][IO.Directory]::CreateDirectory($dir); [IO.File]::AppendAllText((Join-Path $dir 'dash-coldstart.txt'), ("{0} | {1} | {2} ms`r`n" -f $Repo,$Section,$Milliseconds)) } catch { }
+}
 function Get-DashboardState {
     $stopwatch = [Diagnostics.Stopwatch]::StartNew()
     $candidatePaths = New-Object System.Collections.Generic.List[string]
@@ -993,7 +1018,9 @@ function Get-DashboardState {
         $seenCandidates[$candidateKey] = $true
         # Optional test instrumentation counts collector calls without depending on timing.
         if ($env:TRINITY_DASHBOARD_TEST_COLLECT_LOG) { [IO.File]::AppendAllText($env:TRINITY_DASHBOARD_TEST_COLLECT_LOG, $candidateKey + "`r`n") }
+        $repoWatch=[Diagnostics.Stopwatch]::StartNew()
         $state = Get-RepoState $candidatePath
+        Write-ColdTiming $candidatePath 'repo total' $repoWatch.ElapsedMilliseconds
         if (-not $state) { continue }
         $key = $state.path.ToLowerInvariant()
         if ($seen.ContainsKey($key)) { continue }
@@ -1014,13 +1041,18 @@ function Get-DashboardState {
         }
     }
     $agents.claude.models = @(@($agents.claude.models) + @($repoStates | ForEach-Object { $_.claudeSessions } | Where-Object { $_.active -and $_.model } | ForEach-Object { $_.model }) | Select-Object -Unique)
+    $sectionWatch=[Diagnostics.Stopwatch]::StartNew()
     $availability = Get-Availability $defaults
+    Write-ColdTiming '-' 'availability' $sectionWatch.ElapsedMilliseconds
+    $sectionWatch.Restart()
     $repoChecks = @(foreach ($repo in $repoStates) {
         $hooksPath = Invoke-GitRead $repo.path @('config', '--get', 'core.hooksPath')
         $commonDir = [string](Invoke-GitRead $repo.path @('rev-parse', '--path-format=absolute', '--git-common-dir'))
         $boardFound = [bool]($commonDir.Trim() -and (Test-Path -LiteralPath (Join-Path $commonDir.Trim() 'agent-board.md') -PathType Leaf))
         [pscustomobject]@{ repo = $repo; hooksPath = [string]$hooksPath; boardFound = $boardFound }
     })
+    Write-ColdTiming '-' 'repo checks' $sectionWatch.ElapsedMilliseconds
+    Write-ColdTiming '-' 'total' $stopwatch.ElapsedMilliseconds
     $stopwatch.Stop()
     $collectMs = [int][Math]::Round($stopwatch.Elapsed.TotalMilliseconds)
     $script:CollectDurations.Add($collectMs)
@@ -1100,6 +1132,7 @@ function Write-DashboardError([string]$Route, $ErrorRecord) {
         $dir = if ($env:TRINITY_HOME) { $env:TRINITY_HOME } else { Join-Path $env:USERPROFILE '.trinity' }
         if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
         $log = Join-Path $dir 'dashboard-errors.log'
+        if ($Route -eq 'collector') { $dir=Join-Path (Split-Path $PSScriptRoot -Parent) '.codex-out'; [void][IO.Directory]::CreateDirectory($dir); $log=Join-Path $dir 'dashboard-error.log' }
         if ((Test-Path $log) -and (Get-Item $log).Length -gt 512KB) { Move-Item $log "$log.1" -Force }
         $where = if ($ErrorRecord.InvocationInfo) { $ErrorRecord.InvocationInfo.PositionMessage -replace '\s+', ' ' } else { '' }
         $line = '{0} {1} {2}: {3} {4}' -f (Get-Date -Format 's'), $Route, $ErrorRecord.Exception.GetType().Name, $ErrorRecord.Exception.Message, $where
@@ -1365,6 +1398,7 @@ $tokenBytes = New-Object byte[] 32
 $script:ServerToken = ([BitConverter]::ToString($tokenBytes) -replace '-', '').ToLowerInvariant()
 $script:Jobs = @{}
 $sharedState = [hashtable]::Synchronized(@{ bytes = $null; builtAt = [datetime]::MinValue; lastRequestAt = [datetime]::MinValue; stop = $false; error = $null; errorAt = [datetime]::MinValue; errorSeq = 0; serverFacts = $script:ServerFacts; blockedRemoteCount = 0 })
+$warmingBytes=[Text.Encoding]::UTF8.GetBytes((Convert-StateToJson @{warming=$true; repos=@(); agents=@{}; availability=@{}; attention=@(); health=@(); server=$script:ServerFacts}))
 $loggedErrorSeq = 0
 try {
     $listener = New-Object System.Net.HttpListener
@@ -1397,12 +1431,12 @@ try {
                         $shared.bytes = $bytes
                         $shared.builtAt = [datetime]::UtcNow
                     }
-                    catch { $shared.error = $_.Exception.ToString(); $shared.errorAt = [datetime]::UtcNow; $shared.errorSeq = [int]$shared.errorSeq + 1; Start-Sleep -Seconds 2 }
+                    catch { Write-DashboardError 'collector' $_; $shared.error = $_.Exception.ToString(); $shared.errorAt = [datetime]::UtcNow; $shared.errorSeq = [int]$shared.errorSeq + 1; Start-Sleep -Seconds 2 }
                 }
                 Start-Sleep -Milliseconds 100
             }
         }
-        catch { $shared.error = $_.Exception.ToString(); $shared.errorSeq = [int]$shared.errorSeq + 1 }
+        catch { Write-DashboardError 'collector' $_; $shared.error = $_.Exception.ToString(); $shared.errorSeq = [int]$shared.errorSeq + 1 }
     }.ToString()
     [void]$collectorPowerShell.AddScript($collectorScript).AddArgument($PSCommandPath).AddArgument($Repos).AddArgument($sharedState).AddArgument($RefreshSeconds).AddArgument($demandSeconds)
     $collectorAsync = $collectorPowerShell.BeginInvoke()
@@ -1608,6 +1642,7 @@ try {
                     $bytes = $sharedState.bytes
                     $builtAt = $sharedState.builtAt
                 }
+                elseif (-not $sharedState.bytes) { $bytes=$warmingBytes; $builtAt=$requestStarted }
                 else {
                     $deadline = [datetime]::UtcNow.AddSeconds(60)
                     while ([datetime]::UtcNow -lt $deadline) {
