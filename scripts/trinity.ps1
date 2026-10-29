@@ -1040,7 +1040,8 @@ switch ($Command) {
             # permissions are skipped, so the task rules confine it to its worktree.
             $exe = Resolve-AgyExe
             Remove-Item $agyJson, $agyLog -ErrorAction SilentlyContinue
-            $cmdLine = 'cd /d "' + $entry.worktree + '" && "' + $exe + '" -p "Read the task file ' + $taskFile + ' and do it. Your final message is your summary." ' + ((Get-AgyModelArgs) -join ' ') + ' --dangerously-skip-permissions --add-dir "' + $paths.Out + '" --output-format json --log-file "' + $agyLog + '" > "' + $agyJson + '" 2> "' + $log + '"'
+            $agyPrefix = if ($env:TRINITY_AGY_PREFIX) { ($env:TRINITY_AGY_PREFIX -replace '[^A-Za-z0-9 /_.:-]', '').Trim() + ' ' } else { '' }
+            $cmdLine = 'cd /d "' + $entry.worktree + '" && "' + $exe + '" -p "' + $agyPrefix + 'Read the task file ' + $taskFile + ' and do it. Your final message is your summary." ' + ((Get-AgyModelArgs) -join ' ') + ' --dangerously-skip-permissions --add-dir "' + $paths.Out + '" --output-format json --log-file "' + $agyLog + '" > "' + $agyJson + '" 2> "' + $log + '"'
         }
         else {
             $exe = Resolve-CodexExe
