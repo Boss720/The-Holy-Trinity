@@ -65,6 +65,8 @@ code, .mono { font-family: var(--mono); font-size: 12.5px; }
 .repo strong { font-weight: 550; }
 .repo code { color: var(--ash); }
 .spacer { flex: 1; }
+.status-group { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .pulse { display: flex; align-items: center; gap: 8px; color: var(--ash); font-size: 13.5px; }
 .pulse i { width: 7px; height: 7px; border-radius: 50%; background: var(--sage); box-shadow: 0 0 0 3px rgba(127,199,154,.18); }
 .toggle { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--ash); background: none; border: 0; padding: 4px; }
@@ -198,7 +200,10 @@ dialog .acts { display: flex; justify-content: flex-end; gap: 8px; }
 @media (max-width: 900px) {
   .needs-list { grid-template-columns: 1fr; }
   .top { padding: 14px 16px; gap: 12px; }
-  .top .pulse, .top .toggle { order: 3; }
+  .top .spacer { display: none; }
+  .status-group { order: 3; width: 100%; gap: 12px; }
+  .actions { width: 100%; }
+  .views { padding: 0 16px; }
   main { padding: 20px 16px 48px; }
   .agent-tabs { display: flex; gap: 6px; margin: 28px 0 14px; }
   .agent-tabs button { flex: 1; background: var(--nave); border: 1px solid var(--lead); border-radius: 8px; padding: 8px; font-size: 14px; color: var(--ash); }
@@ -227,16 +232,20 @@ dialog .acts { display: flex; justify-content: flex-end; gap: 8px; }
       <circle cx="20" cy="19" r="7" fill="none" stroke="#B392F0" stroke-width="2"/>
     </svg>
     <h1>Trinity</h1>
-    <code class="ver">v0.8.4</code>
+    <code class="ver">v0.8.5</code>
   </div>
   <div class="repo"><strong>Holy trinity</strong><code>main</code></div>
   <div class="spacer"></div>
-  <div class="pulse"><i></i>Scheduler checked in 4s ago</div>
-  <button class="toggle" aria-pressed="false" id="autopilot"><span class="sw"></span>Autopilot</button>
-  <button class="btn" data-confirm="Start autopilot" data-cmd='cd /d "D:\AI\projects\Dev\Projects\Holy trinity" &amp;&amp; trinity autopilot on &amp;&amp; trinity scheduler start'>Auto</button>
-  <button class="btn" id="header-notify" aria-pressed="false" title="Desktop notifications when a task finishes or needs you">Notifications: off</button>
-  <button class="btn danger" data-confirm="Pause every repo" data-cmd="trinity pause">Stop all</button>
-  <button class="btn primary" id="header-dispatch">Dispatch</button>
+  <div class="status-group">
+    <div class="pulse"><i></i>Scheduler checked in 4s ago</div>
+    <button class="toggle" aria-pressed="false" id="autopilot"><span class="sw"></span>Autopilot</button>
+  </div>
+  <div class="actions">
+    <button class="btn" id="header-notify" aria-pressed="false" title="Desktop notifications when a task finishes or needs you">Notifications: off</button>
+    <button class="btn" id="header-auto" title="Turns on autopilot and starts the scheduler where autopilot is off, paused, or the scheduler is not alive">Auto</button>
+    <button class="btn danger" data-confirm="Stop all: pause 1 repository" data-cmd='cd /d "D:\AI\projects\Dev\Projects\Holy trinity" &amp;&amp; trinity pause'>Stop all</button>
+    <button class="btn primary" id="header-dispatch">Dispatch</button>
+  </div>
 </header>
 <nav class="views" aria-label="Views">
   <a class="on" href="#inbox">Inbox <span>4</span></a>
@@ -450,7 +459,7 @@ dialog .acts { display: flex; justify-content: flex-end; gap: 8px; }
 
 <dialog id="confirm">
   <h3 id="c-title">Confirm</h3>
-  <p>This runs the command below in the repo.</p>
+  <p>Runs these commands. Nothing changes until you choose Run.</p>
   <pre id="c-cmd"></pre>
   <div class="acts"><button class="btn" id="c-copy">Copy cmd</button><button class="btn" value="no" id="c-no">Cancel</button><button class="btn primary" id="c-yes">Run</button></div>
 </dialog>
@@ -514,6 +523,9 @@ document.addEventListener("click", e => {
 });
 $("#scrim").onclick = closeTask; $("#close").onclick = closeTask;
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeTask(); });
+const AUTO_CMD = 'cd /d "D:\\AI\\projects\\Dev\\Projects\\Holy trinity" && trinity autopilot on && trinity scheduler start\n' +
+  'cd /d "D:\\AI\\projects\\Dev\\Projects\\other-repo" && trinity unpause && trinity autopilot on && trinity scheduler start';
+$("#header-auto").onclick = () => confirmRun("Auto: start 2 repositories", AUTO_CMD, "Auto: started 2 of 2 repos");
 $("#header-dispatch").onclick = () => $("#dispatch").showModal();
 $("#dispatch-cancel").onclick = () => $("#dispatch").close();
 $("#dispatch-submit").onclick = () => { $("#dispatch").close(); toast("Dispatch: started"); };
