@@ -89,6 +89,12 @@
 
         $payload = @{ action = 'review-task'; repo = $f.Repo; task = 'token-task'; confirm = $false } | ConvertTo-Json -Compress
 
+        $noOrigin = & $send "$base/api/action" 'POST' $payload '' '' 'application/json'
+        Assert-True ($noOrigin.Status -eq 403) "POST without Origin or token was not rejected with 403: status $($noOrigin.Status)"
+
+        $noToken = & $send "$base/api/action" 'POST' $payload '' $origin 'application/json'
+        Assert-True ($noToken.Status -eq 401) "POST with correct Origin and no token was not rejected with 401: status $($noToken.Status)"
+
         $rejected = & $send "$base/api/action" 'POST' $payload '__TRINITY_TOKEN__' $origin 'application/json'
         Assert-True ($rejected.Status -eq 401) "POST with literal __TRINITY_TOKEN__ was not rejected with 401: status $($rejected.Status)"
 
