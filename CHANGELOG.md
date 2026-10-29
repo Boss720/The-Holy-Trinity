@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.8.3 - 2026-10-29
+
+### Fixed
+- Test harness: a shard's temp root is created before its long path is resolved, so an 8.3 short `TEMP` (GitHub runners: `RUNNER~1`) no longer leaks into repository and log paths. v0.8.2 was tagged but not released because of this.
+
 ## v0.8.2 - 2026-10-29
 
 ### Added

@@ -24,6 +24,7 @@ if (-not $TempRoot) {
 }
 else {
     $longRoot = New-Object System.Text.StringBuilder 1024
+    [void][IO.Directory]::CreateDirectory($TempRoot)
     if (Test-Path -LiteralPath $TempRoot) {
         if ([TrinitySelfTest.Win32]::GetLongPathName($TempRoot, $longRoot, 1024) -gt 0) { $TempRoot = $longRoot.ToString() }
     }
