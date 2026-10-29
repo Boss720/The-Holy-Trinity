@@ -1395,8 +1395,7 @@ function Start-ActionProcess([string]$Id, [string]$Action, [string]$Task, [strin
         $cwd = $RepoPath
     }
     else {
-        $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$trinityScript,'merge',$Task,'-Yes')
-        $cwd=$RepoPath
+        throw "Unsupported dashboard action: $Action"
     }
     $processArguments = @($processArguments | ForEach-Object { Quote-ProcessArgument ([string]$_) })
     [IO.File]::WriteAllText($outputPath, '', (New-Object Text.UTF8Encoding($false)))
