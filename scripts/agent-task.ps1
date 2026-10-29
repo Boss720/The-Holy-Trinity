@@ -13,7 +13,7 @@ param(
     [string]$Agent,
     [string]$Task,
     [string]$Scope = 'unspecified',
-    [string]$Base = 'main',
+    [string]$Base,
     [switch]$Open,
     [switch]$List
 )
@@ -27,6 +27,13 @@ if ($List) {
     Write-Host "Board: $($paths.Board)"
     Invoke-BoardLocked $paths { Get-Content $paths.Board }
     exit 0
+}
+
+if (-not $PSBoundParameters.ContainsKey('Base')) {
+    $Base = ''
+    try { $configPath=Join-Path $paths.Main '.trinity\trinity.json'; if (Test-Path -LiteralPath $configPath -PathType Leaf) { $config=Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json; if ($config.base -is [string]) { $Base=$config.base.Trim() } } } catch { }
+    if (-not $Base) { $oldPreference=$ErrorActionPreference; $ErrorActionPreference='Continue'; try { $ref=(& git -C $paths.Main symbolic-ref --short refs/remotes/origin/HEAD 2>$null); if ($LASTEXITCODE -eq 0 -and $ref -match '^origin/(.+)$') { $Base=$Matches[1] } } finally { $ErrorActionPreference=$oldPreference } }
+    if (-not $Base) { $Base='main' }
 }
 
 if (-not $Agent) { Fail '-Agent is required (claude, codex, antigravity)' }
