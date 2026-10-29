@@ -131,7 +131,7 @@ function Get-SchedulerStarted($Paths) {
             }
         }
         if ($seeded.Count) {
-            Invoke-QueueLocked $Paths { if (-not (Test-Path -LiteralPath $tasksPath)) { Write-TrinityJson $tasksPath @($seeded) } }
+            if (-not (Test-Path -LiteralPath $tasksPath)) { Write-TrinityJson $tasksPath @($seeded) }
             return @($seeded)
         }
         return @()
@@ -333,7 +333,7 @@ function Invoke-SchedulerTick($Paths, [scriptblock]$DispatchCommand, [scriptbloc
                     else { Set-BoardStatus $Paths $task.task 'ready: merge gate clean'; Add-Decision $Paths $task.task 'ready' 'merge gate clean' $round; $result.autopilot+=@('ready') }
                 } elseif ($round -lt $cfg.maxRounds) {
                     [void][IO.Directory]::CreateDirectory($Paths.Out); $feedback=Join-Path $Paths.Out ("feedback-{0}-scheduler.md" -f $task.task); $review=Join-Path $Paths.Out ("review-{0}.md" -f $task.task); $log=Join-Path $Paths.Out ("log-{0}.txt" -f $task.task)
-                    $text=if ($conflictBase) { "merge $conflictBase into your worktree, resolve the conflicts, keep both sides' intent, run the tests." } elseif (Test-Path -LiteralPath $review) { [IO.File]::ReadAllText($review) } elseif (Test-Path -LiteralPath $log) { (Get-Content -LiteralPath $log -Tail 100) -join "`r`n" } else { "Task $($task.task) failed or merge gate was not clean." }; [IO.File]::WriteAllText($feedback,$text,(New-Object Text.UTF8Encoding($false)))
+                    $text=if ($conflictBase -and (Test-Path -LiteralPath $review)) { "merge $conflictBase into your worktree, resolve the conflicts, keep both sides' intent, run the tests.`r`n`r`n" + [IO.File]::ReadAllText($review) } elseif ($conflictBase) { "merge $conflictBase into your worktree, resolve the conflicts, keep both sides' intent, run the tests." } elseif (Test-Path -LiteralPath $review) { [IO.File]::ReadAllText($review) } elseif (Test-Path -LiteralPath $log) { (Get-Content -LiteralPath $log -Tail 100) -join "`r`n" } else { "Task $($task.task) failed or merge gate was not clean." }; [IO.File]::WriteAllText($feedback,$text,(New-Object Text.UTF8Encoding($false)))
                     try { if ((& $ResumeCommand $Paths $task.task $feedback) -eq $false) { throw 'resume failed' }; Add-Decision $Paths $task.task 'resumed' 'retry after failure' ($round+1); $result.autopilot+=@('resumed') } catch { Add-Decision $Paths $task.task 'failed' $_.Exception.Message $round; $result.autopilot+=@('failed') }
                 } else { Add-Decision $Paths $task.task 'failed' 'maximum rounds reached' $round; $result.autopilot+=@('failed') }; break
             }
