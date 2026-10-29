@@ -235,11 +235,12 @@ function Get-TestCommand {
     $null
 }
 
-# Only Markdown files are safe to skip; assets and executable files still require tests.
+# Only ordinary Markdown files are safe to skip; shipped agent instructions require tests.
 function Test-DocsOnly([string[]]$Paths) {
     if (-not $Paths -or $Paths.Count -eq 0) { return $false }
     foreach ($path in $Paths) {
         if (-not $path -or $path -notmatch '\.md$') { return $false }
+        if ($path -match '^\.(claude|agents)/') { return $false }
     }
     return $true
 }

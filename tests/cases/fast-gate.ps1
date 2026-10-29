@@ -8,6 +8,10 @@
     . ([scriptblock]::Create($fn.Extent.Text))
     Assert-True (Test-DocsOnly @('README.md', 'docs/x.md')) 'Markdown rejected'
     Assert-True (Test-DocsOnly @('docs/x.md', 'docs/y.md')) 'docs rejected'
+    Assert-True (-not (Test-DocsOnly @('.claude/agents/x.md'))) 'Claude agent accepted'
+    Assert-True (-not (Test-DocsOnly @('.agents/skills/a/SKILL.md', 'docs/a.md'))) 'agent skill accepted'
+    Assert-True (Test-DocsOnly @('docs/a.md', 'README.md')) 'plain docs rejected'
+    Assert-True (-not (Test-DocsOnly @('.AGENTS/skills/a/SKILL.md'))) 'uppercase agent path accepted'
     Assert-True (-not (Test-DocsOnly @('README.md', 'docs/a.png'))) 'image accepted'
     Assert-True (-not (Test-DocsOnly @('docs/x.md', 'scripts/a.ps1'))) 'mixed changes accepted'
     Assert-True (-not (Test-DocsOnly @())) 'empty changes accepted'
