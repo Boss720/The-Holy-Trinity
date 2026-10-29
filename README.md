@@ -10,7 +10,7 @@ Claude orchestrates by default, but any of the three can: drive the repo from Co
 
 All three read the same rules file (`AGENTS.md`) and talk to each other through files, because none of them can see the others' chats.
 
-This repo is the toolkit itself. Install it into any project with `trinity init <path>` (see "Use it in another project").
+Current version: 0.8.1 (see [CHANGELOG.md](CHANGELOG.md)). This repo is the toolkit itself. Install it into any project with `trinity init <path>` (see "Use it in another project").
 
 ## Install (release zip)
 
@@ -49,13 +49,18 @@ Full steps, flags and troubleshooting: [INSTALL.md](INSTALL.md). To let Claude d
 | `scripts/codex-ask.cmd` | One-shot read-only Codex question. |
 | `trinity.cmd`, `trinity.sh`, `scripts/trinity.ps1` | One command for status, dispatch, merge, review, ask (`trinity.sh` is the Git Bash entry). |
 | `scripts/lib/board.ps1` | Shared board/worktree helpers, repo registry for the dashboard. |
-| `scripts/dashboard.ps1`, `scripts/dashboard.html` | `trinity dashboard`: localhost state server and the page. Spec in `docs/dashboard.md`. |
+| `scripts/dashboard.ps1`, `scripts/dashboard.html`, `scripts/dashboard-ui/` | `trinity dashboard`: localhost state server, the page, and its board/history components. Specs in `docs/dashboard.md`, `docs/dashboard-gui.md`. |
+| `scripts/scheduler.ps1`, `scripts/lib/scheduler.ps1` | Queue and detached scheduler: dispatches queued tasks into free agent slots, autopilot merges. |
+| `scripts/lib/config.ps1` | Per-repository config in `.trinity\trinity.json` (`trinity config`). |
+| `scripts/lib/seed.ps1` | Worktree seeding from a committed `trinity-seed.txt`. |
+| `.trinity/` | Per-repo runtime state: config, queue, scheduler heartbeat, `PAUSE` file. |
+| `.agents/skills/trinity/` | Orchestrator playbook for Codex and Antigravity (`docs/orchestrator.md`). |
 | `.githooks/pre-commit` | Encoding and secret checks (enabled by `trinity setup`). |
 | `.claude/settings.json` | Session-start hook that shows `trinity status`. |
 | `scripts/agent-task.ps1` | Creates a worktree + branch per parallel task and registers it on the agent board. |
 | `.claude/agents/` | Claude subagents that drive Codex and Antigravity (`codex-worker`, `codex-reviewer`, `antigravity-worker`). |
 | `.claude/skills/army/` | `/army` skill: splits a job into chunks and fans it out to the cheapest Claude model that can do each, or to Codex and Antigravity through trinity. Installed by `init`. |
-| `tests/` | End-to-end self-test of the trinity CLI against throwaway repos with a fake Codex (`tests\run-tests.cmd`). |
+| `tests/` | End-to-end self-test of the trinity CLI against throwaway repos with fake Codex, Claude and Antigravity (`tests\run-tests.cmd`, 4 parallel shards via `tests\run-parallel.ps1`; extra cases in `tests\cases\`). |
 
 ## Use it in another project
 
@@ -93,14 +98,61 @@ Watch all three agents live, across every repo that uses trinity (one lane each 
 ```bat
 trinity dashboard
 ```
-It opens `http://localhost:7777/` (localhost only, read-only). `trinity dashboard -Stop` stops it, `-Json` prints the state once. Claude shows its own chunks there with `trinity track <task> <note>`.
+It opens `http://localhost:7777/` (localhost only, token-protected). Views: Inbox (needs attention, running tasks), board, history, health and settings; task detail tabs for summary, diff, log and a merge dry run; a Dispatch modal with overlap warnings and a confirm step. `trinity dashboard -Stop` stops it (also an orphan server found by its port), `-Json` prints the state once. Claude shows its own chunks there with `trinity track <task> <note>`.
 
 When a task shows `done`, review, merge, test, and clean up in one step:
 ```bat
 trinity merge add-search
 ```
 
-`merge` blocks if Codex's review finds P0/P1 issues, and aborts the merge if the project's Test command (in `AGENTS.md`) fails.
+`merge` blocks if the review finds P0/P1 issues, reviews again if the base moved meanwhile, blocks on review output that is neither findings nor a clear "No findings" (empty, crash, usage limit) unless `-Force`, rejects failed or dirty worktrees, and aborts if the project's Test command (in `AGENTS.md`) fails. The review is saved as `.codex-out\review-<task>.md`.
+
+### Task lifecycle
+
+| Command | Does |
+|---|---|
+| `trinity show <task> [-Json]` | State, branch, scope, commits ahead, diffstat, result, log tail |
+| `trinity resume <task> -Feedback "<text>"` | Re-run a done/failed task with the same agent in its worktree (`-FeedbackFile`; default: saved merge review). Old output kept as `*.round<N>.*` |
+| `trinity retry <task> [-Force]` | Re-dispatch a failed/cancelled task with the same agent, scope, prompt |
+| `trinity cancel <task>` | Remove worktree and branch, mark cancelled |
+| `trinity clean [-OlderThanDays 7] [-Yes]` | Archive old merged/cancelled task files to `.codex-out\archive\` (never deletes branches) |
+| `trinity history [-Agent a] [-Outcome merged\|failed\|cancelled] [-Last N]` | Finished tasks and scheduler decisions, newest first |
+
+Watchdog: a worker is killed after `-DeadlineMinutes` (default 120) and marked `failed (timed out)`; one with no output shows `running (stalled)`. An Antigravity worker only waiting on its own background tasks is killed after `TRINITY_AGY_IDLE_SECONDS` (default 900).
+
+Base branch: `-Base <branch>`, else `TRINITY_BASE`, else `origin/HEAD`, else `main`. `trinity status` prints which.
+
+Worktree seeding: commit a `trinity-seed.txt` with `copy <path>` lines (gitignored files such as `.env`) and one `run <command>`; each new worker worktree gets them. Output in `.codex-out\seed-<task>.log`.
+
+### Queue, scheduler, autopilot
+
+Queue tasks and let the scheduler start them as agent slots free up:
+```bat
+trinity queue add codex add-search -Scope "src/search/*" -PromptFile prompt.txt
+```
+```bat
+trinity scheduler start
+```
+`queue list|remove|move`, `scheduler stop|status|tick` (one pass). `trinity autopilot on [-Approval]` lets the scheduler merge finished tasks and resume them with review feedback (`-Approval` waits for you before merging). `trinity pause [reason]` / `unpause` stops the scheduler and autopilot from acting.
+
+Per-repo settings live in `.trinity\trinity.json`:
+```bat
+trinity config set slots.codex 2
+```
+`trinity config get [key]`, `config set -Json <file>`. Keys include `slots.*`, `models.*`, `autopilot.maxRounds`, `deadlineMinutes`.
+
+### Environment variables
+
+| Variable | Effect |
+|---|---|
+| `TRINITY_DISABLE=codex` | Run without Codex (tasks go to Antigravity, reviews to Claude or Antigravity) |
+| `TRINITY_REVIEWER` | Force reviewer: `codex`, `claude`, `antigravity`, `none` |
+| `TRINITY_ORCHESTRATOR` | Orchestrator override (`claude`, `codex`, `antigravity`) |
+| `TRINITY_BASE` | Base branch |
+| `TRINITY_DEADLINE_MINUTES`, `TRINITY_STALL_MINUTES` | Worker kill deadline, stall warning |
+| `TRINITY_CODEX_MODEL`, `TRINITY_CODEX_EFFORT` | Codex model and reasoning effort |
+| `TRINITY_AGY_MODEL`, `TRINITY_AGY_EFFORT`, `TRINITY_AGY_IDLE_SECONDS`, `TRINITY_AGY_PREFIX` | Antigravity model, effort, idle kill, text prepended to the prompt |
+| `CODEX_EXE`, `AGY_EXE` | Agent executable paths |
 
 What runs by itself:
 
