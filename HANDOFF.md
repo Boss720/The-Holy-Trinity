@@ -2,6 +2,14 @@
 
 Update before you stop. Newest entry on top.
 
+## 2026-10-29 session 2 (harness fixes + docs), PAUSED by user, nothing committed
+- Spec: `.codex-out/session-2-harness-fixes-docs.md`. Main, uncommitted edits (session 2 scope only):
+  - `tests/run-parallel.ps1`: TRINITY_TEST_JOBS accepted only if TryParse ok and 1..64, else default min(4, cores). Checked: `TRINITY_TEST_JOBS=99999999999` run exits 0, no binding throw.
+  - `AGENTS.md` Test line and `CHANGELOG.md` new `## Unreleased` entry document TRINITY_TEST_JOBS (VERSION not bumped; session 3 does).
+  - `docs/failure-log.md`: 4 rows added (4-shard load failures, claude headless reviewer + agy runner P1s, missing TRINITY_AGY_PREFIX, merge "nothing to commit").
+- Not done: no harness test case added; full suite `tests\run-tests.cmd -Jobs 2` was started in background, result unknown (log `%TEMP%\s2-tests.log`); pre-commit `./scripts/codex-review.cmd` not run.
+- Next: run suite -Jobs 2, run codex-review.cmd, fix findings, one commit on main (`git commit -F`, no Claude trailer), report hash. Do not release.
+
 ## 2026-10-29 review fixes (Codex)
 - Uncommitted in main checkout: release/init assets, stalled-worker slot and scope safety, corrupt-config scheduler stop, failed/dirty merge refusal, and current-base dry-run verification. Parallel follow-up branches remain unmerged.
 - Verification: final full suite 172 passed, 0 failed, 0 skipped; CLI wiring group 8 passed; isolated release build and extracted install verification passed.

@@ -1,7 +1,7 @@
 ﻿param(
     [int]$Jobs = $(
         $envJobs = 0
-        if ([int]::TryParse([string]$env:TRINITY_TEST_JOBS, [ref]$envJobs) -and $envJobs -gt 0) {
+        if ([int]::TryParse([string]$env:TRINITY_TEST_JOBS, [ref]$envJobs) -and $envJobs -ge 1 -and $envJobs -le 64) {
             $envJobs
         } else {
             [Math]::Min(4, [Environment]::ProcessorCount)

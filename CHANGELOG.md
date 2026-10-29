@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- Test harness: `TRINITY_TEST_JOBS` overrides the default shard count (min(4, cores)); values outside 1..64 or unparsable fall back to the default instead of failing at parameter binding. Use 2 under low RAM.
+
 ## v0.8.1 - 2026-10-29
 
 ### Fixed

@@ -89,7 +89,7 @@ Fill these in when code lands. Every agent runs them before claiming done.
 
 - Install: none (`trinity setup` once per clone)
 - Typecheck/build: none (PowerShell 5.1 scripts; the test suite parse-checks them)
-- Test: `tests\run-tests.cmd`
+- Test: `tests\run-tests.cmd` (shards default to min(4, cores); set `TRINITY_TEST_JOBS` to 1..64 to override, use 2 under low RAM)
 - Run: `trinity help`
 - Shared files: `AGENTS.md`, `CLAUDE.md`, `scripts/lib/board.ps1`
 
