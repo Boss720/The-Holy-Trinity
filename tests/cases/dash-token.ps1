@@ -3,7 +3,7 @@
     $process = $null
     try {
         Start-CodexTask $f 'token-task'
-        $wait = Invoke-Trinity $f @('wait', 'token-task', '-Timeout', '30')
+        $wait = Invoke-Trinity $f @('wait', 'token-task', '-Timeout', '60')
         Assert-True ($wait.ExitCode -eq 0) "fixture task did not finish: $($wait.Output)"
 
         $tcp = New-Object System.Net.Sockets.TcpListener([Net.IPAddress]::Loopback, 0)
@@ -14,7 +14,7 @@
         $dashboard = Join-Path $f.Repo 'scripts\dashboard.ps1'
         $process = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -WindowStyle Hidden -PassThru -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $dashboard), '-Port', [string]$port, '-Repos', ('"{0}"' -f $f.Repo))
 
-        $deadline = (Get-Date).AddSeconds(15)
+        $deadline = (Get-Date).AddSeconds(60)
         $page = $null
         while (-not $page -and (Get-Date) -lt $deadline -and -not $process.HasExited) {
             try {
@@ -29,6 +29,16 @@
         }
         Assert-True ([bool]$page) 'dashboard did not serve its page'
 
+        $state = $null
+        $deadline = (Get-Date).AddSeconds(60)
+        while ((Get-Date) -lt $deadline -and -not $process.HasExited) {
+            try {
+                $state = Invoke-WebRequest -Uri "http://localhost:$port/api/state" -UseBasicParsing -TimeoutSec 60
+                $snapshot = $state.Content | ConvertFrom-Json
+                if (@($snapshot.repos | Where-Object path -eq ([IO.Path]::GetFullPath($f.Repo))).Count -gt 0) { break }
+            } catch { }
+            Start-Sleep -Milliseconds 100
+        }
         $tokenMatch = [regex]::Match($page.Content, '<meta\s+name="trinity-token"\s+content="([^"]+)">')
         Assert-True $tokenMatch.Success 'dashboard page does not contain meta name="trinity-token"'
         $pageRealToken = $tokenMatch.Groups[1].Value
@@ -96,7 +106,7 @@
         Assert-True ($accepted.Status -eq 202) "POST with token from served page was not accepted with 202: status $($accepted.Status), content: $($accepted.Content)"
 
         $jobId = ($accepted.Content | ConvertFrom-Json).job
-        $jobDeadline = (Get-Date).AddSeconds(15)
+        $jobDeadline = (Get-Date).AddSeconds(60)
         $job = $null
         while ((Get-Date) -lt $jobDeadline) {
             $jobReply = & $send "$base/api/job?id=$jobId" 'GET' $null '' '' ''

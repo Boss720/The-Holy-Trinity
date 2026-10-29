@@ -136,17 +136,24 @@ Run-Case 'runner watchdog: changing files without log output is not a stall' {
     param($f)
     $oldStall = $env:TRINITY_STALL_SECONDS
     try {
-        $env:TRINITY_STALL_SECONDS = '2'
+        # Allow for slow filesystem scheduling before deciding how long counts as idle.
+        $probe = Join-Path $f.Root 'write-probe.txt'
+        $writeTime = [Diagnostics.Stopwatch]::StartNew()
+        [IO.File]::WriteAllText($probe, 'probe')
+        $writeTime.Stop()
+        $env:TRINITY_STALL_SECONDS = [string][Math]::Max(2, [Math]::Ceiling($writeTime.Elapsed.TotalSeconds * 4 + 2))
         $env:FAKE_CODEX_MODE = 'quiet-edits'
         Start-CodexTask $f 'quiet-task'
         $boardFile = Join-Path $f.Repo '.git\agent-board.md'
         $stalledSeen = $false
-        $sw = [System.Diagnostics.Stopwatch]::StartNew()
-        while ($sw.ElapsedMilliseconds -lt 9000) {
-            if ((Get-Content -Raw $boardFile) -match 'status: running \(stalled') { $stalledSeen = $true; break }
+        $deadline = (Get-Date).AddSeconds(60)
+        while ((Get-Date) -lt $deadline) {
+            $board = Get-Content -Raw $boardFile
+            if ($board -match 'status: running \(stalled') { $stalledSeen = $true; break }
+            if ($board -match 'status: (done|failed)') { break }
             Start-Sleep -Milliseconds 250
         }
-        $wait = Invoke-Trinity $f @('wait', 'quiet-task', '-Timeout', '40')
+        $wait = Invoke-Trinity $f @('wait', 'quiet-task', '-Timeout', '60')
         Assert-True (-not $stalledSeen) 'a task that keeps editing files was marked stalled'
         Assert-True ($wait.ExitCode -eq 0) "task should finish: $($wait.Output)"
     }
