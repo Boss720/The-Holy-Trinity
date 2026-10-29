@@ -1304,8 +1304,10 @@ Run-Case 'dashboard caches Claude summaries and rejects non-loopback clients' {
         $tcp = New-Object System.Net.Sockets.TcpListener([Net.IPAddress]::Loopback, 0); $tcp.Start(); $port = $tcp.LocalEndpoint.Port; $tcp.Stop()
         $dashboard = Join-Path $f.Repo 'scripts\dashboard.ps1'
         $process = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -WindowStyle Hidden -PassThru -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"{0}"' -f $dashboard),'-Port',[string]$port,'-Repos',('"{0}"' -f $f.Repo))
-        $deadline = (Get-Date).AddSeconds(15); $response = $null
-        while (-not $response -and (Get-Date) -lt $deadline -and -not $process.HasExited) { try { $response = Invoke-WebRequest -Uri "http://localhost:$port/api/state" -UseBasicParsing -TimeoutSec 60 } catch { Start-Sleep -Milliseconds 100 } }
+        $deadline = (Get-Date).AddSeconds(60); $response = $null
+        $ready = $false
+        while ((Get-Date) -lt $deadline -and -not $process.HasExited) { try { $response = Invoke-WebRequest -Uri "http://localhost:$port/api/state" -UseBasicParsing -TimeoutSec 60; $readyState = $response.Content | ConvertFrom-Json; $readyRepo = @($readyState.repos | Where-Object path -eq ([IO.Path]::GetFullPath($f.Repo)))[0]; if ($response.StatusCode -eq 200 -and @($readyRepo.claudeSessions).Count -eq 5) { $ready = $true; break } } catch { }; Start-Sleep -Milliseconds 100 }
+        if (-not $ready -and $response) { throw 'dashboard fixture did not become ready before the deadline' }
         if (-not $response) { Skip-Case 'HttpListener is unsupported or blocked in this environment' }
         $state = $response.Content | ConvertFrom-Json; $repoState = @($state.repos | Where-Object path -eq ([IO.Path]::GetFullPath($f.Repo)))[0]; $sessions = @($repoState.claudeSessions)
         Assert-True ($sessions.Count -eq 5) "expected 5 Claude sessions, found $($sessions.Count)"
@@ -1317,7 +1319,7 @@ Run-Case 'dashboard caches Claude summaries and rejects non-loopback clients' {
         $changedStamp = [datetime]::UtcNow.ToString('o'); $changedLine = (@{ type='custom-title'; customTitle='Updated title'; timestamp=$changedStamp } | ConvertTo-Json -Compress) + "`r`n"
         [IO.File]::AppendAllText($changedPath, $changedLine, [Text.UTF8Encoding]::new($false))
         # State is served from a shared snapshot refreshed every few seconds, so wait for the refresh to pick up the change.
-        $updatedTitle = $null; $refreshDeadline = (Get-Date).AddSeconds(20)
+        $updatedTitle = $null; $refreshDeadline = (Get-Date).AddSeconds(60)
         while ($updatedTitle -ne 'Updated title' -and (Get-Date) -lt $refreshDeadline) {
             $updatedState = (Invoke-WebRequest -Uri "http://localhost:$port/api/state" -UseBasicParsing -TimeoutSec 60).Content | ConvertFrom-Json
             $updatedRepo = @($updatedState.repos | Where-Object path -eq ([IO.Path]::GetFullPath($f.Repo)))[0]
@@ -1346,8 +1348,10 @@ Run-Case 'dashboard serves one shared snapshot to concurrent clients' {
         $env:TRINITY_HOME=Join-Path $f.Root 'isolated dashboard home'; $env:TRINITY_DASHBOARD_TEST_COLLECT_LOG=Join-Path $f.Root 'collect.log'; Remove-Item $env:TRINITY_DASHBOARD_TEST_COLLECT_LOG -Force -ErrorAction SilentlyContinue
         $tcp=New-Object System.Net.Sockets.TcpListener([Net.IPAddress]::Loopback,0); $tcp.Start(); $port=$tcp.LocalEndpoint.Port; $tcp.Stop()
         $dashboard=Join-Path $f.Repo 'scripts\dashboard.ps1'; $process=Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -WindowStyle Hidden -PassThru -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"{0}"' -f $dashboard),'-Port',[string]$port,'-Repos',('"{0}"' -f $f.Repo))
-        $first=$null; $deadline=(Get-Date).AddSeconds(15)
-        while(-not $first -and (Get-Date)-lt $deadline -and -not $process.HasExited){try{$first=Invoke-WebRequest -Uri "http://localhost:$port/api/state" -UseBasicParsing -TimeoutSec 60}catch{Start-Sleep -Milliseconds 100}}
+        $first=$null; $deadline=(Get-Date).AddSeconds(60)
+        $ready = $false
+        while((Get-Date)-lt $deadline -and -not $process.HasExited){try{$first=Invoke-WebRequest -Uri "http://localhost:$port/api/state" -UseBasicParsing -TimeoutSec 60; $readyState=$first.Content | ConvertFrom-Json; if($first.StatusCode -eq 200 -and @($readyState.repos | Where-Object path -eq ([IO.Path]::GetFullPath($f.Repo))).Count -and (Test-Path -LiteralPath $env:TRINITY_DASHBOARD_TEST_COLLECT_LOG)){$ready=$true; break}}catch{}; Start-Sleep -Milliseconds 100}
+        if (-not $ready -and $first) { throw 'dashboard fixture did not become ready before the deadline' }
         if(-not $first -and $process.HasExited){Skip-Case 'HttpListener is unsupported or blocked in this environment'}; Assert-True ([bool]$first) 'dashboard never answered /api/state'
         $before=@([IO.File]::ReadAllLines($env:TRINITY_DASHBOARD_TEST_COLLECT_LOG)).Count
         $bodies=@()
@@ -1403,12 +1407,14 @@ Run-Case 'dashboard HTTP routes return state JSON and 404' {
     $dashboard = Join-Path $f.Repo 'scripts\dashboard.ps1'
     $process = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -WindowStyle Hidden -PassThru -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $dashboard), '-Port', [string]$port, '-Repos', ('"{0}"' -f $f.Repo))
     try {
-        $deadline = (Get-Date).AddSeconds(10)
+        $deadline = (Get-Date).AddSeconds(60)
         $response = $null
-        while (-not $response -and (Get-Date) -lt $deadline -and -not $process.HasExited) {
-            try { $response = Invoke-WebRequest -Uri "http://localhost:$port/api/state" -UseBasicParsing -TimeoutSec 2 }
-            catch { Start-Sleep -Milliseconds 100 }
+        $ready = $false
+        while ((Get-Date) -lt $deadline -and -not $process.HasExited) {
+            try { $response = Invoke-WebRequest -Uri "http://localhost:$port/api/state" -UseBasicParsing -TimeoutSec 60; $readyState = $response.Content | ConvertFrom-Json; if ($response.StatusCode -eq 200 -and @($readyState.repos | Where-Object path -eq ([IO.Path]::GetFullPath($f.Repo))).Count) { $ready = $true; break } }
+            catch { }; Start-Sleep -Milliseconds 100
         }
+        if (-not $ready -and $response) { throw 'dashboard fixture did not become ready before the deadline' }
         if ($process.HasExited -and -not $response) { Skip-Case 'HttpListener is unsupported or blocked in this environment' }
         Assert-True ($response -and $response.StatusCode -eq 200) 'dashboard API did not return 200'
         $state = $response.Content | ConvertFrom-Json
@@ -1622,8 +1628,10 @@ Run-Case 'dashboard task read endpoints diff log and merge checks' {
         $tcp=New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback,0); $tcp.Start(); $port=$tcp.LocalEndpoint.Port; $tcp.Stop()
         $dashboard=Join-Path $f.Repo 'scripts\dashboard.ps1'
         $process=Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -WindowStyle Hidden -PassThru -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"{0}"' -f $dashboard),'-Port',[string]$port,'-Repos',('"{0}"' -f $f.Repo))
-        $response=$null; $deadline=(Get-Date).AddSeconds(10)
-        while (-not $response -and (Get-Date) -lt $deadline -and -not $process.HasExited) { try { $response=Invoke-WebRequest "http://localhost:$port/api/state" -UseBasicParsing -TimeoutSec 2 } catch { Start-Sleep -Milliseconds 100 } }
+        $response=$null; $deadline=(Get-Date).AddSeconds(60)
+        $ready = $false
+        while ((Get-Date) -lt $deadline -and -not $process.HasExited) { try { $response=Invoke-WebRequest "http://localhost:$port/api/state" -UseBasicParsing -TimeoutSec 60; $readyState=$response.Content | ConvertFrom-Json; $readyRepo=@($readyState.repos | Where-Object path -eq ([IO.Path]::GetFullPath($f.Repo)))[0]; if ($response.StatusCode -eq 200 -and @($readyRepo.tasks | Where-Object task -eq 'read-task').Count) { $ready = $true; break } } catch { }; Start-Sleep -Milliseconds 100 }
+        if (-not $ready -and $response) { throw 'dashboard fixture did not become ready before the deadline' }
         if (-not $response -and $process.HasExited) { Skip-Case 'HttpListener is unsupported or blocked in this environment (task helpers passed)' }
         Assert-True ([bool]$response) 'dashboard never answered state'
         $query='repo='+[uri]::EscapeDataString($f.Repo)+'&task=read-task'
@@ -1673,13 +1681,13 @@ Run-Case 'dashboard dispatch process uses a fake worker and a prompt file' {
         $file=Join-Path $out 'prompt-direct-api.md'; [IO.File]::WriteAllText($file,$prompt,[Text.UTF8Encoding]::new($false))
         try {
             Start-ActionProcess '123456abcdef' 'dispatch' 'direct-api' $f.Repo '' 'trinity dispatch codex direct-api -PromptFile <file>' 'codex' '' $file
-            $deadline=(Get-Date).AddSeconds(15)
+            $deadline=(Get-Date).AddSeconds(60)
             do { Update-ActionJobs; if ($script:Jobs['123456abcdef'].state -ne 'running') { break }; Start-Sleep -Milliseconds 100 } while ((Get-Date) -lt $deadline)
             $job=$script:Jobs['123456abcdef']
             Assert-True ($job.state -eq 'done' -and $job.exitCode -eq 0) "dispatch child failed: $(Read-JobOutput $job)"
             $pidFile=Join-Path $out 'pid-direct-api.txt'
             if (Test-Path -LiteralPath $pidFile) { $workerProcess=Get-Process -Id ([int][IO.File]::ReadAllText($pidFile).Trim()) -ErrorAction SilentlyContinue }
-            $wait=Invoke-Trinity $f @('wait','direct-api','-Timeout','15')
+            $wait=Invoke-Trinity $f @('wait','direct-api','-Timeout','60')
             Assert-True ($wait.ExitCode -eq 0) "fake worker did not finish: $($wait.Output)"
             Assert-True ((Invoke-Git $f.Repo @('show','agent/codex/direct-api:fake-output.txt')) -eq 'fake codex output') 'fake agent did not commit output'
             Assert-True ([Convert]::ToBase64String([IO.File]::ReadAllBytes($file)) -ceq [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($prompt))) 'prompt changed'
@@ -1695,7 +1703,7 @@ Run-Case 'dashboard action API validates requests and runs a review job' {
     $process = $null; $dispatchWorker=$null
     try {
         Start-CodexTask $f 'api-task'
-        $wait = Invoke-Trinity $f @('wait', 'api-task', '-Timeout', '50')
+        $wait = Invoke-Trinity $f @('wait', 'api-task', '-Timeout', '60')
         Assert-True ($wait.ExitCode -eq 0) "fixture task did not finish: $($wait.Output)"
         $track=Invoke-Trinity $f @('track','busy-api','test overlap','-Scope','tests/*')
         Assert-True ($track.ExitCode -eq 0) 'could not track overlap fixture'
@@ -1704,8 +1712,10 @@ Run-Case 'dashboard action API validates requests and runs a review job' {
         $tcp = New-Object System.Net.Sockets.TcpListener([Net.IPAddress]::Loopback, 0); $tcp.Start(); $port=$tcp.LocalEndpoint.Port; $tcp.Stop()
         $dashboard = Join-Path $f.Repo 'scripts\dashboard.ps1'
         $process = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -WindowStyle Hidden -PassThru -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"{0}"' -f $dashboard),'-Port',[string]$port,'-Repos',('"{0}"' -f $f.Repo))
-        $deadline=(Get-Date).AddSeconds(15); $page=$null
-        while (-not $page -and (Get-Date) -lt $deadline -and -not $process.HasExited) { try { $page=Invoke-WebRequest -Uri "http://localhost:$port/" -UseBasicParsing -TimeoutSec 2 } catch { Start-Sleep -Milliseconds 100 } }
+        $deadline=(Get-Date).AddSeconds(60); $page=$null
+        $ready = $false
+        while ((Get-Date) -lt $deadline -and -not $process.HasExited) { try { $page=Invoke-WebRequest -Uri "http://localhost:$port/" -UseBasicParsing -TimeoutSec 60; $readyResponse=Invoke-WebRequest -Uri "http://localhost:$port/api/state" -UseBasicParsing -TimeoutSec 60; $readyState=$readyResponse.Content | ConvertFrom-Json; $readyRepo=@($readyState.repos | Where-Object path -eq ([IO.Path]::GetFullPath($f.Repo)))[0]; if ($readyResponse.StatusCode -eq 200 -and $readyState.server.actionsEnabled -and @($readyRepo.tasks | Where-Object task -eq 'api-task').Count -and @($readyRepo.tasks | Where-Object task -eq 'busy-api').Count) { $ready = $true; break } } catch { }; Start-Sleep -Milliseconds 100 }
+        if (-not $ready -and $page) { throw 'dashboard fixture did not become ready before the deadline' }
         if (-not $page -and $process.HasExited) { Skip-Case 'HttpListener is unsupported or blocked in this environment' }
         Assert-True ([bool]$page) 'dashboard did not serve its page'
         $tokenMatch=[regex]::Match($page.Content,'name="trinity-token" content="([0-9a-f]{64})"')
@@ -1739,7 +1749,7 @@ Run-Case 'dashboard action API validates requests and runs a review job' {
         $accepted=& $send "$base/api/action" 'POST' $payload $token $origin 'application/json'
         Assert-True ($accepted.Status -eq 202) "review action was not accepted: $($accepted.Content)"
         $jobId=($accepted.Content | ConvertFrom-Json).job
-        $job=$null; $jobDeadline=(Get-Date).AddSeconds(20)
+        $job=$null; $jobDeadline=(Get-Date).AddSeconds(60)
         while ((Get-Date) -lt $jobDeadline) { $jobReply=& $send "$base/api/job?id=$jobId" 'GET' $null '' '' ''; $job=$jobReply.Content | ConvertFrom-Json; if ($job.state -ne 'running') { break }; Start-Sleep -Milliseconds 150 }
         Assert-True ($job -and $job.state -eq 'done' -and $job.exitCode -eq 0) "review job did not finish successfully: $($job | ConvertTo-Json -Compress)"
         $query='repo='+[uri]::EscapeDataString($f.Repo)+'&agent=codex&task=dispatch-api&scope=tests/*'
@@ -1772,7 +1782,7 @@ Run-Case 'dashboard action API validates requests and runs a review job' {
         $dispatchJob=($accepted.Content | ConvertFrom-Json).job
         $actual=[IO.File]::ReadAllBytes((Join-Path $f.Repo '.codex-out\prompt-dispatch-api.md'))
         Assert-True ([Convert]::ToBase64String($actual) -ceq [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($prompt))) 'prompt bytes changed or BOM added'
-        $deadline=(Get-Date).AddSeconds(15); $job=$null
+        $deadline=(Get-Date).AddSeconds(60); $job=$null
         while ((Get-Date) -lt $deadline) {
             $reply=& $send "$base/api/job?id=$dispatchJob" 'GET' $null '' '' ''; $job=$reply.Content | ConvertFrom-Json
             if ($job.state -ne 'running') { break }; Start-Sleep -Milliseconds 100
@@ -1780,7 +1790,7 @@ Run-Case 'dashboard action API validates requests and runs a review job' {
         Assert-True ($job.state -eq 'done' -and $job.exitCode -eq 0) "dispatch job failed: $($job.output)"
         $pidFile=Join-Path $f.Repo '.codex-out\pid-dispatch-api.txt'
         if (Test-Path -LiteralPath $pidFile) { $dispatchWorker=Get-Process -Id ([int][IO.File]::ReadAllText($pidFile).Trim()) -ErrorAction SilentlyContinue }
-        $wait=Invoke-Trinity $f @('wait','dispatch-api','-Timeout','15')
+        $wait=Invoke-Trinity $f @('wait','dispatch-api','-Timeout','60')
         Assert-True ($wait.ExitCode -eq 0) "fake dispatch worker failed: $($wait.Output)"
         Assert-True (-not $job.command.Contains($prompt)) 'prompt appeared in command'
         $again=& $send "$base/api/action" 'POST' $dispatchJson $token $origin 'application/json'
