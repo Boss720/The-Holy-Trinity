@@ -6564,6 +6564,8 @@
       // ==========================================
 
       const RESUMABLE_STATES = ['done', 'failed', 'stalled', 'ready'];
+      const RETRYABLE_STATES = ['failed', 'cancelled'];
+      const CANCELABLE_STATES = ['queued', 'running', 'failed', 'stalled'];
 
       function findTaskByRef(repoPathOrName, taskName) {
         const repos = (lastStateData && Array.isArray(lastStateData.repos)) ? lastStateData.repos : [];
@@ -6940,6 +6942,7 @@
         const taskRefKey = repoPath + '::' + task.task;
         const state = task.state || '';
         const resumable = RESUMABLE_STATES.indexOf(state) !== -1;
+        const retryable = RETRYABLE_STATES.indexOf(state) !== -1;
         const stateReason = function (needs) { return needs + ' (this task is ' + (state || 'unknown') + ')'; };
 
         const resumeCmd = 'trinity resume ' + task.task + ' -FeedbackFile .codex-out\\feedback-' + task.task + '-<job>.md';
@@ -6951,7 +6954,7 @@
         const retryCmd = 'trinity retry ' + task.task;
         const retryCtrl = createActionControl('retry', 'Retry', retryCmd, function () {
           runAction({ action: 'retry', repo: repoPath, task: task.task, confirm: true, title: 'Confirm Retry', originBtn: retryCtrl.querySelector('.btn-action') }).catch(function () {});
-        }, true, taskRefKey, resumable ? '' : stateReason('Retry needs a done, failed, stalled or ready task'));
+        }, true, taskRefKey, retryable ? '' : stateReason('Retry needs a failed or cancelled task'));
         bar.appendChild(retryCtrl);
 
         const hasBranch = !!(task.branch && task.branch !== '-');
@@ -6978,12 +6981,14 @@
         }, true, taskRefKey, mergeable ? '' : stateReason('Merge needs a done or ready task'));
         bar.appendChild(mergeCtrl);
 
-        const cancelCmd = 'trinity cancel ' + task.task;
-        const cancelOk = state !== 'merged' && state !== 'cancelled';
-        const cancelCtrl = createActionControl('cancel', 'Cancel', cancelCmd, function () {
-          requestAction('cancel', task.task, repoPath, cancelCmd, true, cancelCtrl.querySelector('.btn-action'));
-        }, true, taskRefKey, cancelOk ? '' : 'Task is already ' + state);
-        bar.appendChild(cancelCtrl);
+        const cancelOk = CANCELABLE_STATES.indexOf(state) !== -1;
+        if (cancelOk) {
+          const cancelCmd = 'trinity cancel ' + task.task;
+          const cancelCtrl = createActionControl('cancel', 'Cancel', cancelCmd, function () {
+            requestAction('cancel', task.task, repoPath, cancelCmd, true, cancelCtrl.querySelector('.btn-action'));
+          }, true, taskRefKey);
+          bar.appendChild(cancelCtrl);
+        }
 
         const hasWorktree = !!(task.worktree && task.worktree !== '-');
         const folderCmd = 'explorer.exe "' + (task.worktree || '') + '"';

@@ -9,6 +9,10 @@
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Web.Extensions
+$script:DashboardActionAllowList = @('cancel', 'merge', 'review-task', 'open-folder', 'dispatch', 'queue-add', 'resume', 'retry', 'pause', 'unpause')
+$script:DashboardRepoActions = @('pause', 'unpause')
+$script:DashboardCancelAllowedStates = @('queued', 'running', 'failed', 'stalled')
+$script:DashboardRetryAllowedStates = @('failed', 'cancelled')
 $script:JsonSerializer = New-Object System.Web.Script.Serialization.JavaScriptSerializer
 $script:JsonSerializer.MaxJsonLength = [int]::MaxValue
 $script:TranscriptCache = @{}
@@ -668,8 +672,10 @@ function Get-TaskState([string]$Status, [bool]$RunnerAlive) {
     if ($Status -match '^failed') { return 'failed' }
     if ($Status -match '^merged') { return 'merged' }
     if ($Status -match '^cancelled') { return 'cancelled' }
+    if ($Status -match '^ready') { return 'ready' }
     if ($Status -match '^done') { return 'done' }
-    if ($Status -match '^waiting') { return 'waiting' }
+    if ($Status -match '^stalled') { return 'stalled' }
+    if ($Status -match '^waiting') { return 'queued' }
     return 'other'
 }
 
@@ -1074,6 +1080,36 @@ function Quote-ProcessArgument([string]$Value) {
     return '"' + ($Value -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"'
 }
 
+function Quote-PowerShellLiteral([string]$Value) {
+    return "'" + $Value.Replace("'", "''") + "'"
+}
+
+function Test-DashboardTaskActionState([string]$Action, $TaskState, [bool]$HasWorktree) {
+    if (-not $TaskState) { return $false }
+    if ($Action -eq 'cancel') { return $TaskState.state -cin $script:DashboardCancelAllowedStates }
+    if ($Action -eq 'merge') { return $TaskState.state -cin @('done','ready') }
+    if ($Action -eq 'resume') { return $TaskState.state -cin @('done','failed','stalled','ready') }
+    if ($Action -eq 'retry') { return $TaskState.state -cin $script:DashboardRetryAllowedStates }
+    if ($Action -in @('review-task','open-folder')) { return [bool]($HasWorktree -and $TaskState.branch -and $TaskState.branch -ne '-') }
+    return $true
+}
+
+function Get-DashboardActionCommand([string]$Action, [string]$Task, [string]$JobId, [string]$Agent = '', [string]$Scope = '', [string]$PauseReason = 'user', [string]$Worktree = '', [string]$DispatchCommand = '') {
+    switch ($Action) {
+        'cancel' { return "trinity cancel $Task" }
+        'merge' { return "trinity merge $Task -Yes" }
+        'review-task' { return "trinity merge $Task -DryRun" }
+        'open-folder' { return "explorer.exe `"$Worktree`"" }
+        'resume' { return "trinity resume $Task -FeedbackFile .codex-out\feedback-$Task-$JobId.md" }
+        'retry' { return "trinity retry $Task" }
+        'queue-add' { return "trinity queue add $Agent $Task -Scope `"$Scope`" -PromptFile .codex-out\prompt-$Task.md`ntrinity scheduler start" }
+        'pause' { return "trinity pause `"$PauseReason`"`ntrinity scheduler stop" }
+        'unpause' { return 'trinity unpause' }
+        'dispatch' { return $DispatchCommand }
+    }
+    return ''
+}
+
 # Shared read-only validation; only validated task names reach git or filesystem probes.
 function Get-DispatchCheck($RepoState, $Availability, [string]$Agent, [string]$Task, [string]$Scope) {
     $r = @{ taskOk=$true; taskReason=''; agentOk=$true; agentReason=''; effectiveAgent=$Agent; rerouted=$false; scopeOk=$true; scopeReason=''; scopeNormalized=@(); overlaps=@(); command=''; canDispatch=$false }
@@ -1133,7 +1169,7 @@ function Start-ActionProcess([string]$Id, [string]$Action, [string]$Task, [strin
     if (-not (Test-Path -LiteralPath $outDir)) { New-Item -ItemType Directory -Path $outDir -Force | Out-Null }
     $outputPath = Join-Path $outDir "$Id.txt"
     $errorPath = Join-Path $outDir "$Id.stderr.txt"
-    $script:Jobs[$Id] = @{ id=$Id; action=$Action; task=$Task; state='running'; exitCode=$null; outputPath=$outputPath; errorPath=$errorPath; command=$Command; process=$null; repo=$RepoPath; agent=$Agent }
+    $script:Jobs[$Id] = @{ id=$Id; action=$Action; task=$Task; state='running'; exitCode=$null; outputPath=$outputPath; errorPath=$errorPath; command=$Command; process=$null; repo=$RepoPath; agent=$Agent; runnerPath='' }
     if ($Action -eq 'open-folder') {
         $script:Jobs[$Id].state = 'done'; $script:Jobs[$Id].exitCode = 0
         [IO.File]::WriteAllText($outputPath, '', (New-Object Text.UTF8Encoding($false)))
@@ -1142,10 +1178,58 @@ function Start-ActionProcess([string]$Id, [string]$Action, [string]$Task, [strin
     }
     $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     # trinity.ps1 finds its repo root from its own path, so the review must run the worktree's copy to see the task branch.
-    if ($Action -eq 'review-task') { $reviewScript = Join-Path $Worktree 'scripts\trinity.ps1'; if (-not (Test-Path -LiteralPath $reviewScript -PathType Leaf)) { $reviewScript = Join-Path $RepoPath 'scripts\trinity.ps1' }; $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$reviewScript,'review','--base','main'); $cwd=$Worktree }
-    elseif ($Action -eq 'dispatch') { $dispatchScript=Join-Path $RepoPath 'scripts\trinity.ps1'; if (-not (Test-Path -LiteralPath $dispatchScript -PathType Leaf)) { $dispatchScript=Join-Path $PSScriptRoot 'trinity.ps1' }; $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$dispatchScript,'dispatch',$Agent,$Task,'-Scope',$Scope,'-PromptFile',$PromptFile); $cwd=$RepoPath }
-    elseif ($Action -eq 'cancel') { $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $RepoPath 'scripts\trinity.ps1'),'cancel',$Task); $cwd=$RepoPath }
-    else { $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $RepoPath 'scripts\trinity.ps1'),'merge',$Task,'-Yes'); $cwd=$RepoPath }
+    $trinityScript = Join-Path $RepoPath 'scripts\trinity.ps1'
+    if ($Action -eq 'review-task') { $reviewScript = Join-Path $Worktree 'scripts\trinity.ps1'; if (-not (Test-Path -LiteralPath $reviewScript -PathType Leaf)) { $reviewScript = $trinityScript }; $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$reviewScript,'merge',$Task,'-DryRun'); $cwd=$Worktree }
+    elseif ($Action -eq 'dispatch') { if (-not (Test-Path -LiteralPath $trinityScript -PathType Leaf)) { $trinityScript = Join-Path $PSScriptRoot 'trinity.ps1' }; $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$trinityScript,'dispatch',$Agent,$Task,'-Scope',$Scope,'-PromptFile',$PromptFile); $cwd=$RepoPath }
+    elseif ($Action -eq 'queue-add') {
+        $runnerPath = Join-Path $outDir "$Id.ps1"
+        $runnerText = @'
+$ErrorActionPreference = 'Continue'
+$powerShellPath = '__POWERSHELL__'
+$trinityScript = '__TRINITY__'
+$repoPath = '__REPO__'
+$outDir = '__OUTDIR__'
+$jobId = '__JOBID__'
+function Quote-RunnerArgument([string]$Value) {
+    if ($Value.Length -eq 0) { return '""' }
+    if ($Value -notmatch '[\s"]') { return $Value }
+    return '"' + ($Value -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"'
+}
+function Invoke-TrinityChild([string[]]$VerbArguments, [string]$Suffix) {
+    $stdoutPath = Join-Path $outDir "$jobId.$Suffix.stdout.txt"
+    $stderrPath = Join-Path $outDir "$jobId.$Suffix.stderr.txt"
+    $arguments = @('-NoProfile','-ExecutionPolicy','Bypass','-File',$trinityScript) + $VerbArguments
+    $argumentText = (@($arguments | ForEach-Object { Quote-RunnerArgument ([string]$_) })) -join ' '
+    $child = Start-Process -FilePath $powerShellPath -ArgumentList $argumentText -WorkingDirectory $repoPath -WindowStyle Hidden -PassThru -Wait -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+    if (Test-Path -LiteralPath $stdoutPath) { [Console]::Out.Write([IO.File]::ReadAllText($stdoutPath)); Remove-Item -LiteralPath $stdoutPath -Force }
+    if (Test-Path -LiteralPath $stderrPath) { [Console]::Error.Write([IO.File]::ReadAllText($stderrPath)); Remove-Item -LiteralPath $stderrPath -Force }
+    return [int]$child.ExitCode
+}
+$queueArguments = @('queue','add','__AGENT__','__TASK__','-Scope','__SCOPE__','-PromptFile','__PROMPT__')
+$queueExit = Invoke-TrinityChild $queueArguments 'queue'
+if ($queueExit -ne 0) { exit $queueExit }
+$schedulerExit = Invoke-TrinityChild @('scheduler','start') 'scheduler'
+exit $schedulerExit
+'@
+        $runnerText = $runnerText.Replace('__POWERSHELL__', $powershell.Replace("'", "''"))
+        $runnerText = $runnerText.Replace('__TRINITY__', $trinityScript.Replace("'", "''"))
+        $runnerText = $runnerText.Replace('__REPO__', $RepoPath.Replace("'", "''"))
+        $runnerText = $runnerText.Replace('__OUTDIR__', $outDir.Replace("'", "''"))
+        $runnerText = $runnerText.Replace('__JOBID__', $Id.Replace("'", "''"))
+        $runnerText = $runnerText.Replace('__AGENT__', $Agent.Replace("'", "''"))
+        $runnerText = $runnerText.Replace('__TASK__', $Task.Replace("'", "''"))
+        $runnerText = $runnerText.Replace('__SCOPE__', $Scope.Replace("'", "''"))
+        $runnerText = $runnerText.Replace('__PROMPT__', $PromptFile.Replace("'", "''"))
+        [IO.File]::WriteAllText($runnerPath, $runnerText + "`r`n", (New-Object Text.UTF8Encoding($false)))
+        $script:Jobs[$Id].runnerPath = $runnerPath
+        $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$runnerPath); $cwd=$RepoPath
+    }
+    elseif ($Action -eq 'resume') { $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$trinityScript,'resume',$Task,'-FeedbackFile',$PromptFile); $cwd=$RepoPath }
+    elseif ($Action -eq 'retry') { $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$trinityScript,'retry',$Task); $cwd=$RepoPath }
+    elseif ($Action -eq 'pause') { $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$trinityScript,'scheduler','stop'); $cwd=$RepoPath }
+    elseif ($Action -eq 'unpause') { $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$trinityScript,'unpause'); $cwd=$RepoPath }
+    elseif ($Action -eq 'cancel') { $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$trinityScript,'cancel',$Task); $cwd=$RepoPath }
+    else { $processArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$trinityScript,'merge',$Task,'-Yes'); $cwd=$RepoPath }
     $processArguments = @($processArguments | ForEach-Object { Quote-ProcessArgument ([string]$_) })
     [IO.File]::WriteAllText($outputPath, '', (New-Object Text.UTF8Encoding($false)))
     [IO.File]::WriteAllText($errorPath, '', (New-Object Text.UTF8Encoding($false)))
@@ -1159,6 +1243,7 @@ function Update-ActionJobs {
             try {
                 $job.process.WaitForExit(); $job.exitCode = [int]$job.process.ExitCode; $job.state = if ($job.exitCode -eq 0) { 'done' } else { 'failed' }
                 if (Test-Path -LiteralPath $job.errorPath -PathType Leaf) { $errorText=[IO.File]::ReadAllText($job.errorPath); if ($errorText) { [IO.File]::AppendAllText($job.outputPath, $errorText, (New-Object Text.UTF8Encoding($false))) }; Remove-Item -LiteralPath $job.errorPath -Force -ErrorAction SilentlyContinue }
+                if ($job.runnerPath) { Remove-Item -LiteralPath $job.runnerPath -Force -ErrorAction SilentlyContinue; $job.runnerPath='' }
                 Add-ActionLog $job.action $job.repo $job.task $job.id ([string]$job.exitCode) ([string]$job.agent); $job.process.Dispose(); $job.process=$null
             } catch { $job.state='failed'; $job.exitCode=1 }
         }
@@ -1286,62 +1371,95 @@ try {
                     $repoValue = Get-JsonValue $body 'repo' ''
                     $taskValue = Get-JsonValue $body 'task' ''
                     if ($actionValue -isnot [string] -or $repoValue -isnot [string] -or $taskValue -isnot [string]) { Add-ActionLog '' '' '' '400'; $actionLogged=$true; Send-JsonResponse $response 400 @{ error='action, repo, and task must be strings' }; continue }
-                    if ($actionValue -ne 'dispatch' -and $bodyStream.Length -gt 8192) { Send-JsonResponse $response 413 @{ error='Request body exceeds 8 KB' }; continue }
                     $action = $actionValue
                     $repoRequest = $repoValue
                     $taskName = $taskValue
                     $confirm = (Get-JsonValue $body 'confirm' $false) -eq $true
                     $confirmValue = Get-JsonValue $body 'confirm' $false
                     if ($confirmValue -isnot [bool]) { Add-ActionLog $action $repoRequest $taskName '400'; $actionLogged=$true; Send-JsonResponse $response 400 @{ error='confirm must be a boolean' }; continue }
-                    if ($action -notin @('cancel','merge','review-task','open-folder','dispatch')) { Add-ActionLog $action $repoRequest $taskName '400'; $actionLogged=$true; Send-JsonResponse $response 400 @{ error='Unknown action' }; continue }
-                    if ($taskName -notmatch '^[a-z0-9][a-z0-9-]*$') { Add-ActionLog $action $repoRequest $taskName '400'; $actionLogged=$true; Send-JsonResponse $response 400 @{ error='Invalid task name' }; continue }
-                    if ($action -in @('cancel','merge') -and -not $confirm) { Add-ActionLog $action $repoRequest $taskName '412'; $actionLogged=$true; Send-JsonResponse $response 412 @{ error='This action requires confirm:true' }; continue }
+                    if ($action -cnotin $script:DashboardActionAllowList) { Add-ActionLog $action $repoRequest $taskName '400'; $actionLogged=$true; Send-JsonResponse $response 400 @{ error='Unknown action' }; continue }
+                    if (@('dispatch','queue-add','resume') -cnotcontains $action -and $bodyStream.Length -gt 8192) { Send-JsonResponse $response 413 @{ error='Request body exceeds 8 KB' }; continue }
+                    if ($action -cin $script:DashboardRepoActions) {
+                        if ($taskName -cne '') { Add-ActionLog $action $repoRequest $taskName '400'; $actionLogged=$true; Send-JsonResponse $response 400 @{ error='Repo-level actions require an empty task' }; continue }
+                    }
+                    elseif ($taskName.Length -gt 40 -or $taskName -cnotmatch '^[a-z0-9][a-z0-9-]*$') { Add-ActionLog $action $repoRequest $taskName '400'; $actionLogged=$true; Send-JsonResponse $response 400 @{ error='Invalid task name' }; continue }
+                    if (@('cancel','merge','retry','resume','queue-add','unpause','dispatch') -ccontains $action -and -not $confirm) { Add-ActionLog $action $repoRequest $taskName '412'; $actionLogged=$true; Send-JsonResponse $response 412 @{ error='This action requires confirm:true' }; continue }
                     $snapshot = $null
                     if ($sharedState.bytes) { $snapshot = [Text.Encoding]::UTF8.GetString($sharedState.bytes) | ConvertFrom-Json }
                     $repoState = @($snapshot.repos | Where-Object { [string]::Equals([string]$_.path, $repoRequest, [StringComparison]::OrdinalIgnoreCase) }) | Select-Object -First 1
                     if (-not $repoState) { Add-ActionLog $action $repoRequest $taskName '404'; $actionLogged=$true; Send-JsonResponse $response 404 @{ error='Unknown repository' }; continue }
                     $repoPath = [IO.Path]::GetFullPath([string]$repoState.path)
-                    if ($action -eq 'dispatch') {
+                    $check = $null
+                    $worktree = ''
+                    $pauseReason = 'user'
+                    if ($action -eq 'pause') {
+                        $pauseReason = Get-JsonValue $body 'reason' 'user'
+                        if ($pauseReason -isnot [string] -or $pauseReason.Length -gt 200 -or $pauseReason -match '\p{Cc}') { Add-ActionLog $action $repoPath '' '400'; $actionLogged=$true; Send-JsonResponse $response 400 @{ error='Pause reason must be a string of at most 200 characters without controls' }; continue }
+                        if (-not $pauseReason.Trim()) { $pauseReason = 'user' }
+                    }
+                    if ($action -in @('dispatch','queue-add')) {
                         $agentValue=Get-JsonValue $body 'agent' ''; $scopeValue=Get-JsonValue $body 'scope' ''; $promptValue=Get-JsonValue $body 'prompt' ''
-                        if (-not $confirm -or $agentValue -isnot [string] -or $scopeValue -isnot [string] -or $promptValue -isnot [string]) { Send-JsonResponse $response 400 @{ error='Dispatch requires confirm:true and string agent, scope and prompt' }; continue }
+                        if ($agentValue -isnot [string] -or $scopeValue -isnot [string] -or $promptValue -isnot [string]) { Add-ActionLog $action $repoPath $taskName '400'; $actionLogged=$true; Send-JsonResponse $response 400 @{ error='Dispatch and queue-add require string agent, scope and prompt' }; continue }
                         if (-not $promptValue.Trim() -or [Text.Encoding]::UTF8.GetByteCount($promptValue) -gt 32768) { Send-JsonResponse $response 400 @{ error='Prompt must be non-empty and at most 32 KB UTF-8' }; continue }
                         $check=Get-DispatchCheck $repoState $snapshot.availability $agentValue $taskName $scopeValue
                         $dispatchAgent=$check.effectiveAgent
-                        if (-not $check.canDispatch) { Send-JsonResponse $response 400 @{ error=(@($check.taskReason,$check.agentReason,$check.scopeReason) | Where-Object { $_ }) -join '; ' }; continue }
+                        if ($action -eq 'dispatch' -and -not $check.canDispatch) { Send-JsonResponse $response 400 @{ error=(@($check.taskReason,$check.agentReason,$check.scopeReason) | Where-Object { $_ }) -join '; ' }; continue }
+                        if ($action -eq 'queue-add' -and (-not $check.taskOk -or -not $check.agentOk -or -not $check.scopeOk)) { Send-JsonResponse $response 400 @{ error=(@($check.taskReason,$check.agentReason,$check.scopeReason) | Where-Object { $_ }) -join '; ' }; continue }
+                        if (-not $check.scopeNormalized.Count) { Send-JsonResponse $response 400 @{ error='Scope is required for dispatch and queue-add' }; continue }
                     }
-                    else {
-                    $taskState = @($repoState.tasks | Where-Object { $_.task -ceq $taskName }) | Select-Object -First 1
-                    if (-not $taskState) { Add-ActionLog $action $repoPath $taskName '404'; $actionLogged=$true; Send-JsonResponse $response 404 @{ error='Unknown task' }; continue }
-                    $worktree = [string]$taskState.worktree
-                    $hasWorktree = $false
-                    if ($worktree -and $worktree -ne '-') {
-                        try {
-                            $worktree = [IO.Path]::GetFullPath($worktree)
-                            $expected = [IO.Path]::GetFullPath((Join-Path (Split-Path $repoPath -Parent) ((Split-Path $repoPath -Leaf) + '.worktrees'))).TrimEnd('\','/') + [IO.Path]::DirectorySeparatorChar
-                            $hasWorktree = $worktree.StartsWith($expected, [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $worktree -PathType Container)
-                        } catch { $hasWorktree = $false }
+                    elseif ($action -eq 'resume') {
+                        $feedback = Get-JsonValue $body 'feedback' ''
+                        if ($feedback -isnot [string] -or -not $feedback.Trim() -or [Text.Encoding]::UTF8.GetByteCount($feedback) -gt 16384) { Add-ActionLog $action $repoPath $taskName '400'; $actionLogged=$true; Send-JsonResponse $response 400 @{ error='Resume feedback must be a non-empty string of at most 16 KB UTF-8' }; continue }
                     }
-                    if (($action -eq 'cancel' -and $taskState.state -in @('merged','cancelled')) -or ($action -eq 'merge' -and $taskState.state -ne 'done') -or ($action -in @('review-task','open-folder') -and (-not $hasWorktree -or -not $taskState.branch -or $taskState.branch -eq '-'))) {
-                        Add-ActionLog $action $repoPath $taskName '400'; $actionLogged=$true; Send-JsonResponse $response 400 @{ error='Task state does not allow this action' }; continue
-                    }
+                    if ($action -notin @('dispatch','queue-add') -and $action -notin $script:DashboardRepoActions) {
+                        $taskState = @($repoState.tasks | Where-Object { $_.task -ceq $taskName }) | Select-Object -First 1
+                        if (-not $taskState) { Add-ActionLog $action $repoPath $taskName '404'; $actionLogged=$true; Send-JsonResponse $response 404 @{ error='Unknown task' }; continue }
+                        $worktree = [string]$taskState.worktree
+                        $hasWorktree = $false
+                        if ($worktree -and $worktree -ne '-') {
+                            try {
+                                $worktree = [IO.Path]::GetFullPath($worktree)
+                                $expected = [IO.Path]::GetFullPath((Join-Path (Split-Path $repoPath -Parent) ((Split-Path $repoPath -Leaf) + '.worktrees'))).TrimEnd('\','/') + [IO.Path]::DirectorySeparatorChar
+                                $hasWorktree = $worktree.StartsWith($expected, [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $worktree -PathType Container)
+                            } catch { $hasWorktree = $false }
+                        }
+                        $stateAllowed = Test-DashboardTaskActionState $action $taskState $hasWorktree
+                        if (-not $stateAllowed) { Add-ActionLog $action $repoPath $taskName '400'; $actionLogged=$true; Send-JsonResponse $response 400 @{ error='Task state does not allow this action' }; continue }
                     }
                     Update-ActionJobs
                     $running = @($script:Jobs.Values | Where-Object { $_.state -eq 'running' })
                     if (@($running | Where-Object { [string]::Equals($_.repo,$repoPath,[StringComparison]::OrdinalIgnoreCase) -and $_.task -eq $taskName }).Count) { Add-ActionLog $action $repoPath $taskName '409'; $actionLogged=$true; Send-JsonResponse $response 409 @{ error='An action is already running for this task' }; continue }
                     if ($running.Count -ge 4) { Add-ActionLog $action $repoPath $taskName '429'; $actionLogged=$true; Send-JsonResponse $response 429 @{ error='Too many running actions' }; continue }
                     $idBytes = New-Object byte[] 6; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($idBytes); $jobId=([BitConverter]::ToString($idBytes) -replace '-','').ToLowerInvariant()
-                    $display = switch ($action) { 'cancel' { "trinity cancel $taskName" }; 'merge' { "trinity merge $taskName -Yes" }; 'review-task' { "trinity review --base main" }; 'open-folder' { "explorer.exe `"$worktree`"" } }
-                    if ($action -eq 'dispatch') {
+                    $displayScope = if ($check) { $check.scopeNormalized -join ',' } else { '' }
+                    $displayDispatch = if ($check -and $action -eq 'dispatch') { $check.command } else { '' }
+                    $display = Get-DashboardActionCommand $action $taskName $jobId $dispatchAgent $displayScope $pauseReason $worktree $displayDispatch
+                    if ($action -in @('dispatch','queue-add')) {
                         $promptDir=Join-Path $repoPath '.codex-out'
                         [void][IO.Directory]::CreateDirectory($promptDir)
                         $promptFile=Join-Path $promptDir "prompt-$taskName.md"
                         try { $promptStream=New-Object IO.FileStream($promptFile,[IO.FileMode]::Create,[IO.FileAccess]::Write) }
                         catch [IO.IOException] { Send-JsonResponse $response 400 @{ error='Could not create a new prompt file' }; continue }
                         try { $promptBytes=[Text.Encoding]::UTF8.GetBytes($promptValue); $promptStream.Write($promptBytes,0,$promptBytes.Length) } finally { $promptStream.Dispose() }
-                        $display=$check.command
-                        Start-ActionProcess $jobId $action $taskName $repoPath '' $display $check.effectiveAgent ($check.scopeNormalized -join ',') $promptFile
+                        if ($action -eq 'dispatch') { $display=$check.command; $processPromptFile=$promptFile }
+                        else { $processPromptFile=".codex-out\prompt-$taskName.md" }
+                        Start-ActionProcess $jobId $action $taskName $repoPath '' $display $check.effectiveAgent ($check.scopeNormalized -join ',') $processPromptFile
                     }
-                    else { Start-ActionProcess $jobId $action $taskName $repoPath $worktree $display }
+                    elseif ($action -eq 'resume') {
+                        $feedbackPath = ".codex-out\feedback-$taskName-$jobId.md"
+                        $feedbackDir = Join-Path $repoPath '.codex-out'
+                        [void][IO.Directory]::CreateDirectory($feedbackDir)
+                        [IO.File]::WriteAllText((Join-Path $repoPath $feedbackPath), $feedback, (New-Object Text.UTF8Encoding($false)))
+                        Start-ActionProcess $jobId $action $taskName $repoPath $worktree $display '' '' $feedbackPath
+                    }
+                    else {
+                        if ($action -eq 'pause') {
+                            $pauseDir = Join-Path $repoPath '.trinity'
+                            [void][IO.Directory]::CreateDirectory($pauseDir)
+                            [IO.File]::WriteAllText((Join-Path $pauseDir 'PAUSE'), $pauseReason + "`r`n", (New-Object Text.UTF8Encoding($false)))
+                        }
+                        Start-ActionProcess $jobId $action $taskName $repoPath $worktree $display
+                    }
                     Add-ActionLog $action $repoPath $taskName $jobId '' ([string]$script:Jobs[$jobId].agent)
                     $actionLogged=$true
                     $jobFiles = @(Get-ChildItem -LiteralPath (Join-Path $repoPath '.codex-out\jobs') -Filter '*.txt' -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^[0-9a-f]{12}\.txt$' } | Sort-Object LastWriteTimeUtc -Descending)
@@ -1353,7 +1471,7 @@ try {
                     Write-DashboardError '/api/action' $_
                     Send-JsonResponse $response 500 @{ error='Could not start action' }
                 }
-                finally { if ($authPassed -and -not $actionLogged -and $action -eq 'dispatch') { Add-ActionLog $action $repoRequest $taskName ([string]$response.StatusCode) '' $dispatchAgent } }
+                finally { if ($authPassed -and -not $actionLogged -and $action -in @('dispatch','queue-add')) { Add-ActionLog $action $repoRequest $taskName ([string]$response.StatusCode) '' $dispatchAgent } }
             }
             elseif ($context.Request.Url.AbsolutePath -eq '/api/job' -and $context.Request.HttpMethod -eq 'GET') {
                 Update-ActionJobs
