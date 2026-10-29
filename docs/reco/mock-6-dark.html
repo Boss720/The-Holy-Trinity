@@ -52,6 +52,16 @@ code, .mono { font-family: var(--mono); font-size: 12.5px; }
   padding: 6px 12px; border: 1px solid var(--lead); border-radius: 8px; background: var(--nave);
 }
 .ver { font-family: var(--mono); font-size: 12px; color: var(--ash); border: 1px solid var(--lead); border-radius: 6px; padding: 2px 6px; }
+.views { display: flex; gap: 4px; padding: 0 40px; border-bottom: 1px solid var(--lead); overflow-x: auto; }
+.views a { color: var(--ash); text-decoration: none; padding: 12px 14px; border-bottom: 2px solid transparent; white-space: nowrap; font-size: 14px; }
+.views a.on { color: var(--bone); border-color: var(--claude); }
+.views a span { font-family: var(--mono); font-size: 11.5px; color: var(--ink); background: var(--claude); border-radius: 999px; padding: 0 6px; }
+.field { margin-bottom: 12px; }
+.field label { display: block; font-size: 13px; color: var(--ash); margin-bottom: 4px; }
+.field input, .field textarea, .field select { width: 100%; background: var(--ink); color: var(--bone); border: 1px solid var(--lead); border-radius: 8px; padding: 8px 10px; font: inherit; }
+.seg { display: flex; gap: 6px; flex-wrap: wrap; }
+.seg button { padding: 5px 12px; font-size: 13px; }
+.seg button.on { background: var(--bone); color: var(--ink); border-color: var(--bone); }
 .repo strong { font-weight: 550; }
 .repo code { color: var(--ash); }
 .spacer { flex: 1; }
@@ -224,12 +234,22 @@ dialog .acts { display: flex; justify-content: flex-end; gap: 8px; }
   <div class="pulse"><i></i>Scheduler checked in 4s ago</div>
   <button class="toggle" aria-pressed="false" id="autopilot"><span class="sw"></span>Autopilot</button>
   <button class="btn" data-confirm="Start autopilot" data-cmd='cd /d "D:\AI\projects\Dev\Projects\Holy trinity" &amp;&amp; trinity autopilot on &amp;&amp; trinity scheduler start'>Auto</button>
+  <button class="btn" id="header-notify" aria-pressed="false" title="Desktop notifications when a task finishes or needs you">Notifications: off</button>
   <button class="btn danger" data-confirm="Pause every repo" data-cmd="trinity pause">Stop all</button>
+  <button class="btn primary" id="header-dispatch">Dispatch</button>
 </header>
+<nav class="views" aria-label="Views">
+  <a class="on" href="#inbox">Inbox <span>4</span></a>
+  <a href="#overview">Overview</a>
+  <a href="#board">Board</a>
+  <a href="#tasks">Tasks</a>
+  <a href="#health">Health</a>
+  <a href="#history">History</a>
+</nav>
 
 <main>
   <section class="needs" aria-labelledby="needs-h">
-    <h2 id="needs-h">Needs you<span>4 items</span></h2>
+    <h2 id="needs-h">Needs attention<span>4 items</span></h2>
     <div class="needs-list">
       <div class="need">
         <div class="bar" style="background:var(--codex)"></div>
@@ -282,7 +302,7 @@ dialog .acts { display: flex; justify-content: flex-end; gap: 8px; }
         </button>
       </div>
       <div class="group">
-        <h4>Done, not merged</h4>
+        <h4>Ready to merge</h4>
         <div class="empty">Nothing waiting.</div>
       </div>
       <div class="group">
@@ -320,7 +340,7 @@ dialog .acts { display: flex; justify-content: flex-end; gap: 8px; }
         </button>
       </div>
       <div class="group">
-        <h4>Done, not merged</h4>
+        <h4>Ready to merge</h4>
         <button class="task" data-open="auto-behavior">
           <div class="row"><span class="name">auto-behavior</span><span class="when">1 commit</span></div>
           <div class="note good">Review clean, ready to merge</div>
@@ -361,7 +381,7 @@ dialog .acts { display: flex; justify-content: flex-end; gap: 8px; }
         </button>
       </div>
       <div class="group">
-        <h4>Done, not merged</h4>
+        <h4>Ready to merge</h4>
         <div class="empty">Nothing waiting.</div>
       </div>
       <div class="group">
@@ -423,7 +443,8 @@ dialog .acts { display: flex; justify-content: flex-end; gap: 8px; }
     <button class="btn" data-toast="Resume box opens with review findings">Resume with feedback</button>
     <button class="btn" data-toast="Review started">Review</button>
     <button class="btn primary" id="d-merge">Merge</button>
-    <button class="btn danger" id="d-cancel">Cancel task</button>
+    <button class="btn" data-toast="Retry queued">Retry</button>
+    <button class="btn danger" id="d-cancel">Cancel</button>
   </div>
 </aside>
 
@@ -431,7 +452,19 @@ dialog .acts { display: flex; justify-content: flex-end; gap: 8px; }
   <h3 id="c-title">Confirm</h3>
   <p>This runs the command below in the repo.</p>
   <pre id="c-cmd"></pre>
-  <div class="acts"><button class="btn" value="no" id="c-no">Keep as is</button><button class="btn primary" id="c-yes">Run it</button></div>
+  <div class="acts"><button class="btn" id="c-copy">Copy cmd</button><button class="btn" value="no" id="c-no">Cancel</button><button class="btn primary" id="c-yes">Run</button></div>
+</dialog>
+<dialog id="dispatch">
+  <h3>Dispatch new task</h3>
+  <p>Runs in its own worktree. Start now or add to the queue.</p>
+  <div class="field"><label>Target repo</label><select><option>Holy trinity</option></select></div>
+  <div class="field"><label>Mode</label><div class="seg"><button class="on">Start now</button><button>Add to queue</button></div></div>
+  <div class="field"><label>Agent</label><div class="seg"><button class="on">Codex</button><button>Antigravity</button><button>Claude</button></div></div>
+  <div class="field"><label>Task name</label><input value="dash-mock-2"></div>
+  <div class="field"><label>Scope globs</label><input value="docs/reco/*"></div>
+  <div class="field"><label>Model</label><input value="gpt-6.1-terra"></div>
+  <div class="field"><label>Prompt</label><textarea rows="3"></textarea></div>
+  <div class="acts"><button class="btn" value="no" id="dispatch-cancel">Cancel</button><button class="btn primary" id="dispatch-submit">Dispatch Task</button></div>
 </dialog>
 <div class="toast" id="toast" role="status"></div>
 
@@ -453,10 +486,12 @@ let current = null;
 
 function toast(t) { const el = $("#toast"); el.textContent = t; el.classList.add("show"); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove("show"), 2200); }
 function confirmRun(title, cmd, done) {
+  const command = cmd;
   $("#c-title").textContent = title; $("#c-cmd").textContent = cmd;
   const d = $("#confirm"); d.showModal();
   $("#c-yes").onclick = () => { d.close(); toast(done || title + ": started"); };
   $("#c-no").onclick = () => d.close();
+$("#c-copy").onclick = () => { try { navigator.clipboard.writeText(command); toast("Command copied"); } catch (e) { toast("Copy failed"); } };
 }
 function openTask(name) {
   const t = TASKS[name]; if (!t) return;
@@ -479,7 +514,11 @@ document.addEventListener("click", e => {
 });
 $("#scrim").onclick = closeTask; $("#close").onclick = closeTask;
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeTask(); });
-$("#d-merge").onclick = () => confirmRun("Merge " + current, "trinity merge " + current + " -Yes");
+$("#header-dispatch").onclick = () => $("#dispatch").showModal();
+$("#dispatch-cancel").onclick = () => $("#dispatch").close();
+$("#dispatch-submit").onclick = () => { $("#dispatch").close(); toast("Dispatch: started"); };
+$("#header-notify").onclick = function () { const on = this.getAttribute("aria-pressed") !== "true"; this.setAttribute("aria-pressed", on); this.textContent = on ? "Notifications: on" : "Notifications: off"; };
+$("#d-merge").onclick =() => confirmRun("Merge " + current, "trinity merge " + current + " -Yes");
 $("#d-cancel").onclick = () => confirmRun("Cancel " + current, "trinity cancel " + current);
 $(".tabs").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; [...b.parentNode.children].forEach(x => x.setAttribute("aria-selected", x === b)); if (b.textContent !== "Log") $("#d-log").textContent = b.textContent + " view goes here in the real build."; else openTask(current); });
 $("#autopilot").onclick = function () {
